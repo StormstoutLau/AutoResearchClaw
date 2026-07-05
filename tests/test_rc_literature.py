@@ -716,6 +716,45 @@ class TestOpenAlex:
         assert p.source == "openalex"
         assert p.authors[0].name == "Ashish Vaswani"
 
+    def test_openalex_api_key_and_email_are_sent(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """OpenAlex API key and mailto should be encoded in request params."""
+        import urllib.parse
+
+        from researchclaw.literature.openalex_client import search_openalex
+
+        response_bytes = json.dumps(SAMPLE_OPENALEX_RESPONSE).encode("utf-8")
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = response_bytes
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        captured: dict[str, str] = {}
+
+        def fake_urlopen(req: Any, *args: Any, **kwargs: Any) -> MagicMock:
+            captured["url"] = req.full_url
+            return mock_resp
+
+        monkeypatch.setattr(
+            "researchclaw.literature.openalex_client.urllib.request.urlopen",
+            fake_urlopen,
+        )
+
+        papers = search_openalex(
+            "attention",
+            limit=5,
+            email="bot@example.com",
+            api_key="oa-test-key",
+        )
+
+        params = urllib.parse.parse_qs(
+            urllib.parse.urlsplit(captured["url"]).query
+        )
+        assert len(papers) == 1
+        assert params["mailto"] == ["bot@example.com"]
+        assert params["api_key"] == ["oa-test-key"]
+
     def test_abstract_reconstruction(self) -> None:
         from researchclaw.literature.openalex_client import _reconstruct_abstract
 
@@ -781,6 +820,41 @@ class TestMultiSourceFallback:
         assert len(papers) >= 1
         sources = {p.source for p in papers}
         assert "semantic_scholar" in sources or "arxiv" in sources
+
+    def test_search_papers_passes_openalex_options(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured: dict[str, object] = {}
+        openalex_paper = _make_paper(
+            paper_id="oalex-ok",
+            title="OpenAlex Paper",
+            source="openalex",
+            doi="10.1/oa",
+            arxiv_id="2401.12345",
+        )
+
+        def fake_openalex(query: str, **kwargs: object) -> list[Paper]:
+            captured["query"] = query
+            captured.update(kwargs)
+            return [openalex_paper]
+
+        monkeypatch.setattr(
+            "researchclaw.literature.search.search_openalex",
+            fake_openalex,
+        )
+        monkeypatch.setattr("researchclaw.literature.search.time.sleep", lambda _: None)
+
+        papers = search_papers(
+            "test",
+            sources=["openalex"],
+            openalex_email="bot@example.com",
+            openalex_api_key="oa-test-key",
+        )
+
+        assert len(papers) == 1
+        assert captured["query"] == "test"
+        assert captured["email"] == "bot@example.com"
+        assert captured["api_key"] == "oa-test-key"
 
 
 # ──────────────────────────────────────────────────────────────────────

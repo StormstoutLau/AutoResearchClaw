@@ -60,6 +60,21 @@ llm:
   # fallback_models:
   #   - "mistral"
 
+literature_search:
+  # Stage 4 academic search backends. Defaults preserve the current
+  # OpenAlex -> Semantic Scholar -> arXiv order.
+  sources:
+    - "openalex"
+    - "semantic_scholar"
+    - "arxiv"
+  max_results_per_query: 40
+  inter_query_delay_sec: 1.5
+  openalex_email: "researchclaw@users.noreply.github.com"
+  openalex_api_key_env: "OPENALEX_API_KEY"
+  openalex_api_key: ""
+  s2_api_key_env: "S2_API_KEY"
+  s2_api_key: ""
+
 security:
   hitl_required_stages: [5, 9, 20]
   allow_publish_without_approval: false
