@@ -612,6 +612,17 @@ llm:
     agent: "claude"                # ACP agent CLI command (claude, codex, gemini, etc.)
     cwd: "."                       # Working directory for the agent
 
+# === Literature search ===
+literature_search:
+  sources: ["openalex", "semantic_scholar", "arxiv"]  # Stage 4 backend order
+  max_results_per_query: 40          # Results per query before deduplication
+  inter_query_delay_sec: 1.5         # Delay between expanded queries
+  openalex_email: "researchclaw@users.noreply.github.com"
+  openalex_api_key_env: "OPENALEX_API_KEY"
+  openalex_api_key: ""              # Optional; env var is preferred
+  s2_api_key_env: "S2_API_KEY"
+  s2_api_key: ""                    # Optional; falls back to llm.s2_api_key
+
 # === Experiment ===
 experiment:
   mode: "sandbox"                  # simulated | sandbox | docker | ssh_remote

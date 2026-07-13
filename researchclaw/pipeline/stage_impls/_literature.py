@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -384,17 +385,32 @@ def _execute_literature_collect(
 
         # Expand queries for broader coverage
         expanded_queries = _expand_search_queries(queries, config.research.topic)
+        literature_config = config.literature_search
+        s2_api_key = (
+            literature_config.s2_api_key
+            or config.llm.s2_api_key
+            or os.environ.get(literature_config.s2_api_key_env, "")
+        )
+        openalex_api_key = (
+            literature_config.openalex_api_key
+            or os.environ.get(literature_config.openalex_api_key_env, "")
+        )
         logger.info(
             "[literature] Searching %d queries (expanded from %d) "
-            "across OpenAlex → S2 → arXiv…",
+            "across %s",
             len(expanded_queries),
             len(queries),
+            " -> ".join(literature_config.sources),
         )
         papers = search_papers_multi_query(
             expanded_queries,
-            limit_per_query=40,
+            limit_per_query=literature_config.max_results_per_query,
+            sources=literature_config.sources,
             year_min=year_min,
-            s2_api_key=config.llm.s2_api_key,
+            s2_api_key=s2_api_key,
+            openalex_email=literature_config.openalex_email,
+            openalex_api_key=openalex_api_key,
+            inter_query_delay=literature_config.inter_query_delay_sec,
         )
         if papers:
             real_search_succeeded = True

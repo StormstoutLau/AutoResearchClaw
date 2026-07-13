@@ -206,6 +206,20 @@ class LlmConfig:
 
 
 @dataclass(frozen=True)
+class LiteratureSearchConfig:
+    """Configuration for Stage 4 academic literature search backends."""
+
+    sources: tuple[str, ...] = ("openalex", "semantic_scholar", "arxiv")
+    max_results_per_query: int = 40
+    inter_query_delay_sec: float = 1.5
+    openalex_email: str = "researchclaw@users.noreply.github.com"
+    openalex_api_key: str = ""
+    openalex_api_key_env: str = "OPENALEX_API_KEY"
+    s2_api_key: str = ""
+    s2_api_key_env: str = "S2_API_KEY"
+
+
+@dataclass(frozen=True)
 class SecurityConfig:
     hitl_required_stages: tuple[int, ...] = (5, 9, 20)
     allow_publish_without_approval: bool = False
@@ -835,6 +849,9 @@ class RCConfig:
     knowledge_base: KnowledgeBaseConfig
     openclaw_bridge: OpenClawBridgeConfig
     llm: LlmConfig
+    literature_search: LiteratureSearchConfig = field(
+        default_factory=LiteratureSearchConfig
+    )
     security: SecurityConfig = field(default_factory=SecurityConfig)
     experiment: ExperimentConfig = field(default_factory=ExperimentConfig)
     export: ExportConfig = field(default_factory=ExportConfig)
@@ -887,6 +904,7 @@ class RCConfig:
         knowledge_base = data["knowledge_base"]
         bridge = data.get("openclaw_bridge") or {}
         llm = data["llm"]
+        literature_search = data.get("literature_search") or {}
         security = data.get("security") or {}
         experiment = data.get("experiment") or {}
         export = data.get("export") or {}
@@ -948,6 +966,7 @@ class RCConfig:
                 use_browser=bool(bridge.get("use_browser", False)),
             ),
             llm=_parse_llm_config(llm),
+            literature_search=_parse_literature_search_config(literature_search),
             security=SecurityConfig(
                 hitl_required_stages=tuple(
                     int(s) for s in security.get("hitl_required_stages", (5, 9, 20))
@@ -1153,6 +1172,55 @@ def _parse_llm_config(data: dict[str, Any]) -> LlmConfig:
             acpx_command=acp_data.get("acpx_command", ""),
             session_name=acp_data.get("session_name", "researchclaw"),
             timeout_sec=int(acp_data.get("timeout_sec", 1800)),
+        ),
+    )
+
+
+def _parse_literature_search_config(data: dict[str, Any]) -> LiteratureSearchConfig:
+    if not data:
+        return LiteratureSearchConfig()
+
+    sources_raw = data.get("sources", LiteratureSearchConfig.sources)
+    if isinstance(sources_raw, str):
+        sources = tuple(
+            source.strip()
+            for source in sources_raw.split(",")
+            if source.strip()
+        )
+    else:
+        sources = tuple(str(source) for source in (sources_raw or ()))
+    if not sources:
+        sources = LiteratureSearchConfig.sources
+
+    return LiteratureSearchConfig(
+        sources=sources,
+        max_results_per_query=max(
+            1,
+            _safe_int(
+                data.get("max_results_per_query"),
+                LiteratureSearchConfig.max_results_per_query,
+            ),
+        ),
+        inter_query_delay_sec=max(
+            0.0,
+            _safe_float(
+                data.get("inter_query_delay_sec"),
+                LiteratureSearchConfig.inter_query_delay_sec,
+            ),
+        ),
+        openalex_email=str(
+            data.get("openalex_email", LiteratureSearchConfig.openalex_email)
+        ),
+        openalex_api_key=str(data.get("openalex_api_key", "")),
+        openalex_api_key_env=str(
+            data.get(
+                "openalex_api_key_env",
+                LiteratureSearchConfig.openalex_api_key_env,
+            )
+        ),
+        s2_api_key=str(data.get("s2_api_key", "")),
+        s2_api_key_env=str(
+            data.get("s2_api_key_env", LiteratureSearchConfig.s2_api_key_env)
         ),
     )
 
