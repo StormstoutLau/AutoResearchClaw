@@ -510,7 +510,7 @@ def execute_pipeline(
                 from researchclaw.cost_tracker import get_global_tracker
                 if not get_global_tracker().check_budget(cost_budget):
                     logger.warning("Cost budget $%.2f exceeded — pausing pipeline", cost_budget)
-                    print(f"{prefix} BUDGET EXCEEDED ($%.2f) — stopping" % cost_budget)
+                    print(f"{prefix} BUDGET EXCEEDED (${cost_budget:.2f}) — stopping")
                     break
             except Exception:
                 pass

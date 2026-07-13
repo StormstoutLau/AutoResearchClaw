@@ -1247,7 +1247,7 @@ def _parse_agentic_config(data: dict[str, Any]) -> AgenticConfig:
 def _parse_collider_agent_config(data: dict[str, Any]) -> ColliderAgentConfig:
     if not data:
         return ColliderAgentConfig()
-    extra_raw = data.get("extra_args", ("--dangerously-bypass-permissions",))
+    extra_raw = data.get("extra_args", ("--dangerously-skip-permissions",))
     if isinstance(extra_raw, str):
         extra_raw = [extra_raw]
     return ColliderAgentConfig(

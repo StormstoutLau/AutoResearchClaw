@@ -11,7 +11,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from collections.abc import Mapping
-from typing import cast
+from typing import Any, cast
 
 from researchclaw.adapters import AdapterBundle
 from researchclaw.config import (
