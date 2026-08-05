@@ -794,7 +794,7 @@ _PROVIDER_URLS = {
 
 _MINIMAX_MODELS = (
     "MiniMax-M3",
-    ["MiniMax-M2.7", "MiniMax-M2.7-highspeed"],
+    ["MiniMax-M2.7"],
 )
 
 _PROVIDER_MODELS = {

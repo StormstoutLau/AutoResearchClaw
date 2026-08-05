@@ -51,7 +51,6 @@ llm:
   # primary_model: "MiniMax-M3"
   # fallback_models:
   #   - "MiniMax-M2.7"
-  #   - "MiniMax-M2.7-highspeed"
   # Other endpoint presets:
   #   minimax: https://api.minimaxi.com/v1
   #   minimax-anthropic: https://api.minimax.io/anthropic

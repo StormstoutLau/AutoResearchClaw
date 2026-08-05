@@ -49,7 +49,7 @@ def _make_minimax_client(
         base_url="https://api.minimaxi.com/v1",
         api_key=api_key,
         primary_model=primary_model,
-        fallback_models=fallback_models or ["MiniMax-M2.7", "MiniMax-M2.7-highspeed"],
+        fallback_models=fallback_models or ["MiniMax-M2.7"],
     )
     return LLMClient(config)
 
@@ -112,14 +112,14 @@ class TestMiniMaxFromRCConfig:
                 api_key="mk-test",
                 api_key_env="",
                 primary_model="MiniMax-M3",
-                fallback_models=("MiniMax-M2.7", "MiniMax-M2.7-highspeed"),
+                fallback_models=("MiniMax-M2.7",),
             ),
         )
         client = LLMClient.from_rc_config(rc_config)
         assert client.config.base_url == "https://api.minimaxi.com/v1"
         assert client.config.api_key == "mk-test"
         assert client.config.primary_model == "MiniMax-M3"
-        assert client.config.fallback_models == ["MiniMax-M2.7", "MiniMax-M2.7-highspeed"]
+        assert client.config.fallback_models == ["MiniMax-M2.7"]
 
     def test_from_rc_config_reads_minimax_api_key_from_env(self, monkeypatch):
         monkeypatch.setenv("MINIMAX_API_KEY", "env-minimax-key")
@@ -307,17 +307,16 @@ class TestMiniMaxModelChain:
         assert client._model_chain == [
             "MiniMax-M3",
             "MiniMax-M2.7",
-            "MiniMax-M2.7-highspeed",
         ]
 
     def test_model_chain_custom_fallbacks(self):
         client = _make_minimax_client(
             primary_model="MiniMax-M2.7",
-            fallback_models=["MiniMax-M2.7-highspeed"],
+            fallback_models=["MiniMax-M3"],
         )
         assert client._model_chain == [
             "MiniMax-M2.7",
-            "MiniMax-M2.7-highspeed",
+            "MiniMax-M3",
         ]
 
 
@@ -435,8 +434,7 @@ class TestMiniMaxCLI:
         ):
             primary, fallbacks = _PROVIDER_MODELS[provider]
             assert primary == "MiniMax-M3"
-            assert "MiniMax-M2.7" in fallbacks
-            assert "MiniMax-M2.7-highspeed" in fallbacks
+            assert fallbacks == ["MiniMax-M2.7"]
 
     @pytest.mark.parametrize(
         ("choice", "provider", "base_url"),
@@ -517,7 +515,7 @@ class TestMiniMaxFactory:
 class TestMiniMaxChatFallback:
     """Verify fallback works with MiniMax models."""
 
-    def test_fallback_to_highspeed_on_primary_failure(self, monkeypatch):
+    def test_fallback_to_secondary_model_on_primary_failure(self, monkeypatch):
         client = _make_minimax_client()
         calls: list[str] = []
 
@@ -558,7 +556,7 @@ class TestMiniMaxLiveAPI:
                 base_url="https://api.minimaxi.com/v1",
                 api_key=os.environ["MINIMAX_API_KEY"],
                 primary_model="MiniMax-M3",
-                fallback_models=["MiniMax-M2.7", "MiniMax-M2.7-highspeed"],
+                fallback_models=["MiniMax-M2.7"],
                 max_tokens=64,
                 timeout_sec=60,
             )
