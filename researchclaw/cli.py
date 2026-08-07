@@ -776,6 +776,7 @@ _PROVIDER_CHOICES = {
     "4": ("minimax", "MINIMAX_API_KEY"),
     "5": ("acp", ""),
     "6": ("ollama", ""),
+    "7": ("atlascloud", "ATLASCLOUD_API_KEY"),
 }
 
 _PROVIDER_URLS = {
@@ -784,6 +785,7 @@ _PROVIDER_URLS = {
     "deepseek": "https://api.deepseek.com/v1",
     "minimax": "https://api.minimaxi.com/v1",
     "ollama": "http://localhost:11434/v1",
+    "atlascloud": "https://api.atlascloud.ai/v1",
 }
 
 _PROVIDER_MODELS = {
@@ -795,6 +797,10 @@ _PROVIDER_MODELS = {
     "deepseek": ("deepseek-chat", ["deepseek-reasoner"]),
     "minimax": ("MiniMax-M3", ["MiniMax-M2.7", "MiniMax-M2.7-highspeed"]),
     "ollama": ("llama3.2", ["mistral", "qwen2.5:7b"]),
+    "atlascloud": (
+        "deepseek-ai/deepseek-v4-pro",
+        ["deepseek-ai/deepseek-v4-flash"],
+    ),
 }
 
 
@@ -832,6 +838,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         print("  4) minimax      (requires MINIMAX_API_KEY)")
         print("  5) acp          (local AI agent — no API key needed)")
         print("  6) ollama       (local Ollama server — no API key needed)")
+        print("  7) atlascloud   (requires ATLASCLOUD_API_KEY)")
         try:
             raw = input("Choice [1]: ").strip()
         except (EOFError, KeyboardInterrupt):

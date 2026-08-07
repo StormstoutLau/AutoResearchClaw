@@ -20,6 +20,9 @@ PROVIDER_PRESETS = {
     "deepseek": {
         "base_url": "https://api.deepseek.com/v1",
     },
+    "atlascloud": {
+        "base_url": "https://api.atlascloud.ai/v1",
+    },
     "anthropic": {
         "base_url": "https://api.anthropic.com",
     },
@@ -50,6 +53,7 @@ def create_llm_client(config: RCConfig) -> LLMClient | ACPClient:
     - ``"openrouter"`` → :class:`LLMClient` with OpenRouter base URL
     - ``"openai"`` → :class:`LLMClient` with OpenAI base URL
     - ``"deepseek"`` → :class:`LLMClient` with DeepSeek base URL
+    - ``"atlascloud"`` → :class:`LLMClient` with Atlas Cloud base URL
     - ``"novita"`` → :class:`LLMClient` with Novita AI base URL
     - ``"minimax"`` → :class:`LLMClient` with MiniMax base URL
     - ``"openai-compatible"`` (default) → :class:`LLMClient` with custom base_url

@@ -51,6 +51,12 @@ llm:
   # fallback_models:
   #   - "MiniMax-M2.7"
   #   - "MiniMax-M2.7-highspeed"
+  # --- Atlas Cloud provider example ---
+  # provider: "atlascloud"
+  # api_key_env: "ATLASCLOUD_API_KEY"
+  # primary_model: "deepseek-ai/deepseek-v4-pro"
+  # fallback_models:
+  #   - "deepseek-ai/deepseek-v4-flash"
   # --- Ollama (local) example ---
   # provider: "ollama"
   # base_url: "http://localhost:11434/v1"
