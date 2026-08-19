@@ -84,6 +84,25 @@ def _expand_search_queries(queries: list[str], topic: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+def _collect_queries(raw: Any, out: list[str]) -> None:
+    """Append query strings from ``raw`` into ``out``.
+
+    Search plans come back in several shapes depending on the model: a list
+    of plain strings, or a list of dicts wrapping the query under an
+    arbitrary key (``{"query": "..."}``, ``{"boolean": "..."}``). Accepting
+    both keeps a plan from silently yielding zero queries.
+    """
+    if not isinstance(raw, list):
+        return
+    for q in raw:
+        if isinstance(q, str) and q.strip():
+            out.append(q.strip())
+        elif isinstance(q, dict):
+            for v in q.values():
+                if isinstance(v, str) and v.strip():
+                    out.append(v.strip())
+
+
 def _execute_search_strategy(
     stage_dir: Path,
     run_dir: Path,
@@ -199,14 +218,19 @@ def _execute_search_strategy(
     queries_list: list[str] = []
     year_min = 2020
     if isinstance(plan, dict):
-        strategies = plan.get("search_strategies", [])
+        strategies = (
+            plan.get("search_strategies")
+            or plan.get("search_phases")
+            or plan.get("phases")
+            or []
+        )
         if isinstance(strategies, list):
             for strat in strategies:
                 if isinstance(strat, dict):
                     qs = strat.get("queries", [])
                     if isinstance(qs, list):
-                        queries_list.extend(str(q) for q in qs if q)
-        # Also accept the alternate schema where queries live under
+                        _collect_queries(qs, queries_list)
+        # Alternate schema: queries under
         # query_strategies.<sub_question>.{boolean_seeds, queries}.
         if not queries_list:
             qstrats = plan.get("query_strategies", {})
@@ -215,9 +239,10 @@ def _execute_search_strategy(
                     if not isinstance(sub, dict):
                         continue
                     for key in ("boolean_seeds", "queries"):
-                        qs = sub.get(key, [])
-                        if isinstance(qs, list):
-                            queries_list.extend(str(q) for q in qs if q)
+                        _collect_queries(sub.get(key, []), queries_list)
+        # Alternate schema: a flat top-level `queries` list.
+        if not queries_list:
+            _collect_queries(plan.get("queries"), queries_list)
         filters = plan.get("filters", {})
         if isinstance(filters, dict) and filters.get("min_year"):
             try:
