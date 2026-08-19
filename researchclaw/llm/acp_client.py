@@ -42,6 +42,7 @@ class ACPConfig:
     acpx_command: str = ""  # auto-detect if empty
     session_name: str = "researchclaw"
     timeout_sec: int = 1800  # per-prompt timeout
+    max_turns: int = 1  # turns allowed per prompt before acpx aborts the call
 
 
 def _find_acpx() -> str | None:
@@ -91,6 +92,7 @@ class ACPClient:
             acpx_command=getattr(acp, "acpx_command", ""),
             session_name=getattr(acp, "session_name", "researchclaw"),
             timeout_sec=getattr(acp, "timeout_sec", 1800),
+            max_turns=getattr(acp, "max_turns", 1),
         ))
 
     # ------------------------------------------------------------------
@@ -245,7 +247,7 @@ class ACPClient:
         )
         try:
             subprocess.run(
-                [acpx, "--approve-all", "--max-turns", "1",
+                [acpx, "--approve-all", "--max-turns", str(self.config.max_turns),
                  "--ttl", "0", "--cwd", self._abs_cwd(),
                  self.config.agent, "-s", self.config.session_name,
                  _warmup],
@@ -466,7 +468,7 @@ class ACPClient:
     def _send_prompt_cli(self, acpx: str, prompt: str) -> str:
         """Send prompt as a CLI argument (original path)."""
         cmd = [
-            acpx, "--approve-all", "--max-turns", "1",
+            acpx, "--approve-all", "--max-turns", str(self.config.max_turns),
             "--ttl", "0", "--cwd", self._abs_cwd(),
             self.config.agent, "-s", self.config.session_name, prompt,
         ]
@@ -486,7 +488,7 @@ class ACPClient:
     def _send_prompt_via_file(self, acpx: str, prompt: str) -> str:
         """Send prompt via stdin pipe (``-f -``) to avoid CLI arg limits."""
         cmd = [
-            acpx, "--approve-all", "--max-turns", "1",
+            acpx, "--approve-all", "--max-turns", str(self.config.max_turns),
             "--ttl", "0", "--cwd", self._abs_cwd(),
             self.config.agent, "-s", self.config.session_name,
             "-f", "-",
