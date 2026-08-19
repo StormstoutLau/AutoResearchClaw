@@ -203,6 +203,30 @@ class LlmConfig:
     s2_api_key: str = ""
     notes: str = ""
     timeout_sec: int = 600
+    # Independent reviewer/judge model: breaks the generator == judge
+    # self-preference in peer review and the quality gate.
+    # Empty reviewer_model => reviewing/judging reuses the generator model
+    # (backward-compatible). If only reviewer_model is set, the reviewer reuses
+    # the main provider/base_url/key but with a different model. Set
+    # reviewer_provider/base_url/api_key(_env) for a fully independent provider
+    # (e.g. generator=GPT, reviewer=Claude).
+    reviewer_model: str = ""
+    reviewer_provider: str = ""
+    reviewer_base_url: str = ""
+    reviewer_api_key: str = ""
+    reviewer_api_key_env: str = ""
+    # Multi-model debate engine. Opt-in; the debate panel reuses existing models
+    # (primary_model + reviewer_model + fallback_models, deduped), each role
+    # bound to a different model. The judge reuses reviewer_model.
+    debate_enabled: bool = False
+    debate_rounds: int = 1
+    # Best-of-N tournament selection. Opt-in; generate N diverse candidates
+    # (round-robin over the debate panel when available), then an independent
+    # judge (reviewer_model) scores/ranks and the single winner proceeds. Keeps
+    # the pipeline linear (one canonical artifact per stage).
+    # tournament_candidates < 2 disables the tournament.
+    tournament_enabled: bool = False
+    tournament_candidates: int = 3
     acp: AcpConfig = field(default_factory=AcpConfig)
 
 
@@ -1167,6 +1191,15 @@ def _parse_llm_config(data: dict[str, Any]) -> LlmConfig:
         s2_api_key=data.get("s2_api_key", ""),
         notes=data.get("notes", ""),
         timeout_sec=_safe_int(data.get("timeout_sec"), 600),
+        reviewer_model=data.get("reviewer_model", ""),
+        reviewer_provider=data.get("reviewer_provider", ""),
+        reviewer_base_url=data.get("reviewer_base_url", ""),
+        reviewer_api_key=data.get("reviewer_api_key", ""),
+        reviewer_api_key_env=data.get("reviewer_api_key_env", ""),
+        debate_enabled=bool(data.get("debate_enabled", False)),
+        debate_rounds=_safe_int(data.get("debate_rounds"), 1),
+        tournament_enabled=bool(data.get("tournament_enabled", False)),
+        tournament_candidates=_safe_int(data.get("tournament_candidates"), 3),
         acp=AcpConfig(
             agent=acp_data.get("agent", "claude"),
             cwd=acp_data.get("cwd", "."),
