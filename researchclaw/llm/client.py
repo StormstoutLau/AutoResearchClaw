@@ -245,7 +245,7 @@ class LLMClient:
         temperature: float | None = None,
         json_mode: bool = False,
         system: str | None = None,
-        strip_thinking: bool = False,
+        strip_thinking: bool = True,
     ) -> LLMResponse:
         """Send a chat completion request with retry and fallback.
 
@@ -256,11 +256,14 @@ class LLMClient:
             temperature: Override temperature.
             json_mode: Request JSON response format.
             system: Prepend a system message.
-            strip_thinking: If True, strip <think>…</think> reasoning
-                tags from the response content.  Use this when the
-                output will be written to paper/script artifacts but
-                NOT for general chat calls (to avoid corrupting
-                legitimate content).
+            strip_thinking: Strip <think>…</think> and other reasoning
+                artifacts from the response content. Defaults to True:
+                reasoning traces are never wanted in a paper draft, in
+                generated code, or in a JSON/YAML payload, and most call
+                sites write the response straight into an artifact.
+                ``strip_thinking_tags`` returns clean input unchanged, so
+                enabling this on a response with no reasoning markers is a
+                no-op. Pass False only to keep the trace deliberately.
 
         Returns:
             LLMResponse with content and metadata.

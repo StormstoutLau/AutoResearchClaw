@@ -108,7 +108,7 @@ class ACPClient:
         temperature: float | None = None,
         json_mode: bool = False,
         system: str | None = None,
-        strip_thinking: bool = False,
+        strip_thinking: bool = True,
     ) -> LLMResponse:
         """Send a prompt and return the agent's response.
 
@@ -116,6 +116,12 @@ class ACPClient:
         ``model``, ``max_tokens``, ``temperature``, and ``json_mode`` are
         accepted but not forwarded — the agent manages its own model and
         parameters.
+
+        ``strip_thinking`` defaults to True: ACP agents (opencode, Claude
+        Code) interleave ``[thinking]`` blocks and acpx metadata with the
+        answer, and callers that use the response as paper text or code must
+        not have to remember to ask for that to be removed. Pass False only
+        when the reasoning trace itself is what you want.
         """
         prompt_text = self._messages_to_prompt(messages, system=system)
         content = self._send_prompt(prompt_text)
