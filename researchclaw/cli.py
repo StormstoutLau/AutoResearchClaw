@@ -779,6 +779,7 @@ _PROVIDER_CHOICES = {
     "7": ("minimax-global", "MINIMAX_API_KEY"),
     "8": ("minimax-anthropic", "MINIMAX_API_KEY"),
     "9": ("minimax-anthropic-cn", "MINIMAX_API_KEY"),
+    "10": ("atlascloud", "ATLASCLOUD_API_KEY"),
 }
 
 _PROVIDER_URLS = {
@@ -790,6 +791,7 @@ _PROVIDER_URLS = {
     "minimax-anthropic": "https://api.minimax.io/anthropic",
     "minimax-anthropic-cn": "https://api.minimaxi.com/anthropic",
     "ollama": "http://localhost:11434/v1",
+    "atlascloud": "https://api.atlascloud.ai/v1",
 }
 
 _MINIMAX_MODELS = (
@@ -809,6 +811,10 @@ _PROVIDER_MODELS = {
     "minimax-anthropic": _MINIMAX_MODELS,
     "minimax-anthropic-cn": _MINIMAX_MODELS,
     "ollama": ("llama3.2", ["mistral", "qwen2.5:7b"]),
+    "atlascloud": (
+        "deepseek-ai/deepseek-v4-pro",
+        ["deepseek-ai/deepseek-v4-flash"],
+    ),
 }
 
 
@@ -849,6 +855,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         print("  7) minimax-global-openai    (requires MINIMAX_API_KEY)")
         print("  8) minimax-global-anthropic (requires MINIMAX_API_KEY)")
         print("  9) minimax-cn-anthropic     (requires MINIMAX_API_KEY)")
+        print(" 10) atlascloud   (requires ATLASCLOUD_API_KEY)")
         try:
             raw = input("Choice [1]: ").strip()
         except (EOFError, KeyboardInterrupt):
