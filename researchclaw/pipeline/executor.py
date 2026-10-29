@@ -185,7 +185,6 @@ from researchclaw.pipeline.stage_impls._review_publish import (  # noqa: E402
     _execute_export_publish,
     _execute_citation_verify,
     _sanitize_fabricated_data,
-    _collect_experiment_evidence,
     _check_citation_relevance,
     _remove_bibtex_entries,
     _remove_citations_from_text,

@@ -232,16 +232,26 @@ sequenceDiagram
 
 | 组件 | 位置 | 说明 |
 |------|------|------|
-| `TOOL_DEFINITIONS` | `mcp/tools.py:8-81` | 6 个工具：`run_pipeline`、`get_pipeline_status`、`get_experiment_results`、`search_literature`、`review_paper`、`get_paper` |
-| `get_tool_schema()` / `list_tool_names()` | `mcp/tools.py:84/92` | 供服务端使用 |
-| `ResearchClawMCPServer` | `mcp/server.py:29` | 工具分发与服务生命周期 |
-| `MCPClient` | `mcp/client.py:12` | 客户端 |
-| `MCPServerRegistry` | `mcp/registry.py:13` | 外部 MCP 服务器注册 |
-| `MCPTransport` / `StdioTransport` / `SSETransport` | `mcp/transport.py:14/22/73` | 传输层 |
+| `TOOL_DEFINITIONS` | `mcp/tools.py` | 6 个工具：`run_pipeline`、`get_pipeline_status`、`get_experiment_results`、`search_literature`、`review_paper`、`get_paper` |
+| `get_tool_schema()` / `list_tool_names()` | `mcp/tools.py` | 供服务端与 CLI 使用 |
+| `ResearchClawMCPServer` | `mcp/server.py` | 基于官方 SDK v2 `MCPServer`，用 `@mcp.tool()` 注册 6 个工具 |
+| `MCPClient` | `mcp/client.py` | 官方 SDK `Client`；支持 stdio 子进程与 `in_memory()` |
+| `MCPServerRegistry` | `mcp/registry.py` | 外部 MCP 服务器注册；`close_all()` 逆序关闭 |
+| `MCPTransport` / `StdioTransport` / `SSETransport` | `mcp/transport.py` | 底层传输工具；服务端不再自研协议循环 |
 
-现状：`_handle_search_literature()` 与 `_handle_review_paper()` 是 stub（`mcp/server.py:104-119`）；`run_pipeline` 返回 `mcp-stub-*` 假 run_id（`mcp/server.py:71-79`）；`get_experiment_results` 读从未写入的 `experiment_results.json`；`get_paper` 读 run 根目录而非 `stage-17/22`；`ResearchClawMCPServer.start()` 只设置标志、不进入协议循环（`mcp/server.py:136-144`），所以 `researchclaw mcp --start` 会立即退出。详见 11 §G2。
+现状（PR-3 已实现）：
 
-启动：`researchclaw mcp --start`；配置 `mcp.server_enabled/server_port/server_transport/external_servers`。
+- 协议：官方 `mcp>=2.1,<3`（2.3.0 验证）高层 `MCPServer`；默认 stdio，其他 transport 显式报 `NotImplementedError`。
+- `run_pipeline`：校验 topic 长度，返回真实 `rc-YYYYMMDD-HHMMSS-<hash>` run_id；`asyncio.to_thread` 后台执行 `execute_pipeline`；同一时刻只允许 1 个活跃 run，第二个返回 `RUN_IN_PROGRESS`。
+- `get_pipeline_status`：统一走 `run_state.read_run_state()`，返回 stage/stage_name/status/is_active/updated_at。
+- `get_experiment_results`：`stage-14/experiment_summary.json` → `stage-12/runs/results.json` → `stage-12/results.json` → 根 `results.json`。
+- `get_paper`：markdown `stage-23/paper_final_verified.md` → `stage-22/paper_final.md` → `stage-17/paper_draft.md`；latex `stage-22/paper.tex` → `deliverables/paper.tex`。
+- `search_literature`：真实调用 `literature.search_papers()`，失败返回 `UPSTREAM_ERROR`。
+- `review_paper`：复用 `pipeline/review_service.py`（Stage 18 同一评审核心）；`paper_path` 与 `run_id` 二选一；无 LLM 配置返回 `CONFIG_REQUIRED`。
+- 错误：工具失败返回 `isError=true` + `error_code`（`INVALID_ARGUMENT`、`RUN_NOT_FOUND`、`NO_RESULTS`、`PAPER_NOT_FOUND`、`CONFIG_REQUIRED`、`UPSTREAM_ERROR`、`INTERNAL_ERROR` 等），不返回假成功。
+- `run_id` 正则 `^rc-\d{8}-\d{6}-[a-f0-9]{6,64}$`；`run_dir`/`paper_path` 必须位于 `artifacts/` 内。
+
+启动：`researchclaw mcp --start --config <config.yaml>`（`--config` 可选）；stdio 模式下 stdout 只用于协议，诊断信息走 stderr。`researchclaw mcp` 不带 `--start` 时列出工具名。
 
 ---
 
@@ -308,10 +318,13 @@ pip install -e ".[dev]"              # pytest 等
 | extra | 内容 |
 |-------|------|
 | `anthropic` | `httpx` |
+| `server` | `fastapi`、`uvicorn[standard]` |
+| `mcp` | `mcp>=2.1,<3` |
+| `voice` | `httpx` |
 | `web` | `scholarly`、`crawl4ai`、`tavily-python` |
 | `pdf` | `PyMuPDF` |
-| `all` | 上述 + huggingface-hub、matplotlib、scipy |
-| `dev` | pytest、pytest-asyncio、httpx |
+| `all` | 上述全部 + huggingface-hub、matplotlib、scipy |
+| `dev` | pytest、pytest-asyncio、httpx、build、hatchling |
 
 ### 7.2 初始化
 

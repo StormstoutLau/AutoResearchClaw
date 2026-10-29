@@ -14,6 +14,9 @@ import pytest
 from researchclaw.adapters import AdapterBundle
 from researchclaw.config import RCConfig
 from researchclaw.pipeline import executor as rc_executor
+from researchclaw.pipeline.review_service import (
+    collect_experiment_evidence as _collect_experiment_evidence,
+)
 from researchclaw.pipeline.stages import Stage, StageStatus
 
 
@@ -1804,13 +1807,13 @@ class TestCollectExperimentEvidence:
     def test_returns_empty_when_no_artifacts(self, tmp_path: Path) -> None:
         run_dir = tmp_path / "run"
         run_dir.mkdir()
-        assert rc_executor._collect_experiment_evidence(run_dir) == ""
+        assert _collect_experiment_evidence(run_dir) == ""
 
     def test_includes_main_py_code(self, run_dir: Path) -> None:
         exp_dir = run_dir / "stage-10" / "experiment"
         exp_dir.mkdir(parents=True, exist_ok=True)
         (exp_dir / "main.py").write_text("print('hello')", encoding="utf-8")
-        result = rc_executor._collect_experiment_evidence(run_dir)
+        result = _collect_experiment_evidence(run_dir)
         assert "main.py" in result
         assert "hello" in result
 
@@ -1821,7 +1824,7 @@ class TestCollectExperimentEvidence:
             json.dumps({"metrics": {"loss": 0.5}, "elapsed_sec": 3.2}),
             encoding="utf-8",
         )
-        result = rc_executor._collect_experiment_evidence(run_dir)
+        result = _collect_experiment_evidence(run_dir)
         assert "loss" in result
         assert "0.5" in result
 
@@ -1835,7 +1838,7 @@ class TestCollectExperimentEvidence:
             }),
             encoding="utf-8",
         )
-        result = rc_executor._collect_experiment_evidence(run_dir)
+        result = _collect_experiment_evidence(run_dir)
         assert "divide by zero" in result
 
     def test_includes_refinement_summary(self, run_dir: Path) -> None:
@@ -1850,7 +1853,7 @@ class TestCollectExperimentEvidence:
             }),
             encoding="utf-8",
         )
-        result = rc_executor._collect_experiment_evidence(run_dir)
+        result = _collect_experiment_evidence(run_dir)
         assert "iterations_executed" in result
         assert "2" in result
 
@@ -1860,7 +1863,7 @@ class TestCollectExperimentEvidence:
         (runs_dir / "run-1.json").write_text(
             json.dumps({"metrics": {"loss": 0.5}}), encoding="utf-8"
         )
-        result = rc_executor._collect_experiment_evidence(run_dir)
+        result = _collect_experiment_evidence(run_dir)
         assert "1 time(s)" in result
         assert "CRITICAL" in result
 

@@ -34,6 +34,10 @@ from researchclaw.pipeline._helpers import (
     _utcnow_iso,
     reconcile_figure_refs,
 )
+from researchclaw.pipeline.review_service import (
+    collect_experiment_evidence,
+    review_paper_text,
+)
 from researchclaw.pipeline.stages import Stage, StageStatus
 from researchclaw.prompts import PromptManager
 
@@ -58,77 +62,8 @@ def _get_review_compiled_pdf():
 
 
 # ---------------------------------------------------------------------------
-# _collect_experiment_evidence
+# Stage 18 support
 # ---------------------------------------------------------------------------
-
-def _collect_experiment_evidence(run_dir: Path) -> str:
-    """Collect actual experiment parameters and results for peer review."""
-    evidence_parts: list[str] = []
-
-    # 1. Read experiment code to find actual trial count, methods used
-    exp_dir = _read_prior_artifact(run_dir, "experiment/")
-    if exp_dir and Path(exp_dir).is_dir():
-        main_py = Path(exp_dir) / "main.py"
-        if main_py.exists():
-            code = main_py.read_text(encoding="utf-8")
-            evidence_parts.append(f"### Actual Experiment Code (main.py)\n```python\n{code[:3000]}\n```")
-
-    # 2. Read sandbox run results (actual metrics, runtime, stderr)
-    runs_text = _read_prior_artifact(run_dir, "runs/")
-    if runs_text and Path(runs_text).is_dir():
-        for run_file in sorted(Path(runs_text).glob("*.json"))[:5]:
-            payload = _safe_json_loads(run_file.read_text(encoding="utf-8"), {})
-            if isinstance(payload, dict):
-                summary = {
-                    "metrics": payload.get("metrics"),
-                    "elapsed_sec": payload.get("elapsed_sec"),
-                    "timed_out": payload.get("timed_out"),
-                }
-                stderr = payload.get("stderr", "")
-                if stderr:
-                    summary["stderr_excerpt"] = stderr[:500]
-                evidence_parts.append(
-                    f"### Run Result: {run_file.name}\n```json\n{json.dumps(summary, indent=2)}\n```"
-                )
-
-    # 3. Read refinement log for actual iteration count
-    refine_log_text = _read_prior_artifact(run_dir, "refinement_log.json")
-    if refine_log_text:
-        try:
-            rlog = json.loads(refine_log_text)
-            summary = {
-                "iterations_executed": len(rlog.get("iterations", [])),
-                "converged": rlog.get("converged"),
-                "stop_reason": rlog.get("stop_reason"),
-                "best_metric": rlog.get("best_metric"),
-            }
-            evidence_parts.append(
-                f"### Refinement Summary\n```json\n{json.dumps(summary, indent=2)}\n```"
-            )
-        except (json.JSONDecodeError, TypeError):
-            pass
-
-    # 4. Count actual number of experiment runs
-    actual_run_count = 0
-    for stage_subdir in sorted(run_dir.glob("stage-*/runs")):
-        for rf in stage_subdir.glob("*.json"):
-            if rf.name != "results.json":
-                actual_run_count += 1
-    if actual_run_count > 0:
-        evidence_parts.append(
-            f"### Actual Trial Count\n"
-            f"**The experiment was executed {actual_run_count} time(s).** "
-            f"If the paper claims a different number of trials, this is a CRITICAL discrepancy."
-        )
-
-    if not evidence_parts:
-        return ""
-
-    return (
-        "\n\n## Actual Experiment Evidence\n"
-        "Use the evidence below to verify the paper's methodology claims.\n\n"
-        + "\n\n".join(evidence_parts)
-    )
 
 
 def _build_reviewer_or_generator(config, generator_llm):
@@ -171,7 +106,7 @@ def _execute_peer_review(
     prompts: PromptManager | None = None,
 ) -> StageResult:
     draft = _read_prior_artifact(run_dir, "paper_draft.md") or ""
-    experiment_evidence = _collect_experiment_evidence(run_dir)
+    experiment_evidence = collect_experiment_evidence(run_dir)
 
     # Review must not be written by the model that wrote the paper: when an
     # independent reviewer is configured it answers here instead of the
@@ -181,45 +116,29 @@ def _execute_peer_review(
     )
 
     # Load draft quality warnings from Stage 17 (if available)
-    _quality_suffix = ""
+    quality_warnings: list[str] = []
     _quality_json_path = _find_prior_file(run_dir, "draft_quality.json")
     if _quality_json_path and _quality_json_path.exists():
         try:
             _dq = json.loads(_quality_json_path.read_text(encoding="utf-8"))
-            _dq_warnings = _dq.get("overall_warnings", [])
-            if _dq_warnings:
-                _quality_suffix = (
-                    "\n\nAUTOMATED QUALITY ISSUES (flag these in your review):\n"
-                    + "\n".join(f"- {w}" for w in _dq_warnings)
-                    + "\n"
-                )
+            quality_warnings = list(_dq.get("overall_warnings", []) or [])
         except Exception:  # noqa: BLE001
             pass
 
+    result = None
     if _review_llm is not None:
-        _pm = prompts or PromptManager()
-        _overlay = _get_evolution_overlay(run_dir, "peer_review")
-        sp = _pm.for_stage(
-            "peer_review",
-            evolution_overlay=_overlay,
-            topic=config.research.topic,
-            draft=draft,
+        result = review_paper_text(
+            draft,
+            config=config,
+            llm=_review_llm,
+            prompts=prompts,
+            run_dir=run_dir,
             experiment_evidence=experiment_evidence,
+            quality_warnings=quality_warnings,
+            author_model=_author_model,
+            judge_model=_judge_model,
         )
-
-        # Reviewer persona and rubric are carried natively by the active
-        # prompt bank (ML bank -> NeurIPS/ICML referees, HEP bank -> HEP
-        # theorist/phenomenologist/experimentalist). No adapter overlay.
-        _review_system = sp.system
-        _review_user = sp.user + _quality_suffix
-        resp = _chat_with_prompt(
-            _review_llm,
-            _review_system,
-            _review_user,
-            json_mode=sp.json_mode,
-            max_tokens=sp.max_tokens,
-        )
-        reviews = resp.content
+        reviews = result.review_markdown
     else:
         reviews = """# Reviews
 
@@ -235,7 +154,7 @@ def _execute_peer_review(
 """
     # Record who reviewed what, so a run can be audited for reviewer
     # independence after the fact.
-    _independent = bool(_judge_model and _judge_model != _author_model)
+    _independent = result.independent if result is not None else False
     _prov_header = (
         f"<!-- review_provenance: author_model={_author_model or 'unknown'} "
         f"judge_model={_judge_model or _author_model or 'unknown'} "

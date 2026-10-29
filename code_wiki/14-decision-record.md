@@ -482,7 +482,7 @@ class ResearchConfig:
 |----|------|----------|------|
 | PR-1 | 打包修复 + `server`/`mcp`/`voice` extras + CI wheel smoke | D1 版本、D8 CI | 已完成（2026-10-29） |
 | PR-2 | `RunState` + Dashboard/Projects + frontend 路径 | 13 §3/§8 | 已完成（2026-10-29） |
-| PR-3 | MCP SDK v2 `MCPServer` + 6 工具 + `review_paper` MVP | D1、D2 | 待开始 |
+| PR-3 | MCP SDK v2 `MCPServer` + 6 工具 + `review_paper` MVP | D1、D2 | 已完成（2026-10-29） |
 | PR-4 | 默认 `sandbox` + simulated 阻断/水印 + agent 模式分派 | D3、D4、G6/G7 | 待开始 |
 | PR-5 | `cost_tracker` + 删除 event/pitfall | D5、D6 | 待开始 |
 | PR-6 | OpenClaw 文档诚实化 + README/API + 测试契约 | D7、D8、G10/G11 | 待开始 |

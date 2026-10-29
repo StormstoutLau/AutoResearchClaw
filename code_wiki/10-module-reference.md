@@ -53,7 +53,7 @@
 | `calendar/` | 会议 DDL 与提醒 | `ConferenceCalendar`、`SubmissionPlanner` | 无 |
 | `voice/` | Whisper 转写 / TTS | `VoiceTranscriber` | 可选（httpx） |
 | `wizard/` | 交互式配置向导 | `QuickStartWizard` | `config` |
-| `mcp/` | MCP 服务端/客户端/传输 | `ResearchClawMCPServer`、`TOOL_DEFINITIONS` | `literature`（未来） |
+| `mcp/` | MCP 服务端/客户端/传输 | `ResearchClawMCPServer`、`TOOL_DEFINITIONS`、`MCPClient` | `literature`、`run_state`、`pipeline.review_service` |
 | `servers/` | 多机任务调度（SSH/Slurm/云） | `TaskDispatcher`、`ServerRegistry` | 无 |
 | `utils/` | thinking 标签清理、文件名清洗 | `strip_thinking_tags`、`sanitize` | 无 |
 | `data/` | 数据集/基准/预训练论文/framework 文档 | YAML + Markdown | 无 |
@@ -93,6 +93,9 @@
 | `diagnose_experiment()` / `assess_experiment_quality()` | `experiment_diagnosis.py` | 失败诊断 |
 | `run_repair_loop()` | `experiment_repair.py:276` | 诊断—修复—重跑 |
 | `judge_requirements()` | `requirements_judge.py:174` | Agent 模式需求审计 |
+| `review_paper_text()` / `ReviewResult` | `pipeline/review_service.py` | Stage 18 与 MCP `review_paper` 共用的评审核心 |
+| `collect_experiment_evidence()` | `pipeline/review_service.py` | 收集真实实验代码/指标/运行次数供评审 |
+| `ResearchClawMCPServer` / `MCPClient` | `mcp/server.py` / `mcp/client.py` | 官方 SDK v2 `MCPServer` 与 `Client` 封装 |
 
 ### 3.2 实验与领域
 
@@ -294,7 +297,7 @@
 | `agentic` 未接线 | 工厂/配置已声明，但主流程无调用 | 05 §9 | PR-4 待处理 |
 | biology/stat Stage 12 分支缺失 | 走通用 `ExperimentRunner`，代码文本被当作 prompt | 05 §9 | PR-4 待处理 |
 | 默认 `simulated` | 不显式设 `experiment.mode` 会产出假数据 | README §7、05 §9 | PR-4 待处理 |
-| MCP 部分 stub | `search_literature`、`review_paper` 未实现 | 09 §4 | PR-3 待处理 |
+| MCP 部分 stub | `search_literature`、`review_paper` 未实现 | 09 §4 | 已修复（PR-3：官方 SDK `MCPServer` + 6 工具真实实现） |
 
 ---
 
