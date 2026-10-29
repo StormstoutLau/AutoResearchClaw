@@ -323,6 +323,31 @@ python -c "import glob,zipfile; w=glob.glob('dist/*.whl')[0]; n=zipfile.ZipFile(
 
 **PASS**：extras 可安装、serve 可启动；**FAIL**：提示 `[web]` 或 ImportError。
 
+**验收结果（G5 手工验收，2026-10-29）：Pass（含一处新发现的依赖冲突并已修复）**
+
+在 5 个干净 venv 中逐条执行（Windows / Python 3.11）：
+
+| 项 | 结果 | 证据 |
+|----|------|------|
+| `pip install -e ".[server]"` | ✅ | 干净 venv 成功；`fastapi 0.162.0`、`uvicorn 0.54.0` |
+| `import fastapi, uvicorn` | ✅ | 版本打印正常 |
+| `researchclaw serve --help` | ✅ | 打印 `--config/--host/--port/--monitor-dir` |
+| 服务启动 + `/api/health` | ✅ | `200 {"status":"ok","version":"0.5.0","active_connections":0}` |
+| `pip install -e ".[voice]"` | ✅ | 仅新增 `httpx 0.28.1`，`fastapi` 仍不可见 |
+| `import httpx` | ✅ | 0.28.1 |
+| `pip install -e ".[mcp]"` | ✅ | `mcp 2.3.0`；`researchclaw mcp` 列出 6 个工具 |
+| `pip install -e ".[web]"` | ✅ | `scholarly 1.7.11`、`bibtexparser 1.4.4`、`crawl4ai 0.9.5`、`tavily-python 0.8.5` 均可导入 |
+| `pip install -e ".[all]"` | ✅（约 15 分钟） | 11 个可选模块全部导入成功；`pip check` 无冲突 |
+| 核心 `pip install -e .` 不装 FastAPI | ✅ | `find_spec('fastapi') is False`、`httpx is False`，`import researchclaw` 正常 |
+| 负向：未装 `[server]` 执行 `serve`/`dashboard` | ✅ | 输出 `Error: server dependencies not installed — pip install researchclaw[server]`，退出码 1，无 traceback |
+
+**new finding（已修复）**：`scholarly 1.7.11` 在模块顶层 `from bibtexparser.bibdatabase import BibDatabase`，而 `bibtexparser 2.x` 删除了该模块；scholarly 元数据未设上界，导致 `.[web]` / `.[all]` 安装后 `import scholarly` 直接 `ModuleNotFoundError`。
+
+- 修复：`web` 与 `all` extras 增加 `bibtexparser<2`（`pyproject.toml`），并加回归测试 `tests/test_packaging.py::test_web_extra_pins_bibtexparser_below_2`
+- 复核：加 pin 后 `import scholarly` 成功（bibtexparser 1.4.4）
+
+**备注**：`[all]` 会拉入 `crawl4ai`（连带 playwright/onnxruntime/tokenizers 等），单次安装约 15 分钟、体积显著；CI 因此只跑 `.[server,mcp,voice]` 的导入检查，`[all]` 由本表手工覆盖。
+
 ---
 
 ### G6 · agentic
@@ -570,7 +595,7 @@ python -c "import glob,zipfile; w=glob.glob('dist/*.whl')[0]; n=zipfile.ZipFile(
 | G2 | PR-3 | — | ☑ | ☑ | ☑ | `tests/test_mcp_protocol.py`（MCP-01~12） | Pass（适配器项待 PR-6） |
 | G3 | PR-2 | — | ☑ | ☑ | ☑ | `tests/test_run_state.py`（15 函数 / 17 用例） | Pass |
 | G4 | PR-2 | — | ☑ | ☐ | ☑ | `tests/test_frontend_mount.py`（5 项） | Pass |
-| G5 | PR-1 | — | ☐ | ☐ | ☐ | extras 已加；逐条验收未跑 | In progress |
+| G5 | PR-1 | — | ☑ | ☑ | ☑ | 干净 venv 逐条（server/voice/mcp/web/all/核心/负向）全部通过 | Pass |
 | G6 | PR-4 | — | ☑ | ☑ | ☑ | `tests/test_simulated_guard.py`（AG-02/03/07） | Pass（Docker 端到端未跑） |
 | G7 | PR-4 | — | ☑ | ☑ | ☑ | `tests/test_simulated_guard.py`（AG-02/04） | Pass（agent CLI 端到端未跑） |
 | G8 | PR-5 | — | ☑ | ☑ | ☑ | `tests/test_cost_tracker.py`（COST-01~05、SPEC-01~02、D6） | Pass |
