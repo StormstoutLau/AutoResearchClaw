@@ -4,12 +4,19 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from researchclaw.run_state import read_run_state
+
 logger = logging.getLogger(__name__)
+
+# The dashboard is a live view: a run counts as active only while its
+# heartbeat keeps arriving. This is stricter than the resume-oriented
+# default used by ``read_run_state``.
+DASHBOARD_STALE_AFTER_SEC = 60
 
 
 @dataclass
@@ -49,6 +56,19 @@ class RunSnapshot:
         }
 
 
+def _elapsed_seconds(start_time: str) -> float:
+    if not start_time:
+        return 0.0
+    try:
+        started = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+    except ValueError:
+        return 0.0
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    delta = (datetime.now(timezone.utc) - started).total_seconds()
+    return delta if delta > 0 else 0.0
+
+
 class DashboardCollector:
     """Collect run state from artifacts/ directory."""
 
@@ -80,39 +100,19 @@ class DashboardCollector:
         return self._collect_run(Path(run_dir))
 
     def _collect_run(self, run_dir: Path) -> RunSnapshot:
-        snap = RunSnapshot(run_id=run_dir.name, path=str(run_dir))
+        state = read_run_state(run_dir, stale_after_sec=DASHBOARD_STALE_AFTER_SEC)
 
-        # --- checkpoint.json ---
-        ckpt_path = run_dir / "checkpoint.json"
-        if ckpt_path.exists():
-            try:
-                with ckpt_path.open() as f:
-                    ckpt = json.load(f)
-                snap.current_stage = ckpt.get("stage", 0)
-                snap.current_stage_name = ckpt.get("stage_name", "")
-                snap.status = ckpt.get("status", "running")
-                snap.topic = ckpt.get("topic", "")
-                snap.start_time = ckpt.get("start_time", "")
-            except Exception:
-                pass
-
-        # --- heartbeat.json ---
-        hb_path = run_dir / "heartbeat.json"
-        if hb_path.exists():
-            try:
-                with hb_path.open() as f:
-                    hb = json.load(f)
-                last_ts = hb.get("timestamp", 0)
-                snap.is_active = (time.time() - last_ts) < 60
-                if snap.is_active:
-                    snap.status = "running"
-            except Exception:
-                pass
-
-        # --- stage directories ---
-        snap.stages_completed = sorted(
-            [d.name for d in run_dir.iterdir()
-             if d.is_dir() and d.name.startswith("stage-")]
+        snap = RunSnapshot(
+            run_id=state.run_id,
+            path=str(run_dir),
+            status=state.status.value,
+            current_stage=state.current_stage,
+            current_stage_name=state.current_stage_name,
+            start_time=state.start_time,
+            elapsed_sec=_elapsed_seconds(state.start_time),
+            is_active=state.is_active,
+            topic=state.topic,
+            stages_completed=list(state.artifacts),
         )
 
         # --- experiment metrics (results.json) ---

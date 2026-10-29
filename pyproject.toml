@@ -14,9 +14,15 @@ license = {text = "MIT"}
 
 [project.optional-dependencies]
 anthropic = ["httpx>=0.24"]
+server = ["fastapi>=0.115,<1.0", "uvicorn[standard]>=0.30,<1.0"]
+mcp = ["mcp>=2.1,<3"]
+voice = ["httpx>=0.24"]
 web = ["scholarly>=1.7", "crawl4ai>=0.2", "tavily-python>=0.3"]
 pdf = ["PyMuPDF>=1.23"]
 all = [
+    "fastapi>=0.115,<1.0",
+    "uvicorn[standard]>=0.30,<1.0",
+    "mcp>=2.1,<3",
     "httpx>=0.24",
     "scholarly>=1.7",
     "crawl4ai>=0.2",
@@ -26,17 +32,20 @@ all = [
     "matplotlib>=3.7",
     "scipy>=1.10",
 ]
-dev = ["pytest>=7.0", "pytest-asyncio>=0.21", "httpx>=0.24"]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "httpx>=0.24",
+    "build>=1.2,<2",
+    "hatchling>=1.30,<2",
+]
 
 [project.scripts]
 researchclaw = "researchclaw.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["researchclaw", "sibyl", "arc"]
-
-[tool.hatch.build.targets.wheel.force-include]
-"researchclaw/templates/styles" = "researchclaw/templates/styles"
+packages = ["researchclaw"]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.30,<2"]
 build-backend = "hatchling.build"

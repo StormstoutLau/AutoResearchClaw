@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,40 @@ logger = logging.getLogger(__name__)
 
 # Shared application state accessible by routes
 _app_state: dict[str, Any] = {}
+
+
+def _resolve_frontend_dir() -> Path | None:
+    """Locate the dashboard frontend directory.
+
+    Search order: ``RESEARCHCLAW_FRONTEND_DIR``, ``<repo>/frontend``,
+    ``<repo>/frontend-legacy``, packaged ``researchclaw/webui/dist``.
+    A candidate is only accepted when it contains ``index.html``.
+    """
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    candidates: list[Path] = []
+
+    override = os.environ.get("RESEARCHCLAW_FRONTEND_DIR", "").strip()
+    if override:
+        candidates.append(Path(override).expanduser())
+
+    candidates.extend(
+        [
+            repo_root / "frontend",
+            repo_root / "frontend-legacy",
+            Path(__file__).resolve().parent.parent / "webui" / "dist",
+        ]
+    )
+
+    for candidate in candidates:
+        if (candidate / "index.html").is_file():
+            return candidate
+
+    logger.error(
+        "No frontend directory found; the web UI will be unavailable. Tried: %s. "
+        "Set RESEARCHCLAW_FRONTEND_DIR to override.",
+        ", ".join(str(c) for c in candidates),
+    )
+    return None
 
 
 def create_app(
@@ -118,8 +153,8 @@ def create_app(
             event_manager.disconnect(client_id)
 
     # --- Static files (frontend) ---
-    frontend_dir = Path(__file__).resolve().parent.parent.parent / "frontend"
-    if frontend_dir.is_dir():
+    frontend_dir = _resolve_frontend_dir()
+    if frontend_dir is not None:
         app.mount("/static", StaticFiles(directory=str(frontend_dir)), name="static")
 
         # Serve index.html at root
