@@ -56,14 +56,20 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     },
     {
         "name": "review_paper",
-        "description": "Run AI peer review on a paper draft.",
+        "description": "Run AI peer review on a paper draft (by paper_path or run_id).",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "paper_path": {"type": "string", "description": "Path to paper markdown or LaTeX file"},
-                "run_id": {"type": "string", "description": "Associated run ID (optional)"},
+                "paper_path": {
+                    "type": "string",
+                    "description": "Path to a .md or .tex file inside artifacts/",
+                },
+                "run_id": {
+                    "type": "string",
+                    "description": "Run whose paper should be reviewed",
+                },
             },
-            "required": ["paper_path"],
+            "anyOf": [{"required": ["paper_path"]}, {"required": ["run_id"]}],
         },
     },
     {

@@ -222,6 +222,20 @@ python -c "import glob,zipfile; w=glob.glob('dist/*.whl')[0]; n=zipfile.ZipFile(
 
 **PASS**：真实 run_id + 状态/结果/论文可查 + 无假成功；**FAIL**：`mcp-stub-*` 或空成功。
 
+**验收结果（PR-3，2026-10-29）：Pass（适配器项留给 PR-6）**
+
+- MCP-01/02：`tests/test_mcp_protocol.py::test_list_tools_matches_definitions`，官方 SDK client `list_tools` 返回 6 个工具，属性与 required 同 `TOOL_DEFINITIONS`
+- MCP-03：未知工具 → `isError`；MCP-11：非法 `run_id`/越界 `paper_path` → `INVALID_ARGUMENT` / `INVALID_PATH`
+- MCP-04/05：`run_pipeline` 返回真实 `rc-*` run_id，第二个并发请求 `RUN_IN_PROGRESS`
+- MCP-06：`get_pipeline_status` 走 `read_run_state`；`get_experiment_results` 命中 stage-14 与 stage-12
+- MCP-07：`get_paper` 命中 `stage-22/paper_final.md` 与 `stage-22/paper.tex`
+- MCP-08：`search_literature` 后端返回结果；后端异常 → `UPSTREAM_ERROR`
+- MCP-09：无 LLM → `CONFIG_REQUIRED`；有 mock LLM → `review_markdown/model/tokens`
+- MCP-10：`MCPClient.in_memory()` 往返；另以 `python -m researchclaw mcp --start` 子进程验证 stdio（`list_tools` 6 个、`RUN_NOT_FOUND`）
+- MCP-12：`stop()` 清空活跃 task/cancel 表
+- 自动化：`tests/test_mcp.py` + `tests/test_mcp_protocol.py` 共 42 passed
+- 未覆盖：`MCPMessageAdapter`/`MCPWebFetchAdapter` 假结果与 `AdapterBundle.from_config` 诚实化（D7，PR-6）
+
 ---
 
 ### G3 · RunState / checkpoint
@@ -490,7 +504,7 @@ python -c "import glob,zipfile; w=glob.glob('dist/*.whl')[0]; n=zipfile.ZipFile(
 | Gap | PR | 验收人 | 主验收 | 负向 | 回归 | 证据链接 | 状态 |
 |-----|----|--------|--------|------|------|----------|------|
 | G1 | PR-1 | — | ☑ | ☑ | ☑ | `tests/test_packaging.py`；wheel 360 项 / `duplicates=[]` | Pass |
-| G2 | | | ☐ | ☐ | ☐ | | Not started |
+| G2 | PR-3 | — | ☑ | ☑ | ☑ | `tests/test_mcp_protocol.py`（MCP-01~12） | Pass（适配器项待 PR-6） |
 | G3 | PR-2 | — | ☑ | ☑ | ☑ | `tests/test_run_state.py`（15 函数 / 17 用例） | Pass |
 | G4 | PR-2 | — | ☑ | ☐ | ☑ | `tests/test_frontend_mount.py`（5 项） | Pass |
 | G5 | PR-1 | — | ☐ | ☐ | ☐ | extras 已加；逐条验收未跑 | In progress |

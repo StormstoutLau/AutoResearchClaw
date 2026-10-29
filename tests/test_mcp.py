@@ -1,4 +1,4 @@
-"""Tests for MCP integration (C3): Server, Client, Tools, Transport, Registry."""
+"""Tests for MCP tools, client, registry, and transports."""
 
 from __future__ import annotations
 
@@ -6,10 +6,12 @@ import asyncio
 
 import pytest
 
-from researchclaw.mcp.tools import TOOL_DEFINITIONS, get_tool_schema, list_tool_names
-from researchclaw.mcp.server import ResearchClawMCPServer
+pytest.importorskip("mcp")
+
 from researchclaw.mcp.client import MCPClient
 from researchclaw.mcp.registry import MCPServerRegistry
+from researchclaw.mcp.server import ResearchClawMCPServer
+from researchclaw.mcp.tools import TOOL_DEFINITIONS, get_tool_schema, list_tool_names
 from researchclaw.mcp.transport import SSETransport
 
 
@@ -39,20 +41,32 @@ class TestMCPTools:
 
     def test_list_tool_names(self) -> None:
         names = list_tool_names()
-        assert "run_pipeline" in names
-        assert "get_pipeline_status" in names
-        assert "search_literature" in names
+        assert names == [
+            "run_pipeline",
+            "get_pipeline_status",
+            "get_experiment_results",
+            "search_literature",
+            "review_paper",
+            "get_paper",
+        ]
 
     def test_run_pipeline_requires_topic(self) -> None:
         schema = get_tool_schema("run_pipeline")
         assert schema is not None
         assert "topic" in schema["inputSchema"]["required"]
 
+    def test_review_paper_accepts_either_source(self) -> None:
+        schema = get_tool_schema("review_paper")
+        assert schema is not None
+        assert schema["inputSchema"]["anyOf"] == [
+            {"required": ["paper_path"]},
+            {"required": ["run_id"]},
+        ]
+
     def test_get_paper_has_format_enum(self) -> None:
         schema = get_tool_schema("get_paper")
         assert schema is not None
         props = schema["inputSchema"]["properties"]
-        assert "format" in props
         assert "enum" in props["format"]
 
 
@@ -62,61 +76,24 @@ class TestMCPTools:
 
 
 class TestMCPServer:
-    def test_get_tools(self) -> None:
-        server = ResearchClawMCPServer()
+    def test_get_tools(self, tmp_path) -> None:
+        server = ResearchClawMCPServer(artifacts_dir=tmp_path)
         tools = server.get_tools()
         assert len(tools) >= 6
-        names = [t["name"] for t in tools]
+        names = [tool["name"] for tool in tools]
         assert "run_pipeline" in names
 
-    def test_handle_unknown_tool(self) -> None:
-        server = ResearchClawMCPServer()
+    def test_handle_unknown_tool(self, tmp_path) -> None:
+        server = ResearchClawMCPServer(artifacts_dir=tmp_path)
         result = asyncio.run(server.handle_tool_call("nonexistent", {}))
         assert result["success"] is False
-        assert "Unknown tool" in result["error"]
+        assert result["error_code"] == "INVALID_TOOL"
 
-    def test_handle_run_pipeline(self) -> None:
-        server = ResearchClawMCPServer()
-        result = asyncio.run(server.handle_tool_call("run_pipeline", {"topic": "GNN"}))
-        assert result["success"] is True
-        assert "GNN" in result["message"]
-
-    def test_handle_get_status_missing_run(self) -> None:
-        server = ResearchClawMCPServer()
-        result = asyncio.run(server.handle_tool_call("get_pipeline_status", {"run_id": "nonexistent"}))
-        assert result["success"] is False
-
-    def test_handle_search_literature(self) -> None:
-        server = ResearchClawMCPServer()
-        result = asyncio.run(server.handle_tool_call("search_literature", {"query": "transformers"}))
-        assert result["success"] is True
-
-    def test_handle_review_paper(self) -> None:
-        server = ResearchClawMCPServer()
-        result = asyncio.run(server.handle_tool_call("review_paper", {"paper_path": "/tmp/paper.md"}))
-        assert result["success"] is True
-
-    def test_start_stop(self) -> None:
-        server = ResearchClawMCPServer()
+    def test_stop_marks_not_running(self, tmp_path) -> None:
+        server = ResearchClawMCPServer(artifacts_dir=tmp_path)
         assert not server.is_running
-
-        async def _run() -> None:
-            await server.start()
-            assert server.is_running
-            await server.stop()
-            assert not server.is_running
-
-        asyncio.run(_run())
-
-    def test_handle_get_results_missing(self) -> None:
-        server = ResearchClawMCPServer()
-        result = asyncio.run(server.handle_tool_call("get_experiment_results", {"run_id": "missing"}))
-        assert result["success"] is False
-
-    def test_handle_get_paper_missing(self) -> None:
-        server = ResearchClawMCPServer()
-        result = asyncio.run(server.handle_tool_call("get_paper", {"run_id": "missing"}))
-        assert result["success"] is False
+        asyncio.run(server.stop())
+        assert not server.is_running
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -126,62 +103,53 @@ class TestMCPServer:
 
 class TestMCPClient:
     def test_init(self) -> None:
-        client = MCPClient("http://localhost:3000")
-        assert client.uri == "http://localhost:3000"
+        client = MCPClient("researchclaw mcp --start")
+        assert client.uri == "researchclaw mcp --start"
         assert not client.is_connected
 
-    def test_connect_disconnect(self) -> None:
-        client = MCPClient("http://localhost:3000")
+    def test_unsupported_transport(self) -> None:
+        client = MCPClient("researchclaw mcp --start", transport="sse")
+        with pytest.raises(NotImplementedError):
+            asyncio.run(client.connect())
 
-        async def _run() -> None:
-            await client.connect()
-            assert client.is_connected
-            await client.disconnect()
-            assert not client.is_connected
-
-        asyncio.run(_run())
-
-    def test_list_tools_not_connected(self) -> None:
-        client = MCPClient("http://localhost:3000")
-        with pytest.raises(ConnectionError):
-            asyncio.run(client.list_tools())
-
-    def test_call_tool_not_connected(self) -> None:
-        client = MCPClient("http://localhost:3000")
-        with pytest.raises(ConnectionError):
-            asyncio.run(client.call_tool("test", {}))
-
-    def test_list_resources_not_connected(self) -> None:
-        client = MCPClient("http://localhost:3000")
-        with pytest.raises(ConnectionError):
-            asyncio.run(client.list_resources())
-
-    def test_read_resource_not_connected(self) -> None:
-        client = MCPClient("http://localhost:3000")
-        with pytest.raises(ConnectionError):
-            asyncio.run(client.read_resource("test://resource"))
-
-    def test_list_tools_connected(self) -> None:
-        client = MCPClient("http://localhost:3000")
+    def test_in_memory_list_and_call(self, tmp_path) -> None:
+        server = ResearchClawMCPServer(artifacts_dir=tmp_path)
+        client = MCPClient.in_memory(server.mcp)
 
         async def _run() -> list:
             await client.connect()
-            return await client.list_tools()
+            tools = await client.list_tools()
+            result = await client.call_tool(
+                "get_pipeline_status", {"run_id": "rc-20260101-000000-abcdef"}
+            )
+            await client.disconnect()
+            assert result["error_code"] == "RUN_NOT_FOUND"
+            return tools
 
         tools = asyncio.run(_run())
-        assert isinstance(tools, list)
+        assert len(tools) == 6
+        assert not client.is_connected
 
-    def test_tools_cached(self) -> None:
-        client = MCPClient("http://localhost:3000")
+    def test_tools_cached(self, tmp_path) -> None:
+        server = ResearchClawMCPServer(artifacts_dir=tmp_path)
+        client = MCPClient.in_memory(server.mcp)
 
         async def _run() -> tuple:
             await client.connect()
-            t1 = await client.list_tools()
-            t2 = await client.list_tools()
-            return t1, t2
+            first = await client.list_tools()
+            second = await client.list_tools()
+            await client.disconnect()
+            return first, second
 
-        t1, t2 = asyncio.run(_run())
-        assert t1 is t2
+        first, second = asyncio.run(_run())
+        assert first is second
+
+    def test_not_connected(self) -> None:
+        client = MCPClient("researchclaw mcp --start")
+        with pytest.raises(ConnectionError):
+            asyncio.run(client.list_tools())
+        with pytest.raises(ConnectionError):
+            asyncio.run(client.call_tool("get_paper", {}))
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -190,32 +158,37 @@ class TestMCPClient:
 
 
 class TestMCPServerRegistry:
-    def test_register_and_list(self) -> None:
+    def test_register_and_list(self, tmp_path) -> None:
+        server = ResearchClawMCPServer(artifacts_dir=tmp_path)
+
         async def _run() -> list:
             reg = MCPServerRegistry()
-            await reg.register("test", "http://localhost:3000")
+            await reg.register("local", server.mcp)
             return reg.list_all()
 
         servers = asyncio.run(_run())
         assert len(servers) == 1
-        assert servers[0]["name"] == "test"
+        assert servers[0]["name"] == "local"
         assert servers[0]["connected"] is True
 
-    def test_unregister(self) -> None:
+    def test_unregister(self, tmp_path) -> None:
+        server = ResearchClawMCPServer(artifacts_dir=tmp_path)
+
         async def _run() -> int:
             reg = MCPServerRegistry()
-            await reg.register("test", "http://localhost:3000")
-            await reg.unregister("test")
+            await reg.register("local", server.mcp)
+            await reg.unregister("local")
             return reg.count
 
-        count = asyncio.run(_run())
-        assert count == 0
+        assert asyncio.run(_run()) == 0
 
-    def test_get(self) -> None:
+    def test_get(self, tmp_path) -> None:
+        server = ResearchClawMCPServer(artifacts_dir=tmp_path)
+
         async def _run() -> MCPClient | None:
             reg = MCPServerRegistry()
-            await reg.register("test", "http://localhost:3000")
-            return reg.get("test")
+            await reg.register("local", server.mcp)
+            return reg.get("local")
 
         client = asyncio.run(_run())
         assert client is not None
@@ -225,16 +198,18 @@ class TestMCPServerRegistry:
         reg = MCPServerRegistry()
         assert reg.get("nonexistent") is None
 
-    def test_close_all(self) -> None:
+    def test_close_all(self, tmp_path) -> None:
+        server_a = ResearchClawMCPServer(artifacts_dir=tmp_path)
+        server_b = ResearchClawMCPServer(artifacts_dir=tmp_path)
+
         async def _run() -> int:
             reg = MCPServerRegistry()
-            await reg.register("a", "http://a:3000")
-            await reg.register("b", "http://b:3000")
+            await reg.register("a", server_a.mcp)
+            await reg.register("b", server_b.mcp)
             await reg.close_all()
             return reg.count
 
-        count = asyncio.run(_run())
-        assert count == 0
+        assert asyncio.run(_run()) == 0
 
 
 # ══════════════════════════════════════════════════════════════════

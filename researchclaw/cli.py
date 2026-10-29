@@ -647,9 +647,20 @@ def cmd_mcp(args: argparse.Namespace) -> int:
     if start:
         from researchclaw.mcp.server import ResearchClawMCPServer
 
-        server = ResearchClawMCPServer()
-        print("Starting MCP server...")
-        asyncio.run(server.start())
+        config = None
+        config_path = resolve_config_path(cast(str | None, getattr(args, "config", None)))
+        if config_path is not None and config_path.is_file():
+            config = RCConfig.load(config_path, check_paths=False)
+
+        server = ResearchClawMCPServer(config=config)
+        # stdout is reserved for the MCP protocol; diagnostics go to stderr.
+        print("Starting MCP server (stdio)...", file=sys.stderr)
+        try:
+            asyncio.run(
+                server.start(transport=cast(str, getattr(args, "transport", "stdio")))
+            )
+        except KeyboardInterrupt:
+            print("\nMCP server stopped.", file=sys.stderr)
         return 0
     else:
         from researchclaw.mcp.tools import list_tool_names
@@ -1344,6 +1355,15 @@ def build_parser() -> argparse.ArgumentParser:
     mcp_p = sub.add_parser("mcp", help="MCP integration")
     _ = mcp_p.add_argument(
         "--start", action="store_true", help="Start MCP server"
+    )
+    _ = mcp_p.add_argument(
+        "--config", "-c", default=None, help="Config file path (optional)"
+    )
+    _ = mcp_p.add_argument(
+        "--transport",
+        default="stdio",
+        choices=["stdio"],
+        help="MCP transport (only stdio is implemented)",
     )
 
     # C4: Overleaf sync
