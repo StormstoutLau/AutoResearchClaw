@@ -64,3 +64,18 @@ def test_all_extra_includes_server_and_mcp() -> None:
 def test_serve_hints_use_server_extra() -> None:
     cli_source = (ROOT / "researchclaw" / "cli.py").read_text(encoding="utf-8")
     assert "researchclaw[server]" in cli_source
+
+
+def test_web_extra_pins_bibtexparser_below_2() -> None:
+    """scholarly 1.7 imports bibtexparser.bibdatabase (removed in 2.x).
+
+    G5 manual acceptance caught `import scholarly` failing once bibtexparser
+    2.x was installed; the pin keeps the web/all extras importable.
+    """
+    data = _load_pyproject()
+    extras = data["project"]["optional-dependencies"]
+    for extra in ("web", "all"):
+        assert any(
+            dep.replace(" ", "").startswith("bibtexparser<2") for dep in extras[extra]
+        ), f"{extra} must pin bibtexparser<2: {extras[extra]}"
+

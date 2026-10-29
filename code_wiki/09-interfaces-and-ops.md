@@ -330,10 +330,12 @@ pip install -e ".[dev]"              # pytest 等
 | `server` | `fastapi`、`uvicorn[standard]` |
 | `mcp` | `mcp>=2.1,<3` |
 | `voice` | `httpx` |
-| `web` | `scholarly`、`crawl4ai`、`tavily-python` |
+| `web` | `scholarly`、`bibtexparser<2`、`crawl4ai`、`tavily-python` |
 | `pdf` | `PyMuPDF` |
 | `all` | 上述全部 + huggingface-hub、matplotlib、scipy |
 | `dev` | pytest、pytest-asyncio、httpx、build、hatchling |
+
+> `bibtexparser<2` 是必需的上界：`scholarly 1.7` 在导入时使用 `bibtexparser.bibdatabase`，该模块在 2.x 已移除。`[all]` 因包含 `crawl4ai`（连带 playwright/onnxruntime 等）安装耗时与体积都很大。
 
 ### 7.2 初始化
 

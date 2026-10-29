@@ -488,6 +488,8 @@ class ResearchConfig:
 | PR-6 | OpenClaw 文档诚实化 + README/API + 测试契约 | D7、D8、G10/G11 | 已完成（2026-10-29） |
 
 > CI 已在 GitHub Actions 实跑通过：run `40898741444`（commit `bce0082`），packaging / extras / tests(3.11–3.14) 共 6 个 job 全部 success。
+>
+> G5 手工 extras 验收补充（2026-10-29）：`.[web]` / `.[all]` 需 `bibtexparser<2`（scholarly 1.7 依赖其已删除的 `bibdatabase` 模块），已在 `pyproject.toml` 加 pin 并补回归测试。
 
 ---
 
