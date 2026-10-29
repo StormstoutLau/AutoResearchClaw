@@ -715,7 +715,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
         import uvicorn
     except ImportError as exc:
         print(
-            f"Error: web dependencies not installed — pip install researchclaw[web]\n{exc}",
+            f"Error: server dependencies not installed — pip install researchclaw[server]\n{exc}",
             file=sys.stderr,
         )
         return 1
@@ -741,7 +741,7 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
         import uvicorn
     except ImportError as exc:
         print(
-            f"Error: web dependencies not installed — pip install researchclaw[web]\n{exc}",
+            f"Error: server dependencies not installed — pip install researchclaw[server]\n{exc}",
             file=sys.stderr,
         )
         return 1

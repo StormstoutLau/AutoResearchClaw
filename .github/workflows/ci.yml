@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  packaging:
+    name: Packaging / wheel smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build hatchling
+
+      - name: Build wheel
+        run: python -m build --wheel --outdir dist
+
+      - name: Verify wheel contents
+        run: |
+          python - <<'PY'
+          import collections
+          import glob
+          import zipfile
+
+          wheel = glob.glob("dist/*.whl")[0]
+          names = zipfile.ZipFile(wheel).namelist()
+          duplicates = [
+              name for name, count in collections.Counter(names).items() if count > 1
+          ]
+          assert not duplicates, f"duplicate wheel paths: {duplicates}"
+
+          required = [
+              "researchclaw/templates/styles/iclr_2025/iclr2025_conference.sty",
+              "researchclaw/templates/styles/iclr_2025/iclr2025_conference.bst",
+          ]
+          for path in required:
+              assert path in names, f"missing wheel asset: {path}"
+
+          assert any(n.endswith("SKILL.md") and "/skills/builtin/" in n for n in names)
+          assert any(n.startswith("researchclaw/domains/profiles/") and n.endswith(".yaml") for n in names)
+          print(f"wheel OK: {wheel} ({len(names)} files)")
+          PY
+
+      - name: Install wheel and run CLI
+        run: |
+          python -m pip install dist/*.whl
+          researchclaw --help
+
+  extras:
+    name: Extras import
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install optional extras
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[server,mcp,voice]"
+
+      - name: Verify imports
+        run: python -c "import fastapi, uvicorn, httpx, mcp; print('extras OK')"
+
+  tests:
+    name: Tests (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+        include:
+          - python-version: "3.14"
+            experimental: true
+    continue-on-error: ${{ matrix.experimental || false }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,server]"
+
+      - name: Run contract tests
+        run: |
+          python -m pytest \
+            tests/test_packaging.py \
+            tests/test_run_state.py \
+            tests/test_frontend_mount.py \
+            tests/test_rc_config.py \
+            tests/test_cli.py \
+            -q

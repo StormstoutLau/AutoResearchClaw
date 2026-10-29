@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
+
+from researchclaw.run_state import read_run_state
 
 router = APIRouter(prefix="/api", tags=["projects"])
 
@@ -19,20 +20,19 @@ async def list_projects() -> dict[str, Any]:
     if artifacts.exists():
         for d in sorted(artifacts.iterdir(), reverse=True):
             if d.is_dir() and d.name.startswith("rc-"):
-                proj: dict[str, Any] = {
-                    "id": d.name,
-                    "path": str(d),
-                }
-                ckpt = d / "checkpoint.json"
-                if ckpt.exists():
-                    try:
-                        with ckpt.open() as f:
-                            ckpt_data = json.load(f)
-                        proj["current_stage"] = ckpt_data.get("stage")
-                        proj["status"] = ckpt_data.get("status", "unknown")
-                    except Exception:
-                        proj["status"] = "unknown"
-                else:
-                    proj["status"] = "no_checkpoint"
-                projects.append(proj)
+                state = read_run_state(d)
+                projects.append(
+                    {
+                        "id": state.run_id,
+                        "path": str(d),
+                        "current_stage": state.current_stage,
+                        "current_stage_name": state.current_stage_name,
+                        "status": state.status.value,
+                        "is_active": state.is_active,
+                        "topic": state.topic,
+                        "start_time": state.start_time,
+                        "last_update": state.last_update,
+                        "schema_version": state.schema_version,
+                    }
+                )
     return {"projects": projects}
