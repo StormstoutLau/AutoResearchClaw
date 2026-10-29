@@ -196,6 +196,26 @@ def _get_hitl_session(adapters: AdapterBundle) -> Any:
     return getattr(adapters, "hitl", None)
 
 
+def _notify_safely(
+    adapters: AdapterBundle, channel: str, subject: str, body: str
+) -> None:
+    """Send a notification; a failing adapter must never break a stage."""
+    try:
+        adapters.message.notify(channel, subject, body)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("message adapter failed (%s): %s", subject, exc)
+
+
+def _remember_safely(
+    adapters: AdapterBundle, namespace: str, content: str
+) -> None:
+    """Record a memory entry; a failing adapter must never break a stage."""
+    try:
+        adapters.memory.append(namespace, content)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("memory adapter failed (%s): %s", namespace, exc)
+
+
 def _run_hitl_pre_stage(
     stage: Stage, run_dir: Path, adapters: AdapterBundle,
     config: RCConfig | None = None,
@@ -627,13 +647,14 @@ def execute_stage(
 
     bridge = config.openclaw_bridge
     if bridge.use_message and config.notifications.on_stage_start:
-        adapters.message.notify(
+        _notify_safely(
+            adapters,
             config.notifications.channel,
             f"stage-{int(stage):02d}-start",
             f"Starting {stage.name}",
         )
     if bridge.use_memory:
-        adapters.memory.append("stages", f"{run_id}:{int(stage)}:running")
+        _remember_safely(adapters, "stages", f"{run_id}:{int(stage)}:running")
 
     llm = None
     try:
@@ -775,7 +796,9 @@ def execute_stage(
     ):
         if auto_approve_gates:
             if bridge.use_memory:
-                adapters.memory.append("gates", f"{run_id}:{int(stage)}:auto-approved")
+                _remember_safely(
+                    adapters, "gates", f"{run_id}:{int(stage)}:auto-approved"
+                )
         else:
             result = StageResult(
                 stage=result.stage,
@@ -786,14 +809,17 @@ def execute_stage(
                 evidence_refs=result.evidence_refs,
             )
             if bridge.use_message and config.notifications.on_gate_required:
-                adapters.message.notify(
+                _notify_safely(
+                    adapters,
                     config.notifications.channel,
                     f"gate-{int(stage):02d}",
                     f"Approval required for {stage.name}",
                 )
 
     if bridge.use_memory:
-        adapters.memory.append("stages", f"{run_id}:{int(stage)}:{result.status.value}")
+        _remember_safely(
+            adapters, "stages", f"{run_id}:{int(stage)}:{result.status.value}"
+        )
 
     _write_stage_meta(stage_dir, stage, run_id, result)
 

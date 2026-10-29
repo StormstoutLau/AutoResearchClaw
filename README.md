@@ -271,11 +271,33 @@ researchclaw run --config config.yaml --topic "Your research idea" --auto-approv
 | Method | How |
 |--------|-----|
 | **Standalone CLI** | `researchclaw run --topic "..." --auto-approve` (autonomous) or `--mode co-pilot` (collaborative) |
-| **Python API** | `from researchclaw.pipeline import Runner; Runner(config).run()` |
+| **Python API** | `from researchclaw.pipeline import execute_pipeline` (see snippet below) |
 | **Claude Code** | Reads `RESEARCHCLAW_CLAUDE.md` — just say *"Run research on [topic]"* |
 | **Copilot CLI** | `researchclaw run --topic "..."` with `llm.acp.agent: "gh"` |
 | **OpenCode** | Reads `.claude/skills/` — same natural language interface |
 | **Any AI CLI** | Provide `RESEARCHCLAW_AGENTS.md` as context → agent auto-bootstraps |
+
+```python
+from pathlib import Path
+
+from researchclaw.adapters import AdapterBundle
+from researchclaw.config import RCConfig
+from researchclaw.pipeline import execute_pipeline
+
+config = RCConfig.load("config.arc.yaml", check_paths=False)
+run_id = "rc-20260101-000000-demo"
+run_dir = Path("artifacts") / run_id
+run_dir.mkdir(parents=True, exist_ok=True)
+
+results = execute_pipeline(
+    run_dir=run_dir,
+    run_id=run_id,
+    config=config,
+    adapters=AdapterBundle(),
+    auto_approve_gates=True,
+)
+print(results[-1].status)  # StageStatus.DONE
+```
 
 ---
 

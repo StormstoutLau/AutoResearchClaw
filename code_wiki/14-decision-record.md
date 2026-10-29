@@ -485,7 +485,7 @@ class ResearchConfig:
 | PR-3 | MCP SDK v2 `MCPServer` + 6 工具 + `review_paper` MVP | D1、D2 | 已完成（2026-10-29） |
 | PR-4 | 默认 `sandbox` + simulated 阻断/水印 + agent 模式分派 | D3、D4、G6/G7 | 已完成（2026-10-29） |
 | PR-5 | `cost_tracker` + 删除 event/pitfall | D5、D6 | 已完成（2026-10-29） |
-| PR-6 | OpenClaw 文档诚实化 + README/API + 测试契约 | D7、D8、G10/G11 | 待开始 |
+| PR-6 | OpenClaw 文档诚实化 + README/API + 测试契约 | D7、D8、G10/G11 | 已完成（2026-10-29） |
 
 ---
 

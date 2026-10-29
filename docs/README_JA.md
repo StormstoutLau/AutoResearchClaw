@@ -272,7 +272,7 @@ researchclaw run --config config.yaml --topic "Your research idea" --auto-approv
 | 方法 | 手順 |
 |------|------|
 | **スタンドアロンCLI** | `researchclaw run --topic "..." --auto-approve`（自律）または `--mode co-pilot`（協調） |
-| **Python API** | `from researchclaw.pipeline import Runner; Runner(config).run()` |
+| **Python API** | `from researchclaw.pipeline import execute_pipeline` |
 | **Claude Code** | `RESEARCHCLAW_CLAUDE.md`を読み取り — *「Run research on [トピック]」*と言うだけ |
 | **Copilot CLI** | `researchclaw run --topic "..."` で `llm.acp.agent: "gh"` を使用 |
 | **OpenCode** | `.claude/skills/`を読み取り — 同じ自然言語インターフェース |

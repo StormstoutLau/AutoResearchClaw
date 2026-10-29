@@ -27,6 +27,9 @@ knowledge_base:
   root: "docs/kb"
 
 openclaw_bridge:
+  # These flags are declarations only: this build ships recording stubs and
+  # logs a one-time warning when a flag is enabled. Wire a real adapter by
+  # assigning to AdapterBundle.message / .web_fetch from your host code.
   use_cron: false
   use_message: false
   use_memory: false

@@ -259,20 +259,29 @@ sequenceDiagram
 
 ### 5.1 适配器协议
 
-`adapters.py` 定义 6 个 Protocol + 录制桩：
+`adapters.py` 定义 6 个 Protocol + 录制桩（PR-6 后无“看似真实”的假实现）：
 
-| 能力 | Protocol | 真实实现 |
-|------|----------|----------|
-| 定时恢复 | `CronAdapter` | `RecordingCronAdapter`、外部 OpenClaw |
-| 消息通知 | `MessageAdapter` | `RecordingMessageAdapter`、`MCPMessageAdapter` |
-| 记忆 | `MemoryAdapter` | `RecordingMemoryAdapter` |
-| 子会话 | `SessionsAdapter` | `RecordingSessionsAdapter` |
-| Web 抓取 | `WebFetchAdapter` | `RecordingWebFetchAdapter`、`MCPWebFetchAdapter` |
-| 浏览器 | `BrowserAdapter` | `RecordingBrowserAdapter` |
+| 能力 | Protocol | 本包实现 | 说明 |
+|------|----------|----------|------|
+| 定时恢复 | `CronAdapter` | `RecordingCronAdapter` | 只记录调用 |
+| 消息通知 | `MessageAdapter` | `RecordingMessageAdapter` | 只记录调用 |
+| 记忆 | `MemoryAdapter` | `RecordingMemoryAdapter` | 只记录调用 |
+| 子会话 | `SessionsAdapter` | `RecordingSessionsAdapter` | 只记录调用 |
+| Web 抓取 | `WebFetchAdapter` | `RecordingWebFetchAdapter` | 返回本地 stub 响应 |
+| 浏览器 | `BrowserAdapter` | `RecordingBrowserAdapter` | 返回本地 stub 页面 |
 
-`AdapterBundle`（`adapters.py:121-139`）把七类能力（含 `hitl`）打包注入 `execute_pipeline`；`from_config()` 在 MCP server 开启时把 message/web_fetch 替换为 MCP 实现。
+`AdapterBundle` 打包七类能力（含 `hitl`）注入 `execute_pipeline`。
 
-配置开关：`openclaw_bridge.use_cron/use_message/use_memory/use_sessions_spawn/use_web_fetch/use_browser`。
+**D7 裁定**：本包不实现真实 OpenClaw/MCP 适配器。
+
+- CLI 与 Server 直接使用 `AdapterBundle()`（默认全录制）；
+- `AdapterBundle.from_config()` 也**始终**返回录制桩；当 `mcp.server_enabled=True` 或任一 `openclaw_bridge.use_*` 为真时，按能力各记一次 warning（`researchclaw.adapters`），说明该开关在本构建中不产生外部副作用；
+- `MCPMessageAdapter` / `MCPWebFetchAdapter` 仅作为**兼容占位**保留，不做 I/O，不得用来声称真实投递；
+- 宿主若需真实集成，直接给 `bundle.message` / `bundle.web_fetch` 赋值自己的实现。
+
+配置开关：`openclaw_bridge.use_cron/use_message/use_memory/use_sessions_spawn/use_web_fetch/use_browser`（当前仅为声明，配合宿主注入生效）。
+
+适配器调用均通过 `executor._notify_safely()` / `_remember_safely()`，适配器抛异常只记 warning，不中断阶段。
 
 ### 5.2 ACP
 
@@ -460,13 +469,13 @@ PR-5 后的状态：
 | `voice` 路由提示安装 `researchclaw[voice]`，但 pyproject 无该 extra | `server/routes/voice.py` | ✅ 已修复（PR-1：新增 `voice` extra） |
 | 服务端期望 `frontend/` 目录，实际目录名为 `frontend-legacy/` | `server/app.py:26-57` | ✅ 已修复（PR-2：`_resolve_frontend_dir()` 支持 env + `frontend` + `frontend-legacy` + 打包 dist） |
 | Dashboard/Projects 读取旧 checkpoint 字段 `stage/stage_name/status`，与 runner 写入的 `last_completed_stage` 不一致 | `dashboard/collector.py`、`server/routes/projects.py` | ✅ 已修复（PR-2：统一走 `researchclaw/run_state.py`） |
-| README 的 Python API 示例 `from researchclaw.pipeline import Runner` 不存在 | `pipeline/__init__.py` | ⏳ 待修（PR-6） |
+| README 的 Python API 示例 `from researchclaw.pipeline import Runner` 不存在 | `pipeline/__init__.py` | ✅ 已修复（PR-6：导出 `execute_pipeline`，README 及 9 种语言版本同步） |
 
 ### 10.3 实验模式边界
 
-- `agentic` 声明但未接入主流水线（`create_agentic_sandbox()` 无调用方）；
-- `biology_agent` / `stat_agent` 在 Stage 12 无专用分支，见 [05-experiment-and-domains.md](05-experiment-and-domains.md) §9；
-- `ExperimentConfig.mode` 默认 `simulated`，不显式设置为 `sandbox`/`docker` 会得到假数据。
+- `agentic` 已接入 Stage 10/12（PR-4），需 Docker + agent CLI；
+- `biology_agent` / `stat_agent` 已有 Stage 10 计划生成与 Stage 12 专用分派（PR-4），见 [05-experiment-and-domains.md](05-experiment-and-domains.md) §2.1；
+- `ExperimentConfig.mode` 默认已是 `sandbox`（PR-4），缺少配置项会 warning；`simulated` 需显式设置，且默认被 Stage 20 阻断。
 
 ### 10.4 常见排障
 
