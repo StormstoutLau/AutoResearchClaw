@@ -129,6 +129,188 @@ def _estimate_stage12_footprint_bytes(run_dir: Path) -> int:
     return total
 
 
+_AGENT_EXPERIMENT_SPECS: dict[str, dict[str, str]] = {
+    "biology_agent": {
+        "plan_file": "biology_plan.md",
+        "workspace": "biology",
+        "label": "Biology-Agent",
+    },
+    "stat_agent": {
+        "plan_file": "stat_plan.md",
+        "workspace": "stat",
+        "label": "stat_research_agent",
+    },
+    "agentic": {
+        "plan_file": "agent_plan.md",
+        "workspace": "agentic",
+        "label": "coding agent",
+    },
+}
+
+
+def _write_agent_run_payload(
+    stage_dir: Path,
+    runs_dir: Path,
+    *,
+    mode: str,
+    workspace: Path,
+    status: str,
+    metrics: dict[str, Any],
+    elapsed_sec: float,
+    returncode: int,
+    timed_out: bool,
+    stdout: str,
+    stderr: str,
+) -> dict[str, Any]:
+    """Write the agent run JSON (schema v1) plus results.json for downstream."""
+    payload: dict[str, Any] = {
+        "schema_version": 1,
+        "mode": mode,
+        "run_id": "run-1",
+        "task_id": f"{mode}-main",
+        "status": status,
+        "returncode": returncode,
+        "elapsed_sec": elapsed_sec,
+        "timed_out": timed_out,
+        "metrics": metrics,
+        "workspace": workspace.relative_to(stage_dir).as_posix()
+        if workspace.is_relative_to(stage_dir)
+        else workspace.name,
+        "stdout": stdout[:4000],
+        "stderr": stderr[:2000],
+        "timestamp": _utcnow_iso(),
+    }
+    (runs_dir / "run-1.json").write_text(
+        json.dumps(payload, indent=2), encoding="utf-8"
+    )
+
+    # Downstream stages read runs/results.json; copy the agent's own file
+    # verbatim when present, otherwise derive it from parsed metrics.
+    source = workspace / "results.json"
+    target = runs_dir / "results.json"
+    if source.is_file():
+        try:
+            target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+        except OSError as exc:
+            logger.warning("Stage 12 (%s): cannot copy results.json: %s", mode, exc)
+    elif metrics:
+        target.write_text(
+            json.dumps({"source": "agent_metrics", "metrics": metrics}, indent=2),
+            encoding="utf-8",
+        )
+    return payload
+
+
+def _execute_agent_experiment(
+    stage_dir: Path,
+    run_dir: Path,
+    config: RCConfig,
+    *,
+    mode: str,
+) -> StageResult:
+    """Run a biology/stat/agentic session from the Stage 10 plan."""
+    spec = _AGENT_EXPERIMENT_SPECS[mode]
+    plan_file = spec["plan_file"]
+    plan_text = _read_prior_artifact(run_dir, plan_file) or ""
+    if not plan_text:
+        plan_text = _read_prior_artifact(run_dir, "exp_plan.yaml") or ""
+    if not plan_text:
+        logger.error("Stage 12 (%s): no %s and no exp_plan.yaml", mode, plan_file)
+        return StageResult(
+            stage=Stage.EXPERIMENT_RUN,
+            status=StageStatus.FAILED,
+            artifacts=(),
+            error=f"Missing {plan_file} from Stage 10 — cannot run {spec['label']}",
+            decision="upstream_blocked",
+        )
+
+    runs_dir = stage_dir / "runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    workspace = runs_dir / spec["workspace"]
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    try:
+        if mode == "agentic":
+            from researchclaw.experiment.factory import create_agentic_sandbox
+
+            sandbox = create_agentic_sandbox(config.experiment, workspace)
+            session = sandbox.run_agent_session(
+                plan_text,
+                workspace,
+                timeout_sec=config.experiment.agentic.timeout_sec,
+            )
+            result = sandbox.to_sandbox_result(session)
+        else:
+            from researchclaw.experiment.factory import create_sandbox
+
+            cfg = (
+                config.experiment.biology_agent
+                if mode == "biology_agent"
+                else config.experiment.stat_agent
+            )
+            sandbox = create_sandbox(config.experiment, workspace)
+            result = sandbox.run(plan_text, timeout_sec=cfg.timeout_sec)
+    except Exception as exc:  # noqa: BLE001 - surface as an actionable failure
+        logger.exception("Stage 12 (%s): sandbox launch failed", mode)
+        return StageResult(
+            stage=Stage.EXPERIMENT_RUN,
+            status=StageStatus.FAILED,
+            artifacts=("runs/",),
+            error=f"{spec['label']} sandbox failed to start: {exc}",
+            decision="retry",
+        )
+
+    metrics = {
+        key: value
+        for key, value in (result.metrics or {}).items()
+        if isinstance(value, (int, float)) and not math.isnan(value) and not math.isinf(value)
+    }
+
+    if result.returncode == 0 and not result.timed_out:
+        status = "completed"
+    elif result.timed_out and metrics:
+        status = "partial"
+    elif result.timed_out:
+        status = "timed_out"
+    else:
+        status = "failed"
+
+    payload = _write_agent_run_payload(
+        stage_dir,
+        runs_dir,
+        mode=mode,
+        workspace=workspace,
+        status=status,
+        metrics=metrics,
+        elapsed_sec=result.elapsed_sec,
+        returncode=result.returncode,
+        timed_out=result.timed_out,
+        stdout=result.stdout or "",
+        stderr=result.stderr or "",
+    )
+
+    if status in ("failed", "timed_out") and not metrics:
+        # Never fabricate metrics; report the failure so the pipeline stops.
+        return StageResult(
+            stage=Stage.EXPERIMENT_RUN,
+            status=StageStatus.FAILED,
+            artifacts=("runs/", "runs/run-1.json"),
+            error=(
+                f"{spec['label']} produced no usable metrics "
+                f"(status={payload['status']}, rc={result.returncode}, "
+                f"elapsed={result.elapsed_sec:.1f}s)"
+            ),
+            decision="retry",
+        )
+
+    return StageResult(
+        stage=Stage.EXPERIMENT_RUN,
+        status=StageStatus.DONE,
+        artifacts=("runs/",),
+        evidence_refs=("stage-12/runs/",),
+    )
+
+
 def _execute_experiment_run(
     stage_dir: Path,
     run_dir: Path,
@@ -299,6 +481,19 @@ def _execute_experiment_run(
             evidence_refs=("stage-12/runs/",),
         )
     # ── End ColliderAgent mode ──────────────────────────────────────────
+
+    # ── Biology-Agent / stat_research_agent / agentic modes ──────────────
+    # These backends execute a full session from a Stage 10 plan instead of
+    # running generated Python, so they must not fall through to the generic
+    # ExperimentRunner (which would treat the plan text as source code).
+    if mode in _AGENT_EXPERIMENT_SPECS or mode == "agentic":
+        return _execute_agent_experiment(
+            stage_dir,
+            run_dir,
+            config,
+            mode=mode,
+        )
+    # ── End agent-backed modes ───────────────────────────────────────────
 
     if mode in ("sandbox", "docker"):
         # P7: Auto-install missing dependencies before subprocess sandbox
@@ -604,12 +799,18 @@ def _execute_iterative_refine(
     # repair loop in pipeline/runner.py handles separately).  Create
     # placeholder artifacts and exit so downstream stages see a non-empty
     # experiment_final/.
-    if config.experiment.mode in ("collider_agent", "biology_agent", "stat_agent"):
+    if config.experiment.mode in (
+        "collider_agent",
+        "biology_agent",
+        "stat_agent",
+        "agentic",
+    ):
         agent_label = config.experiment.mode
         agent_pretty = {
             "collider_agent": "ColliderAgent",
             "biology_agent": "Biology-Agent",
             "stat_agent": "stat_research_agent",
+            "agentic": "coding agent",
         }.get(agent_label, agent_label)
         logger.info(
             "Stage 13: Skipping iterative refinement in %s mode "

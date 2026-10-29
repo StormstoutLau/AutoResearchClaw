@@ -312,10 +312,11 @@ def test_security_config_defaults_match_expected_values():
     assert defaults.redact_sensitive_logs is True
 
 
-def test_experiment_config_defaults_mode_is_simulated():
+def test_experiment_config_defaults_mode_is_sandbox():
     defaults = ExperimentConfig()
 
-    assert defaults.mode == "simulated"
+    # D3: "simulated" fabricates metrics, so it must be opted into explicitly.
+    assert defaults.mode == "sandbox"
     assert defaults.metric_direction == "minimize"
 
 

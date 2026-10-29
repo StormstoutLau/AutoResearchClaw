@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 import sys
 import yaml
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_PYTHON_PATH = (
     ".venv/Scripts/python.exe" if sys.platform == "win32" else ".venv/bin/python3"
@@ -143,6 +146,9 @@ class ResearchConfig:
     daily_paper_count: int = 0
     quality_threshold: float = 0.0
     graceful_degradation: bool = True
+    # Simulated experiment data must not reach a publishable paper unless the
+    # user explicitly opts in; Stage 20 blocks and Stage 22 watermarks otherwise.
+    allow_simulated_paper: bool = False
 
 
 @dataclass(frozen=True)
@@ -582,7 +588,9 @@ class CliAgentConfig:
 
 @dataclass(frozen=True)
 class ExperimentConfig:
-    mode: str = "simulated"
+    # "sandbox" (real local subprocess) is the safe default: "simulated"
+    # silently fabricates metrics, so it must be requested explicitly.
+    mode: str = "sandbox"
     time_budget_sec: int = 300
     max_iterations: int = 10
     max_refine_duration_sec: int = 0  # 0 = auto (3× time_budget_sec)
@@ -963,6 +971,9 @@ class RCConfig:
                 daily_paper_count=int(research.get("daily_paper_count", 0)),
                 quality_threshold=float(research.get("quality_threshold", 0.0)),
                 graceful_degradation=bool(research.get("graceful_degradation", True)),
+                allow_simulated_paper=bool(
+                    research.get("allow_simulated_paper", False)
+                ),
             ),
             runtime=RuntimeConfig(
                 timezone=runtime["timezone"],
@@ -1148,7 +1159,17 @@ def validate_config(
                     )
 
     exp_mode = _get_by_path(data, "experiment.mode")
-    if not _is_blank(exp_mode) and exp_mode not in EXPERIMENT_MODES:
+    if _is_blank(exp_mode):
+        warnings.append(
+            "experiment.mode not set; defaulting to 'sandbox'. "
+            "Set it explicitly for reproducibility "
+            "(use 'simulated' only for demos — it fabricates metrics)."
+        )
+        logger.warning(
+            "experiment.mode not set; defaulting to sandbox — "
+            "set explicitly for reproducibility"
+        )
+    elif exp_mode not in EXPERIMENT_MODES:
         errors.append(f"Invalid experiment.mode: {exp_mode}")
 
     exp_direction = _get_by_path(data, "experiment.metric_direction")
@@ -1342,7 +1363,7 @@ def _parse_experiment_config(data: dict[str, Any]) -> ExperimentConfig:
     ssh_data = data.get("ssh_remote") or {}
     colab_data = data.get("colab_drive") or {}
     return ExperimentConfig(
-        mode=data.get("mode", "simulated"),
+        mode=data.get("mode", "sandbox"),
         time_budget_sec=_safe_int(data.get("time_budget_sec"), 300),
         max_iterations=_safe_int(data.get("max_iterations"), 10),
         max_refine_duration_sec=_safe_int(data.get("max_refine_duration_sec"), 0),

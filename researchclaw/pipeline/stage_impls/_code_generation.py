@@ -224,6 +224,144 @@ def _check_rl_compatibility(code: str) -> list[str]:
     return errors
 
 
+_AGENT_PLAN_SPECS: dict[str, dict[str, str]] = {
+    "biology_agent": {
+        "plan_file": "biology_plan.md",
+        "meta_file": "biology_meta.json",
+        "label": "Biology-Agent",
+        "structure": (
+            "# 1. Target\n(metabolic phenotype / knockout effect to quantify)\n"
+            "# 2. Organism and Model\n(GEM identifier, medium, constraints)\n"
+            "# 3. Perturbations\n(gene/reaction knockouts, media swaps)\n"
+            "# 4. Analysis\n(FBA / pFBA / FVA / production envelope steps)\n"
+            "# 5. Outputs\n(results.json schema and figures)\n"
+        ),
+    },
+    "stat_agent": {
+        "plan_file": "stat_plan.md",
+        "meta_file": "stat_meta.json",
+        "label": "stat_research_agent",
+        "structure": (
+            "# 1. Target\n(estimand / hypothesis to test)\n"
+            "# 2. Data\n(dataset, variables, sample size, cleaning rules)\n"
+            "# 3. Model\n(statistical test or regression specification)\n"
+            "# 4. Diagnostics\n(assumption checks, sensitivity analyses)\n"
+            "# 5. Outputs\n(results.json schema and tables/figures)\n"
+        ),
+    },
+    "agentic": {
+        "plan_file": "agent_plan.md",
+        "meta_file": "agent_meta.json",
+        "label": "coding agent",
+        "structure": (
+            "# 1. Target\n(metric to optimise and acceptance threshold)\n"
+            "# 2. Environment\n(image, dependencies, data, hardware)\n"
+            "# 3. Procedure\n(ordered steps the agent should execute)\n"
+            "# 4. Deliverables\n(code, logs, results.json schema)\n"
+        ),
+    },
+}
+
+
+def _execute_agent_plan_generation(
+    stage_dir: Path,
+    run_dir: Path,
+    config: RCConfig,
+    adapters: AdapterBundle,
+    *,
+    mode: str,
+    llm: LLMClient | None = None,
+    prompts: PromptManager | None = None,
+) -> StageResult:
+    """Stage 10 for agent-backed experiment modes.
+
+    These modes execute an end-to-end agent session in Stage 12 instead of
+    running generated Python, so Stage 10 only has to produce a precise
+    natural-language plan. No Python project is generated.
+    """
+    spec = _AGENT_PLAN_SPECS[mode]
+    plan_file = spec["plan_file"]
+    label = spec["label"]
+
+    exp_plan = _read_prior_artifact(run_dir, "exp_plan.yaml") or ""
+    hypotheses = _read_prior_artifact(run_dir, "hypotheses.md") or ""
+    topic = config.research.topic
+
+    system_prompt = (
+        f"You are an expert research engineer writing an execution plan for the "
+        f"{label}. The agent runs the full experiment end to end, so the plan "
+        f"must be self-contained and operational.\n\n"
+        f"Use exactly this Markdown structure:\n{spec['structure']}\n"
+        "Be concrete about parameters, datasets, and expected outputs. "
+        "The agent must write all numerical results to results.json in the "
+        "workspace root."
+    )
+    user_prompt = (
+        f"Research topic: {topic}\n\n"
+        f"Experiment design plan:\n{exp_plan}\n\n"
+        f"Hypotheses:\n{hypotheses}\n\n"
+        f"Write the {label} execution plan."
+    )
+
+    plan_text = ""
+    if llm is not None:
+        try:
+            resp = _chat_with_prompt(llm, system_prompt, user_prompt, max_tokens=4096)
+            plan_text = resp.content.strip()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Stage 10 (%s): LLM call failed (%s) — using fallback plan",
+                mode,
+                exc,
+            )
+    if not plan_text:
+        plan_text = (
+            f"# 1. Target\n\nExecute the following research topic end to end:\n"
+            f"**{topic}**\n\n{exp_plan}\n\n"
+            f"# Execution\n\nFollow the experiment design plan above, run the "
+            f"analysis with the {label}, and write all numerical results to "
+            f"`results.json` in the workspace root.\n"
+        )
+
+    (stage_dir / plan_file).write_text(plan_text, encoding="utf-8")
+    (stage_dir / spec["meta_file"]).write_text(
+        json.dumps(
+            {
+                "generated": _utcnow_iso(),
+                "mode": mode,
+                "topic": topic,
+                "plan_file": plan_file,
+                "plan_length_chars": len(plan_text),
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    # Stage 10's contract requires experiment/ + experiment_spec.md even when
+    # no Python project exists; mirror the collider_agent convention.
+    exp_dir = stage_dir / "experiment"
+    exp_dir.mkdir(exist_ok=True)
+    (exp_dir / plan_file).write_text(plan_text, encoding="utf-8")
+
+    (stage_dir / "experiment_spec.md").write_text(
+        f"# Experiment Specification ({mode} mode)\n\n"
+        f"**Topic:** {topic}\n\n"
+        f"**Backend:** {label} — full session executed in Stage 12\n\n"
+        f"**Plan:** `{plan_file}`\n\n"
+        "Stage 12 passes this plan to the agent sandbox, which writes "
+        "`results.json` in its workspace. No Python source is generated here.\n",
+        encoding="utf-8",
+    )
+
+    return StageResult(
+        stage=Stage.CODE_GENERATION,
+        status=StageStatus.DONE,
+        artifacts=(plan_file, spec["meta_file"], "experiment/", "experiment_spec.md"),
+        evidence_refs=(f"stage-10/{plan_file}",),
+    )
+
+
 def _execute_code_generation(
     stage_dir: Path,
     run_dir: Path,
@@ -239,6 +377,19 @@ def _execute_code_generation(
             stage_dir, run_dir, config, adapters, llm=llm, prompts=prompts
         )
     # ── End ColliderAgent bypass ──────────────────────────────────────────────
+
+    # ── Other agent-backed modes: generate an execution plan, not Python ─────
+    if config.experiment.mode in _AGENT_PLAN_SPECS:
+        return _execute_agent_plan_generation(
+            stage_dir,
+            run_dir,
+            config,
+            adapters,
+            mode=config.experiment.mode,
+            llm=llm,
+            prompts=prompts,
+        )
+    # ── End agent plan bypass ─────────────────────────────────────────────────
 
     exp_plan = _read_prior_artifact(run_dir, "exp_plan.yaml") or ""
     metric = config.experiment.metric_key

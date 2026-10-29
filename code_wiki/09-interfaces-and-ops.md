@@ -129,7 +129,7 @@ sequenceDiagram
 | `llm` | `LlmConfig` | provider、base_url、wire_api、key、模型、reviewer、debate、tournament、ACP |
 | `literature_search` | `LiteratureSearchConfig` | 源顺序、每查询上限、延迟、OpenAlex/S2 key |
 | `security` | `SecurityConfig` | 门控阶段、无审批发布、日志脱敏 |
-| `experiment` | `ExperimentConfig` | 模式、时间预算、指标、sandbox/docker/ssh/colab/agent/code_agent/opencode/benchmark/figure_agent/repair/cli_agent |
+| `experiment` | `ExperimentConfig` | 模式（默认 `sandbox`，`simulated` 需显式）、时间预算、指标、sandbox/docker/ssh/colab/agent/code_agent/opencode/benchmark/figure_agent/repair/cli_agent |
 | `export` | `ExportConfig` | 目标会议、作者、bib 文件名 |
 | `prompts` | `PromptsConfig` | 自定义 YAML、每阶段额外提示 |
 | `web_search` | `WebSearchConfig` | Tavily、Scholar、crawler、PDF 开关与上限 |

@@ -413,6 +413,19 @@ def cmd_run(args: argparse.Namespace) -> int:
     if to_stage:
         print(f"  To:      Stage {int(to_stage)}: {to_stage.name}")
 
+    # Simulated runs fabricate metrics: make that impossible to miss, and say
+    # up front whether the resulting paper would be blocked at Stage 20.
+    if getattr(config.experiment, "mode", "") == "simulated":
+        print()
+        print("  !! FAKE DATA: experiment.mode='simulated' — metrics are")
+        print("     placeholders, not measurements.")
+        if getattr(config.research, "allow_simulated_paper", False):
+            print("     research.allow_simulated_paper=true → paper will be")
+            print("     watermarked 'SIMULATED DATA — NOT FOR SUBMISSION'.")
+        else:
+            print("     Stage 20 will BLOCK the paper (E20_SIMULATED_DATA).")
+            print("     Set research.allow_simulated_paper=true for a demo run.")
+
     # Hint: OpenCode beast mode
     exp_cfg = getattr(config, "experiment", None)
     oc_cfg = getattr(exp_cfg, "opencode", None)

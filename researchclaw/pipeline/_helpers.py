@@ -813,6 +813,39 @@ def _chat_with_prompt(
     raise last_exc  # type: ignore[misc]  # unreachable but satisfies type checker
 
 
+def detect_data_origin(run_dir: Path, config: object | None = None) -> str:
+    """Classify where a run's experiment numbers came from.
+
+    Returns ``"simulated"`` when Stage 12 only produced placeholder runs,
+    ``"real"`` when at least one run executed real code, and ``"unknown"``
+    when no Stage 12 artifact exists yet.
+    """
+    mode = str(getattr(getattr(config, "experiment", None), "mode", "") or "")
+    if mode == "simulated":
+        return "simulated"
+
+    statuses: list[str] = []
+    for path in sorted(run_dir.glob("stage-12*/runs/run-*.json")):
+        payload = _safe_json_loads(path.read_text(encoding="utf-8", errors="ignore"), {})
+        if isinstance(payload, dict):
+            status = str(payload.get("status") or "")
+            if status:
+                statuses.append(status)
+    if not statuses:
+        return "unknown"
+    if all(status == "simulated" for status in statuses):
+        return "simulated"
+    if any(status == "simulated" for status in statuses):
+        return "mixed"
+    return "real"
+
+
+def simulated_paper_allowed(config: object | None) -> bool:
+    """Return True when the user explicitly opted into simulated papers."""
+    research = getattr(config, "research", None)
+    return bool(getattr(research, "allow_simulated_paper", False))
+
+
 def _get_evolution_overlay(
     run_dir: Path | None,
     stage_name: str,
