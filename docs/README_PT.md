@@ -272,7 +272,7 @@ researchclaw run --config config.yaml --topic "Your research idea" --auto-approv
 | Método | Como |
 |--------|------|
 | **CLI Independente** | `researchclaw run --topic "..." --auto-approve` (autônomo) ou `--mode co-pilot` (colaborativo) |
-| **API Python** | `from researchclaw.pipeline import Runner; Runner(config).run()` |
+| **API Python** | `from researchclaw.pipeline import execute_pipeline` |
 | **Claude Code** | Lê `RESEARCHCLAW_CLAUDE.md` — basta dizer *"Execute pesquisa sobre [tópico]"* |
 | **Copilot CLI** | `researchclaw run --topic "..."` com `llm.acp.agent: "gh"` |
 | **OpenCode** | Lê `.claude/skills/` — mesma interface em linguagem natural |

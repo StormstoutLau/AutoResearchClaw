@@ -480,6 +480,14 @@ python -c "import glob,zipfile; w=glob.glob('dist/*.whl')[0]; n=zipfile.ZipFile(
 
 **PASS**：示例可执行；**FAIL**：仍 ImportError。
 
+**验收结果（PR-6，2026-10-29）：Pass**
+
+- README「Python API」行改为 `from researchclaw.pipeline import execute_pipeline`，并补完整可运行片段
+- `researchclaw/pipeline/__init__.py` 导出 `execute_pipeline` / `execute_iterative_pipeline` / `Stage` / `StageStatus` / `StageResult` / `StageContract` / `CONTRACTS` / `STAGE_SEQUENCE`
+- 9 个翻译 README（`docs/README_*.md`）同步替换旧 `Runner` 示例
+- DOC-01：`test_doc01_readme_imports_resolve` 直接从 README 的 python 代码块提取 import 并执行
+- DOC-02：`test_doc02_no_runner_class_in_docs` 扫描 README + `docs/*.md`，断言无 `Runner(`
+
 ---
 
 ### G11 · 测试与 CI
@@ -496,6 +504,14 @@ python -c "import glob,zipfile; w=glob.glob('dist/*.whl')[0]; n=zipfile.ZipFile(
 
 **PASS**：测试能捕获 G1/G2/G3 回归；**FAIL**：测试仍锁定旧契约。
 
+**验收结果（PR-1~PR-6）：In progress（本地全绿；CI 未在 GitHub 实际触发）**
+
+- 新增测试：`test_packaging.py`、`test_run_state.py`、`test_frontend_mount.py`、`test_mcp.py`、`test_mcp_protocol.py`、`test_simulated_guard.py`、`test_cost_tracker.py`、`test_docs_and_adapters.py`
+- 旧契约改写：`tests/test_mcp.py` 不再断言 stub 成功；`tests/test_rc_executor.py` 改从 `review_service` 导入 `collect_experiment_evidence`
+- CI（`.github/workflows/ci.yml`）：packaging（wheel + 内容校验 + 安装 + `--help`）、extras、tests 矩阵（3.11–3.13，3.14 experimental）；契约测试含 MCP/SIM/COST/DOC/ADP
+- 可选依赖：`test_mcp*.py` 使用 `pytest.importorskip("mcp")`
+- 待完成：CI 需在有 GitHub Actions 的环境跑通；`tests/test_hitl_advanced.py::test_shell_hooks` 在 Windows 上因执行 `.sh` 失败（既有环境问题）
+
 ---
 
 ### G12 · OpenClaw 适配器（裁定 D7：扩展点）
@@ -509,6 +525,15 @@ python -c "import glob,zipfile; w=glob.glob('dist/*.whl')[0]; n=zipfile.ZipFile(
 **证据**：adapter 调用记录、文档 diff
 
 **PASS**：文档与行为一致；**FAIL**：`use_*` 仍是 no-op 但文档声称生效。
+
+**验收结果（PR-6，2026-10-29）：Pass（真实适配器按 D7 延后）**
+
+- `AdapterBundle.from_config()` 始终返回录制桩；`mcp.server_enabled` / 每个 `openclaw_bridge.use_*` 各 warning 一次（`tests/test_docs_and_adapters.py::test_adp01_*`）
+- `MCPMessageAdapter` / `MCPWebFetchAdapter` 标注为兼容占位（无 I/O），不再被 `from_config` 使用
+- 适配器异常被 `executor._notify_safely()` / `_remember_safely()` 吞掉并 warning（ADP-03）
+- CLI/Server 直接 `AdapterBundle()`，不调用 `from_config`（ADP-04）
+- 文档：09 §5.1 重写；示例配置 `openclaw_bridge` 加「仅声明」注释
+- 未提供 `AdapterBundle.with_*()`：宿主直接赋值字段即可，未额外造 API
 
 ---
 
@@ -546,9 +571,9 @@ python -c "import glob,zipfile; w=glob.glob('dist/*.whl')[0]; n=zipfile.ZipFile(
 | G7 | PR-4 | — | ☑ | ☑ | ☑ | `tests/test_simulated_guard.py`（AG-02/04） | Pass（agent CLI 端到端未跑） |
 | G8 | PR-5 | — | ☑ | ☑ | ☑ | `tests/test_cost_tracker.py`（COST-01~05、SPEC-01~02、D6） | Pass |
 | G9 | PR-4 | — | ☑ | ☑ | ☑ | `tests/test_simulated_guard.py`（SIM-01~04） | Pass |
-| G10 | | | ☐ | ☐ | ☐ | | Not started |
-| G11 | PR-1 | — | ☐ | ☐ | ☐ | `.github/workflows/ci.yml` 已建；因仓库无 `.git` 未实际触发 | In progress |
-| G12 | | | ☐ | ☐ | ☐ | | Not started |
+| G10 | PR-6 | — | ☑ | ☑ | ☑ | `tests/test_docs_and_adapters.py`（DOC-01/02） | Pass |
+| G11 | PR-1~6 | — | ☑ | ☑ | ☐ | `.github/workflows/ci.yml` 已建并含全量契约测试；GitHub Actions 尚未实际跑过 | In progress |
+| G12 | PR-6 | — | ☑ | ☑ | ☑ | `tests/test_docs_and_adapters.py`（ADP-01~04） | Pass（真实适配器延后） |
 
 状态取值：`Not started` / `In progress` / `Pass` / `Fail` / `Waived（原因）`。
 

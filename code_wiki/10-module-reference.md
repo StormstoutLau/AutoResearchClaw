@@ -294,7 +294,7 @@
 | Web 依赖未声明 | FastAPI/uvicorn 不在依赖或 extras 中 | 09 §10.2 | 已修复（PR-1：新增 `server` / `mcp` / `voice` extras） |
 | 前端路径不匹配 | 代码找 `frontend/`，实际是 `frontend-legacy/` | 09 §10.2 | 已修复（PR-2：`_resolve_frontend_dir()` + `RESEARCHCLAW_FRONTEND_DIR`） |
 | 状态推导分散 | Dashboard/Projects 各自解析 checkpoint，legacy/v1 字段不一致，`current_stage` 常为 0 | 09 §10.2 | 已修复（PR-2：统一走 `run_state.read_run_state()`） |
-| README Python API 不存在 | `from researchclaw.pipeline import Runner` 无效，应使用 `execute_pipeline` | 09 §10.2 | PR-6 待处理 |
+| README Python API 不存在 | `from researchclaw.pipeline import Runner` 无效，应使用 `execute_pipeline` | 09 §10.2 | 已修复（PR-6：导出 `execute_pipeline` 并更新 README） |
 | `agentic` 未接线 | 工厂/配置已声明，但主流程无调用 | 05 §9 | 已修复（PR-4：Stage 10/12 显式分派） |
 | biology/stat Stage 12 分支缺失 | 走通用 `ExperimentRunner`，代码文本被当作 prompt | 05 §9 | 已修复（PR-4：`_execute_agent_experiment()`） |
 | 默认 `simulated` | 不显式设 `experiment.mode` 会产出假数据 | README §7、05 §9 | 已修复（PR-4：默认 `sandbox` + warning + Stage 20 阻断） |

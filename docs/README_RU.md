@@ -268,7 +268,7 @@ researchclaw run --config config.yaml --topic "Ваша идея" --auto-approve
 | Способ | Как запустить |
 |--------|-----|
 | **CLI** | `researchclaw run --topic "..." --auto-approve` (автономный) или `--mode co-pilot` (совместный) |
-| **Python API** | `from researchclaw.pipeline import Runner; Runner(config).run()` |
+| **Python API** | `from researchclaw.pipeline import execute_pipeline` |
 | **Claude Code** | Читает `RESEARCHCLAW_CLAUDE.md` — просто напишите *"Run research on [topic]"* |
 | **Copilot CLI** | `researchclaw run --topic "..."` с `llm.acp.agent: "gh"` |
 | **OpenCode** | Читает `.claude/skills/` — такой же интерфейс на естественном языке |

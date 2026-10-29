@@ -272,7 +272,7 @@ researchclaw run --config config.yaml --topic "Your research idea" --auto-approv
 | 방법 | 사용법 |
 |------|--------|
 | **독립형 CLI** | `researchclaw run --topic "..." --auto-approve` (자율) 또는 `--mode co-pilot` (협력) |
-| **Python API** | `from researchclaw.pipeline import Runner; Runner(config).run()` |
+| **Python API** | `from researchclaw.pipeline import execute_pipeline` |
 | **Claude Code** | `RESEARCHCLAW_CLAUDE.md`를 읽음 — *"Run research on [주제]"*라고 말하기 |
 | **Copilot CLI** | `researchclaw run --topic "..."` 에 `llm.acp.agent: "gh"` 사용 |
 | **OpenCode** | `.claude/skills/`를 읽음 — 동일한 자연어 인터페이스 |

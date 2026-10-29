@@ -2,8 +2,21 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Protocol
+
+logger = logging.getLogger(__name__)
+
+# Capability flags already reported, so a long run logs each warning once.
+_warned_capabilities: set[str] = set()
+
+
+def _warn_once(key: str, message: str) -> None:
+    if key in _warned_capabilities:
+        return
+    _warned_capabilities.add(key)
+    logger.warning(message)
 
 
 @dataclass(frozen=True)
@@ -99,7 +112,12 @@ class RecordingBrowserAdapter:
 
 @dataclass
 class MCPMessageAdapter:
-    """MessageAdapter backed by an MCP tool call."""
+    """MessageAdapter backed by an MCP tool call.
+
+    Deprecated placeholder kept only for backward-compatible imports; it does
+    not perform any I/O and must not be used to claim real delivery. Prefer
+    :class:`RecordingMessageAdapter` plus a host-injected implementation.
+    """
 
     server_uri: str = "http://localhost:3000"
 
@@ -109,7 +127,7 @@ class MCPMessageAdapter:
 
 @dataclass
 class MCPWebFetchAdapter:
-    """WebFetchAdapter backed by an MCP tool call."""
+    """WebFetchAdapter backed by an MCP tool call (no I/O — see above)."""
 
     server_uri: str = "http://localhost:3000"
 
@@ -129,11 +147,41 @@ class AdapterBundle:
 
     @classmethod
     def from_config(cls, config: object) -> AdapterBundle:
-        """Build an AdapterBundle from RCConfig, wiring MCP adapters when enabled."""
+        """Build an AdapterBundle from RCConfig.
+
+        Only recording stubs are returned: this package ships no real
+        OpenClaw/MCP transport (decision D7). Enabling a capability in config
+        logs a one-time warning so the absence of side effects is explicit
+        rather than a silent fake success. Hosts wire real adapters by
+        assigning to the bundle fields directly.
+        """
         bundle = cls()
+
         mcp_cfg = getattr(config, "mcp", None)
-        if mcp_cfg and getattr(mcp_cfg, "server_enabled", False):
-            uri = f"http://localhost:{getattr(mcp_cfg, 'server_port', 3000)}"
-            bundle.message = MCPMessageAdapter(server_uri=uri)
-            bundle.web_fetch = MCPWebFetchAdapter(server_uri=uri)
+        if mcp_cfg is not None and getattr(mcp_cfg, "server_enabled", False):
+            _warn_once(
+                "mcp.server_enabled",
+                "mcp.server_enabled=True, but this build ships only recording "
+                "adapters — notifications and web fetches stay local. Inject "
+                "real adapters via AdapterBundle to enable the bridge.",
+            )
+
+        bridge = getattr(config, "openclaw_bridge", None)
+        if bridge is not None:
+            for flag in (
+                "use_message",
+                "use_web_fetch",
+                "use_browser",
+                "use_cron",
+                "use_memory",
+                "use_sessions_spawn",
+            ):
+                if getattr(bridge, flag, False):
+                    _warn_once(
+                        f"openclaw_bridge.{flag}",
+                        f"openclaw_bridge.{flag}=True, but no OpenClaw endpoint "
+                        "is configured and this build ships only recording "
+                        "adapters. The flag is inert until a host injects a "
+                        "real adapter into AdapterBundle.",
+                    )
         return bundle
