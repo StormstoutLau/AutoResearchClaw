@@ -419,6 +419,14 @@ python -c "import glob,zipfile; w=glob.glob('dist/*.whl')[0]; n=zipfile.ZipFile(
 
 **PASS**：成本可计量、spec 不重复生成；**FAIL**：预算仍被跳过或空 spec 仍写入。
 
+**验收结果（PR-5，2026-10-29）：Pass（`test_hitl_advanced::test_shell_hooks` 为 Windows 既有失败，与本项无关）**
+
+- 成本：`tests/test_cost_tracker.py` COST-01~05 全通过；`cost_log.jsonl` 每调用一行，`CostGuard` 与 tracker 求和无差
+- 来源优先级：provider `usage.cost` → 配置单价 → `unknown`（`tracking_complete=False`，每 model 一次 warning）
+- 预算：`budget<=0` 关闭；`total < budget` 才继续；恰好相等视为耗尽
+- spec：runner 不再生成 `stage-09/experiment_spec.md`（SPEC-01），Stage 14 校验改读 `stage-10*/experiment_spec.md`（SPEC-02）
+- D6：全仓库 `.py` 中已无 `event_log` / `pitfall_detector` 引用；两模块均不存在（`test_d6_dead_modules_do_not_exist`）
+
 ---
 
 ### G9 · 默认模式 / simulated 阻断
@@ -536,7 +544,7 @@ python -c "import glob,zipfile; w=glob.glob('dist/*.whl')[0]; n=zipfile.ZipFile(
 | G5 | PR-1 | — | ☐ | ☐ | ☐ | extras 已加；逐条验收未跑 | In progress |
 | G6 | PR-4 | — | ☑ | ☑ | ☑ | `tests/test_simulated_guard.py`（AG-02/03/07） | Pass（Docker 端到端未跑） |
 | G7 | PR-4 | — | ☑ | ☑ | ☑ | `tests/test_simulated_guard.py`（AG-02/04） | Pass（agent CLI 端到端未跑） |
-| G8 | | | ☐ | ☐ | ☐ | | Not started |
+| G8 | PR-5 | — | ☑ | ☑ | ☑ | `tests/test_cost_tracker.py`（COST-01~05、SPEC-01~02、D6） | Pass |
 | G9 | PR-4 | — | ☑ | ☑ | ☑ | `tests/test_simulated_guard.py`（SIM-01~04） | Pass |
 | G10 | | | ☐ | ☐ | ☐ | | Not started |
 | G11 | PR-1 | — | ☐ | ☐ | ☐ | `.github/workflows/ci.yml` 已建；因仓库无 `.git` 未实际触发 | In progress |

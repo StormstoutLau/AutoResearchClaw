@@ -88,6 +88,9 @@ class LLMConfig:
     # MetaClaw bridge: fallback URL if primary (proxy) is unreachable
     fallback_url: str = ""
     fallback_api_key: str = ""
+    # Cost accounting (USD per 1M tokens); 0 means unknown.
+    input_cost_per_1m: float = 0.0
+    output_cost_per_1m: float = 0.0
 
 
 class LLMClient:
@@ -163,6 +166,12 @@ class LLMClient:
             fallback_url=fallback_url,
             fallback_api_key=fallback_api_key,
             timeout_sec=getattr(rc_config.llm, "timeout_sec", 600),
+            input_cost_per_1m=float(
+                getattr(rc_config.llm, "input_cost_per_1m", 0.0) or 0.0
+            ),
+            output_cost_per_1m=float(
+                getattr(rc_config.llm, "output_cost_per_1m", 0.0) or 0.0
+            ),
         )
         client = cls(config)
 
@@ -293,6 +302,7 @@ class LLMClient:
                         truncated=resp.truncated,
                         raw=resp.raw,
                     )
+                self._record_cost(resp)
                 return resp
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Model %s failed: %s. Trying next.", m, exc)
@@ -301,6 +311,33 @@ class LLMClient:
         raise RuntimeError(
             f"All models failed. Last error: {last_error}"
         ) from last_error
+
+    def _record_cost(self, resp: LLMResponse) -> None:
+        """Append usage to the global cost log (never raises)."""
+        if not (resp.prompt_tokens or resp.completion_tokens or resp.total_tokens):
+            return
+        try:
+            from researchclaw.cost_tracker import get_global_tracker
+
+            provider_cost = None
+            usage = (resp.raw or {}).get("usage")
+            if isinstance(usage, dict):
+                raw_cost = usage.get("cost")
+                if isinstance(raw_cost, (int, float)) and not isinstance(
+                    raw_cost, bool
+                ):
+                    provider_cost = float(raw_cost)
+            get_global_tracker().record_llm_call(
+                model=resp.model or self.config.primary_model,
+                prompt_tokens=resp.prompt_tokens,
+                completion_tokens=resp.completion_tokens,
+                total_tokens=resp.total_tokens,
+                provider_cost=provider_cost,
+                input_cost_per_1m=self.config.input_cost_per_1m,
+                output_cost_per_1m=self.config.output_cost_per_1m,
+            )
+        except Exception as exc:  # noqa: BLE001 - accounting must never break a call
+            logger.debug("Cost recording skipped: %s", exc)
 
     def preflight(self) -> tuple[bool, str]:
         """Quick connectivity check - one minimal chat call.

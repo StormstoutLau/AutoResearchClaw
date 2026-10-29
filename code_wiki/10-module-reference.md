@@ -12,6 +12,7 @@
 | `researchclaw/__main__.py` | `python -m researchclaw` | `main()` |
 | `researchclaw/cli.py` | 22 个子命令、参数解析、dispatch | `main()` `cli.py:1511` |
 | `researchclaw/run_state.py` | run 目录状态的唯一读取入口（兼容 v1/legacy checkpoint） | `RunState`、`read_run_state()`、`read_next_stage()` |
+| `researchclaw/cost_tracker.py` | LLM 成本记账与预算判定 | `CostTracker`、`CostRecord`、`get_global_tracker()`、`sum_cost_log()` |
 | `researchclaw/config.py` | 40+ 配置 dataclass、加载、校验、profile 叠加 | `RCConfig` `config.py:869`、`RCConfig.load` `:1050`、`validate_config` `:1104` |
 | `researchclaw/adapters.py` | OpenClaw/MCP 能力协议与录制桩 | `AdapterBundle` `adapters.py:121` |
 | `researchclaw/hardware.py` | GPU/MPS/CPU 检测、PyTorch 可用性、指标名过滤 | `detect_hardware` `hardware.py:44` |
@@ -288,7 +289,7 @@
 
 | 问题 | 说明 | 相关文档 | 状态 |
 |------|------|----------|------|
-| 缺失可选模块 | `cost_tracker`、`pipeline.event_log`、`pipeline.experiment_spec`、`pipeline.pitfall_detector` 被引用但文件不存在，均 `try/except` 降级 | 09 §10.1 | PR-5 待处理 |
+| 缺失可选模块 | `cost_tracker`、`pipeline.event_log`、`pipeline.experiment_spec`、`pipeline.pitfall_detector` 被引用但文件不存在 | 09 §10.1 | 已修复（PR-5：实现 `cost_tracker`；删除 event_log/pitfall_detector） |
 | 打包目标不存在 | `pyproject.toml` 声明 `sibyl`、`arc`，仓库无此目录 | 09 §10.2 | 已修复（PR-1：`packages = ["researchclaw"]`） |
 | Web 依赖未声明 | FastAPI/uvicorn 不在依赖或 extras 中 | 09 §10.2 | 已修复（PR-1：新增 `server` / `mcp` / `voice` extras） |
 | 前端路径不匹配 | 代码找 `frontend/`，实际是 `frontend-legacy/` | 09 §10.2 | 已修复（PR-2：`_resolve_frontend_dir()` + `RESEARCHCLAW_FRONTEND_DIR`） |

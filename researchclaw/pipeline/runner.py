@@ -469,18 +469,7 @@ def execute_pipeline(
     except Exception:  # noqa: BLE001
         pass
 
-    # ── Integration hooks: EventLog, ExperimentMemory, CostTracker ──
-    event_log = None
-    try:
-        from researchclaw.pipeline.event_log import EventLog, EventType, create_event
-        event_log = EventLog(log_dir=run_dir)
-        event_log.append(create_event(
-            EventType.PIPELINE_START, run_id=run_id,
-            stages=total_stages, from_stage=int(from_stage),
-        ))
-    except Exception:
-        logger.debug("Event log initialisation skipped")
-
+    # ── Integration hooks: ExperimentMemory, CostTracker ──
     exp_memory = None
     try:
         from researchclaw.memory.experiment_memory import ExperimentMemory
@@ -491,6 +480,18 @@ def execute_pipeline(
         logger.debug("Experiment memory initialisation skipped")
 
     cost_budget = getattr(config.experiment.cli_agent, "max_budget_usd", 0.0) or 0.0
+
+    # Cost accounting: idempotent for the same run_id so recursive PIVOT/REFINE
+    # calls keep accumulating into the same cost_log.jsonl.
+    tracker = None
+    try:
+        from researchclaw.cost_tracker import get_global_tracker
+
+        tracker = get_global_tracker()
+        tracker.begin_run(run_dir=run_dir, run_id=run_id)
+    except Exception:  # noqa: BLE001 - accounting is best-effort
+        tracker = None
+        logger.debug("Cost tracker initialisation skipped")
 
     for stage in STAGE_SEQUENCE:
         started = _should_start(stage, from_stage, started)
@@ -507,25 +508,18 @@ def execute_pipeline(
         prefix = f"[{run_id}] Stage {stage_num:02d}/{total_stages}"
         print(f"{prefix} {stage.name} — running...")
 
-        # ── Event log: stage start ──
-        if event_log:
-            try:
-                event_log.append(create_event(
-                    EventType.STAGE_START, run_id=run_id, stage=stage.name,
-                ))
-            except Exception:
-                pass
-
         # ── Cost budget check ──
-        if cost_budget > 0:
-            try:
-                from researchclaw.cost_tracker import get_global_tracker
-                if not get_global_tracker().check_budget(cost_budget):
-                    logger.warning("Cost budget $%.2f exceeded — pausing pipeline", cost_budget)
-                    print(f"{prefix} BUDGET EXCEEDED (${cost_budget:.2f}) — stopping")
-                    break
-            except Exception:
-                pass
+        if cost_budget > 0 and tracker is not None:
+            if not tracker.check_budget(cost_budget):
+                logger.warning(
+                    "Cost budget $%.2f exceeded — pausing pipeline", cost_budget
+                )
+                print(f"{prefix} BUDGET EXCEEDED (${cost_budget:.2f}) — stopping")
+                break
+
+        # Attribute subsequent LLM spend to this stage.
+        if tracker is not None:
+            tracker.set_stage(stage.name)
 
         # BUG-218: Ensure the best stage-14 experiment data is promoted
         # BEFORE paper writing begins.  Without this, the recursive REFINE
@@ -548,34 +542,17 @@ def execute_pipeline(
         )
         elapsed = _time.monotonic() - t0
 
-        # ── Event log: stage end ──
-        if event_log:
-            try:
-                etype = EventType.STAGE_END if result.status == StageStatus.DONE else EventType.STAGE_FAIL
-                event_log.append(create_event(
-                    etype, run_id=run_id, stage=stage.name,
-                    status=result.status.value, elapsed_sec=round(elapsed, 1),
-                    error=result.error,
-                ))
-            except Exception:
-                pass
-
-        # ── ExperimentSpec: generate after design, validate after analysis ──
-        if stage == Stage.EXPERIMENT_DESIGN and result.status == StageStatus.DONE:
-            try:
-                from researchclaw.pipeline.experiment_spec import ExperimentSpec, MetricDef, generate_spec
-                spec_text = generate_spec(config.research.topic, "")
-                spec_path = run_dir / f"stage-{int(stage):02d}" / "experiment_spec.md"
-                spec_path.write_text(spec_text, encoding="utf-8")
-                logger.info("Experiment spec generated: %s", spec_path)
-            except Exception:
-                logger.debug("Experiment spec generation skipped")
-
+        # ── ExperimentSpec: validate results against the Stage 10 spec ──
+        # (Stage 10 owns generation; duplicating it here produced an empty
+        # stage-09/experiment_spec.md that shadowed the real one.)
         if stage == Stage.RESULT_ANALYSIS and result.status == StageStatus.DONE:
             try:
                 from researchclaw.pipeline.experiment_spec import parse_spec, validate_results_against_spec
-                spec_path = run_dir / "stage-09" / "experiment_spec.md"
-                if spec_path.exists():
+                spec_path = next(
+                    iter(sorted(run_dir.glob("stage-10*/experiment_spec.md"), reverse=True)),
+                    None,
+                )
+                if spec_path is not None and spec_path.is_file():
                     spec = parse_spec(spec_path.read_text(encoding="utf-8"))
                     results_path = run_dir / "results.json"
                     exp_results = {}
@@ -589,26 +566,6 @@ def execute_pipeline(
                         )
             except Exception:
                 logger.debug("Experiment spec validation skipped")
-
-        # ── Pitfall detection after code generation / experiment run ──
-        if stage in (Stage.CODE_GENERATION, Stage.EXPERIMENT_RUN) and result.status == StageStatus.DONE:
-            try:
-                from researchclaw.pipeline.pitfall_detector import PitfallDetector
-                detector = PitfallDetector()
-                code_path = run_dir / f"stage-{int(stage):02d}"
-                code_files = list(code_path.rglob("*.py"))
-                code_text = "\n".join(f.read_text(errors="ignore") for f in code_files[:5])
-                pitfalls = detector.detect_all(code=code_text, results={}, experiment_config={})
-                if pitfalls:
-                    critical = [p for p in pitfalls if p.severity == "critical"]
-                    if critical:
-                        logger.warning("CRITICAL pitfalls detected: %s", [p.description for p in critical])
-                    pitfall_report = [{"type": p.type.value, "severity": p.severity, "description": p.description} for p in pitfalls]
-                    (run_dir / f"stage-{int(stage):02d}" / "pitfall_report.json").write_text(
-                        json.dumps(pitfall_report, indent=2), encoding="utf-8"
-                    )
-            except Exception:
-                logger.debug("Pitfall detection skipped")
 
         # ── Experiment memory: record outcome after experiment stages ──
         if stage in (Stage.EXPERIMENT_RUN, Stage.ITERATIVE_REFINE) and result.status == StageStatus.DONE and exp_memory:
@@ -865,18 +822,6 @@ def execute_pipeline(
         data_origin=_resolve_data_origin(run_dir, config),
     )
     _write_pipeline_summary(run_dir, summary)
-
-    # ── Event log: pipeline end ──
-    if event_log:
-        try:
-            done_count = sum(1 for r in results if r.status == StageStatus.DONE)
-            failed_count = sum(1 for r in results if r.status == StageStatus.FAILED)
-            event_log.append(create_event(
-                EventType.PIPELINE_END, run_id=run_id,
-                stages_done=done_count, stages_failed=failed_count,
-            ))
-        except Exception:
-            pass
 
     # --- Evolution: extract and store lessons ---
     lessons: list[object] = []

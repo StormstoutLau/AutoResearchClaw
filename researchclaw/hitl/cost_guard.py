@@ -6,9 +6,8 @@ configurable thresholds (e.g., 50%, 80%, 100% of budget).
 
 from __future__ import annotations
 
-import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +23,8 @@ class CostStatus:
     percent_used: float = 0.0
     over_budget: bool = False
     threshold_breached: str = ""  # "" | "50%" | "80%" | "100%"
+    total_tokens: int = 0
+    tracking_complete: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -32,6 +33,8 @@ class CostStatus:
             "percent_used": round(self.percent_used, 1),
             "over_budget": self.over_budget,
             "threshold_breached": self.threshold_breached,
+            "total_tokens": self.total_tokens,
+            "tracking_complete": self.tracking_complete,
         }
 
 
@@ -57,10 +60,14 @@ class CostGuard:
         Returns CostStatus with information about whether a threshold
         was breached.
         """
-        total = self._get_total_cost(run_dir)
+        total, tokens, tracking_complete = self._read_cost(run_dir)
 
         if self.budget_usd <= 0:
-            return CostStatus(total_usd=total)
+            return CostStatus(
+                total_usd=total,
+                total_tokens=tokens,
+                tracking_complete=tracking_complete,
+            )
 
         pct = total / self.budget_usd
         status = CostStatus(
@@ -68,7 +75,14 @@ class CostGuard:
             budget_usd=self.budget_usd,
             percent_used=pct * 100,
             over_budget=pct >= 1.0,
+            total_tokens=tokens,
+            tracking_complete=tracking_complete,
         )
+        if not tracking_complete:
+            logger.warning(
+                "Cost guard: some models had no price source — spend is "
+                "under-reported and the budget may not be enforced accurately."
+            )
 
         # Check thresholds
         for threshold in self.thresholds:
@@ -106,27 +120,38 @@ class CostGuard:
 
     def _get_total_cost(self, run_dir: Path | None) -> float:
         """Read total cost from the global cost tracker or cost log."""
-        # Try global cost tracker
+        return self._read_cost(run_dir)[0]
+
+    def _read_cost(self, run_dir: Path | None) -> tuple[float, int, bool]:
+        """Return ``(total_usd, total_tokens, tracking_complete)``."""
+        # Prefer the in-process tracker, but only for the run it tracks —
+        # inspecting another run's directory must read that run's log.
         try:
             from researchclaw.cost_tracker import get_global_tracker
 
             tracker = get_global_tracker()
-            return tracker.total_cost_usd
-        except Exception:
+            if tracker.run_id and (
+                run_dir is None
+                or tracker.run_dir is None
+                or Path(run_dir).resolve() == tracker.run_dir.resolve()
+            ):
+                return (
+                    tracker.total_cost_usd,
+                    tracker.total_tokens,
+                    tracker.tracking_complete,
+                )
+        except Exception:  # noqa: BLE001 - fall back to the log below
             pass
 
-        # Try cost_log.jsonl in run_dir
+        # Fall back to summing cost_log.jsonl (e.g. a finished run inspected
+        # in a fresh process).
         if run_dir is not None:
-            cost_log = run_dir / "cost_log.jsonl"
-            if cost_log.exists():
-                try:
-                    total = 0.0
-                    for line in cost_log.read_text(encoding="utf-8").strip().split("\n"):
-                        if line.strip():
-                            entry = json.loads(line)
-                            total += entry.get("cost_usd", 0.0)
-                    return total
-                except (json.JSONDecodeError, OSError):
-                    pass
+            try:
+                from researchclaw.cost_tracker import sum_cost_log
 
-        return 0.0
+                total, tokens, lines = sum_cost_log(run_dir)
+                return total, tokens, lines > 0
+            except Exception:  # noqa: BLE001
+                pass
+
+        return 0.0, 0, True
