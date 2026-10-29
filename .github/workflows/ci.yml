@@ -104,6 +104,7 @@ jobs:
             tests/test_mcp.py \
             tests/test_mcp_protocol.py \
             tests/test_simulated_guard.py \
+            tests/test_cost_tracker.py \
             tests/test_rc_config.py \
             tests/test_cli.py \
             -q

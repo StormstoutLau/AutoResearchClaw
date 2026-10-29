@@ -431,16 +431,24 @@ pytest tests/test_rc_stages.py -q
 
 > 逐项复现、社区案例与修复方案见 [11-gap-remediation-research.md](11-gap-remediation-research.md)。
 
-### 10.1 缺失/未接线的模块（代码中有引用但文件不存在）
+### 10.1 可选集成模块
 
-以下导入都包在 `try/except` 中，缺失时只记录 debug 日志，不阻断主流程：
+PR-5 后的状态：
 
-| 模块 | 引用位置 | 影响 |
-|------|----------|------|
-| `researchclaw.cost_tracker` | `runner.py:510` | 无全局成本跟踪，预算检查被跳过 |
-| `researchclaw.pipeline.event_log` | `runner.py:463` | 无事件日志 |
-| `researchclaw.pipeline.experiment_spec` | `runner.py:554/564` | 无实验规格生成/校验 |
-| `researchclaw.pipeline.pitfall_detector` | `runner.py:584` | 无陷阱检测报告 |
+| 模块 | 状态 | 说明 |
+|------|------|------|
+| `researchclaw.cost_tracker` | **已实现** | `CostTracker` / `CostRecord` / `get_global_tracker()` / `sum_cost_log()`；每次 LLM 调用写 `cost_log.jsonl` |
+| `researchclaw.pipeline.experiment_spec` | 保留 | 仅用于 Stage 14 校验；Stage 9 不再重复生成 spec |
+| `researchclaw.pipeline.event_log` | **已删除** | 无消费者的死代码（裁定 D6） |
+| `researchclaw.pipeline.pitfall_detector` | **已删除** | 空参调用、信号弱（裁定 D6） |
+
+成本追踪细节：
+
+- 记录位置：`<run_dir>/cost_log.jsonl`，一行一条 `CostRecord`（`schema_version=1`）；
+- 成本来源优先级：provider `usage.cost` → `llm.input_cost_per_1m`/`output_cost_per_1m` → `unknown`（`cost_usd=0`，每个 model 只 warning 一次）；
+- 预算：`experiment.cli_agent.max_budget_usd`；`check_budget()` 使用严格小于，余额恰好用尽视为超限；
+- `CostGuard.check()` 优先读进程内 tracker（同一 run），否则累加日志；`CostStatus` 新增 `total_tokens`、`tracking_complete`；
+- 递归 PIVOT/REFINE 复用同一 `run_id`，`begin_run()` 幂等，成本持续累计。
 
 ### 10.2 打包/依赖不一致
 

@@ -233,6 +233,10 @@ class LlmConfig:
     # tournament_candidates < 2 disables the tournament.
     tournament_enabled: bool = False
     tournament_candidates: int = 3
+    # Cost accounting (USD per 1M tokens). 0 = unknown; only used when the
+    # provider does not report usage.cost. No vendor price table is bundled.
+    input_cost_per_1m: float = 0.0
+    output_cost_per_1m: float = 0.0
     acp: AcpConfig = field(default_factory=AcpConfig)
 
 
@@ -1221,6 +1225,8 @@ def _parse_llm_config(data: dict[str, Any]) -> LlmConfig:
         debate_rounds=_safe_int(data.get("debate_rounds"), 1),
         tournament_enabled=bool(data.get("tournament_enabled", False)),
         tournament_candidates=_safe_int(data.get("tournament_candidates"), 3),
+        input_cost_per_1m=_safe_float(data.get("input_cost_per_1m"), 0.0),
+        output_cost_per_1m=_safe_float(data.get("output_cost_per_1m"), 0.0),
         acp=AcpConfig(
             agent=acp_data.get("agent", "claude"),
             cwd=acp_data.get("cwd", "."),

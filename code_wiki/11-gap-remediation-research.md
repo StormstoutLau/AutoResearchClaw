@@ -534,6 +534,8 @@ if mode in ("biology_agent", "stat_agent"):
 
 #### 现状矩阵
 
+> **PR-5 已实施（2026-10-29）**：`cost_tracker` 已实现；runner 的 `experiment_spec` 重复生成已删除（改为 Stage 14 读 Stage 10 spec）；`event_log` / `pitfall_detector` 已删除。验收见 12 号 G8。
+
 | 模块 | 调用方 | 当前行为 | 建议 |
 |------|--------|----------|------|
 | `researchclaw.cost_tracker` | `runner.py:510-514`、`hitl/cost_guard.py:111-116` | ImportError 被吞；预算检查永远跳过；`cost_log.jsonl` 无人写 | **实现**（README 已宣传 Cost Guardrails） |
