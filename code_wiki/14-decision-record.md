@@ -487,6 +487,8 @@ class ResearchConfig:
 | PR-5 | `cost_tracker` + 删除 event/pitfall | D5、D6 | 已完成（2026-10-29） |
 | PR-6 | OpenClaw 文档诚实化 + README/API + 测试契约 | D7、D8、G10/G11 | 已完成（2026-10-29） |
 
+> CI 已在 GitHub Actions 实跑通过：run `40898741444`（commit `bce0082`），packaging / extras / tests(3.11–3.14) 共 6 个 job 全部 success。
+
 ---
 
 ## 12. 验收映射

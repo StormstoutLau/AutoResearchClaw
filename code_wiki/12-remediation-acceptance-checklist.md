@@ -504,13 +504,17 @@ python -c "import glob,zipfile; w=glob.glob('dist/*.whl')[0]; n=zipfile.ZipFile(
 
 **PASS**：测试能捕获 G1/G2/G3 回归；**FAIL**：测试仍锁定旧契约。
 
-**验收结果（PR-1~PR-6）：In progress（本地全绿；CI 未在 GitHub 实际触发）**
+**验收结果（PR-1~PR-6）：Pass（2026-10-29，GitHub Actions 实跑）**
 
 - 新增测试：`test_packaging.py`、`test_run_state.py`、`test_frontend_mount.py`、`test_mcp.py`、`test_mcp_protocol.py`、`test_simulated_guard.py`、`test_cost_tracker.py`、`test_docs_and_adapters.py`
 - 旧契约改写：`tests/test_mcp.py` 不再断言 stub 成功；`tests/test_rc_executor.py` 改从 `review_service` 导入 `collect_experiment_evidence`
-- CI（`.github/workflows/ci.yml`）：packaging（wheel + 内容校验 + 安装 + `--help`）、extras、tests 矩阵（3.11–3.13，3.14 experimental）；契约测试含 MCP/SIM/COST/DOC/ADP
+- CI（`.github/workflows/ci.yml`）：packaging（wheel + 内容校验 + 安装 + `--help`）、extras、tests 矩阵（3.11–3.13，3.14 experimental）
 - 可选依赖：`test_mcp*.py` 使用 `pytest.importorskip("mcp")`
-- 待完成：CI 需在有 GitHub Actions 的环境跑通；`tests/test_hitl_advanced.py::test_shell_hooks` 在 Windows 上因执行 `.sh` 失败（既有环境问题）
+- 实跑证据（run `40898741444`，commit `bce0082`，全部 success）：
+  - Packaging / wheel smoke 17s：`Successfully built researchclaw-0.5.0-py3-none-any.whl`、`wheel OK: ... (362 files)`、`researchclaw --help` 正常
+  - Extras import 21s：`import fastapi, uvicorn, httpx, mcp` 通过
+  - Tests 3.11 27s / 3.12 28s / 3.13 24s / 3.14（experimental）23s：3.11 日志为 `160 passed`
+- 已知遗留（非 CI 失败）：`tests/test_hitl_advanced.py::test_shell_hooks` 仅在本机 Windows 上因执行 `.sh` 失败；Linux runner 全绿
 
 ---
 
@@ -572,7 +576,7 @@ python -c "import glob,zipfile; w=glob.glob('dist/*.whl')[0]; n=zipfile.ZipFile(
 | G8 | PR-5 | — | ☑ | ☑ | ☑ | `tests/test_cost_tracker.py`（COST-01~05、SPEC-01~02、D6） | Pass |
 | G9 | PR-4 | — | ☑ | ☑ | ☑ | `tests/test_simulated_guard.py`（SIM-01~04） | Pass |
 | G10 | PR-6 | — | ☑ | ☑ | ☑ | `tests/test_docs_and_adapters.py`（DOC-01/02） | Pass |
-| G11 | PR-1~6 | — | ☑ | ☑ | ☐ | `.github/workflows/ci.yml` 已建并含全量契约测试；GitHub Actions 尚未实际跑过 | In progress |
+| G11 | PR-1~6 | — | ☑ | ☑ | ☑ | CI run [40898741444](https://github.com/StormstoutLau/AutoResearchClaw/actions/runs/40898741444)（6/6 jobs success） | Pass |
 | G12 | PR-6 | — | ☑ | ☑ | ☑ | `tests/test_docs_and_adapters.py`（ADP-01~04） | Pass（真实适配器延后） |
 
 状态取值：`Not started` / `In progress` / `Pass` / `Fail` / `Waived（原因）`。
