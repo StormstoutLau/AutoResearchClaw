@@ -348,6 +348,14 @@ python -c "import glob,zipfile; w=glob.glob('dist/*.whl')[0]; n=zipfile.ZipFile(
 
 **PASS**：真实执行链路可跑通；**FAIL**：仍抛 Unsupported 或仍走 Python code 路径。
 
+**验收结果（PR-4，2026-10-29）：Pass（端到端需 Docker + agent CLI）**
+
+- Stage 10：`tests/test_simulated_guard.py::test_ag02_stage10_writes_agent_plan[agentic]` 生成 `agent_plan.md` + `agent_meta.json`
+- Stage 12：`_execute_agent_experiment()` 调 `create_agentic_sandbox()` + `run_agent_session()`，写 `runs/run-1.json`（schema v1）与 `runs/results.json`
+- Stage 13：`test_ag07_stage13_skips_refine_for_agentic` 断言 `skipped=true` 且填充 `experiment_final/`
+- 失败路径：超时/崩溃无指标 → `FAILED`，`metrics` 为空，不伪造
+- 未覆盖（需真实 Docker）：容器清理、skills 挂载/网络/GPU 参数
+
 ---
 
 ### G7 · biology_agent / stat_agent
@@ -370,6 +378,14 @@ python -c "import glob,zipfile; w=glob.glob('dist/*.whl')[0]; n=zipfile.ZipFile(
 **证据**：mock 调用参数、plan 文件、results JSON
 
 **PASS**：plan→agent→results 链路正确；**FAIL**：仍把 `main.py` 当 prompt。
+
+**验收结果（PR-4，2026-10-29）：Pass（端到端需 agent CLI）**
+
+- Stage 10：`test_ag02_stage10_writes_agent_plan[biology_agent|stat_agent]` 生成 `biology_plan.md` / `stat_plan.md`
+- Stage 12：`test_ag02_stage12_runs_agent_and_writes_results` 断言 sandbox 收到 plan 原文、`runs/results.json` 生成
+- `test_ag04_plan_text_is_passed_verbatim`：即使 plan 内含 `def main()` 也按原文传递，不走代码路径
+- 负向：`test_ag03_missing_plan_blocks_upstream` → `upstream_blocked`；超时无指标 → `FAILED`
+- 未覆盖：Stage 14 指标解析端到端、外部 Agent 目录缺失的报错文案
 
 ---
 
@@ -426,6 +442,16 @@ python -c "import glob,zipfile; w=glob.glob('dist/*.whl')[0]; n=zipfile.ZipFile(
 **证据**：配置测试、`pipeline_summary.json`、Stage 20 日志
 
 **PASS**：假数据不能静默成论文；**FAIL**：默认 simulated 仍产出论文。
+
+**验收结果（PR-4，2026-10-29）：Pass**
+
+- `test_sim01a` 缺 mode → `sandbox` + warning；`test_sim01b` 显式 `simulated` 保留且不 warning；`test_sim01c` 非法 mode → error
+- `test_sim02_*`：`data_origin` 判定（simulated / real / unknown / simulated run status）
+- `test_sim03_simulated_paper_is_blocked`：Stage 20 → `FAILED` + `E20_SIMULATED_DATA` + `quality_warning.txt`
+- `test_sim04_markdown_watermark_is_prefixed` / `test_sim04_latex_notice_is_injected`：水印幂等，LaTeX 插在 `\begin{document}` 之后
+- `sanitization_report.json` 增加 `data_origin` / `allow_simulated_paper`
+- CLI `run` 在 simulated 模式打印 `FAKE DATA` 警告并说明 Stage 20 行为
+- 未覆盖：`deliverables/` 端到端快照断言
 
 ---
 
@@ -508,10 +534,10 @@ python -c "import glob,zipfile; w=glob.glob('dist/*.whl')[0]; n=zipfile.ZipFile(
 | G3 | PR-2 | — | ☑ | ☑ | ☑ | `tests/test_run_state.py`（15 函数 / 17 用例） | Pass |
 | G4 | PR-2 | — | ☑ | ☐ | ☑ | `tests/test_frontend_mount.py`（5 项） | Pass |
 | G5 | PR-1 | — | ☐ | ☐ | ☐ | extras 已加；逐条验收未跑 | In progress |
-| G6 | | | ☐ | ☐ | ☐ | | Not started |
-| G7 | | | ☐ | ☐ | ☐ | | Not started |
+| G6 | PR-4 | — | ☑ | ☑ | ☑ | `tests/test_simulated_guard.py`（AG-02/03/07） | Pass（Docker 端到端未跑） |
+| G7 | PR-4 | — | ☑ | ☑ | ☑ | `tests/test_simulated_guard.py`（AG-02/04） | Pass（agent CLI 端到端未跑） |
 | G8 | | | ☐ | ☐ | ☐ | | Not started |
-| G9 | | | ☐ | ☐ | ☐ | | Not started |
+| G9 | PR-4 | — | ☑ | ☑ | ☑ | `tests/test_simulated_guard.py`（SIM-01~04） | Pass |
 | G10 | | | ☐ | ☐ | ☐ | | Not started |
 | G11 | PR-1 | — | ☐ | ☐ | ☐ | `.github/workflows/ci.yml` 已建；因仓库无 `.git` 未实际触发 | In progress |
 | G12 | | | ☐ | ☐ | ☐ | | Not started |

@@ -43,7 +43,7 @@ class SandboxProtocol(Protocol):
 | `docker` | `DockerSandbox` | `docker_sandbox.py:93` | Docker 容器，支持 GPU 直通、网络策略、依赖安装 |
 | `ssh_remote` | `SshRemoteSandbox` | `ssh_sandbox.py:31` | scp 上传 + SSH 远端执行 |
 | `colab_drive` | `ColabDriveSandbox` | `colab_sandbox.py:120` | 通过 Google Drive 挂载与 Colab worker 通信 |
-| `agentic` | `AgenticSandbox` | `agentic_sandbox.py:51` | Docker + 编码 Agent（**目前主流水线未接线**，见 §8） |
+| `agentic` | `AgenticSandbox` | `agentic_sandbox.py:51` | Docker + 编码 Agent（PR-4 已接线，见 §2.1） |
 | `collider_agent` | `ColliderAgentSandbox` | `collider_agent_sandbox.py:49` | Claude Code + ColliderAgent 技能，跑完整 HEP 链 |
 | `biology_agent` | `BiologyAgentSandbox` | `biology_agent_sandbox.py:58` | Claude Code + Biology-Agent（COBRApy/FBA/FVA） |
 | `stat_agent` | `StatAgentSandbox` | `stat_agent_sandbox.py:52` | Claude Code + stat_research_agent（统计模拟） |
@@ -61,7 +61,23 @@ mode == sandbox       → ExperimentSandbox
 其他                  → RuntimeError
 ```
 
-`create_agentic_sandbox()`（`factory.py:111`）是独立入口，要求 Docker 可用；当前没有调用方（见 §8）。
+`create_agentic_sandbox()`（`factory.py:111`）是独立入口，要求 Docker 可用；Stage 12 的 `agentic` 分支调用它。
+
+### 2.1 Agent 模式的 Stage 10 / 12 契约（PR-4）
+
+| 模式 | Stage 10 产物 | Stage 12 执行 | Stage 13 |
+|------|---------------|---------------|----------|
+| `collider_agent` | `collider_plan.md` | `ColliderAgentSandbox.run(plan)` | 跳过（复制结果） |
+| `biology_agent` | `biology_plan.md` | `BiologyAgentSandbox.run(plan)` | 跳过 |
+| `stat_agent` | `stat_plan.md` | `StatAgentSandbox.run(plan)` | 跳过 |
+| `agentic` | `agent_plan.md` | `create_agentic_sandbox()` + `run_agent_session()` | 跳过 |
+
+- 计划生成统一入口：`_execute_agent_plan_generation()`（`stage_impls/_code_generation.py`），规格表 `_AGENT_PLAN_SPECS`；
+- Stage 12 分派：`_execute_agent_experiment()`（`stage_impls/_execution.py`），规格表 `_AGENT_EXPERIMENT_SPECS`；
+- 计划缺失 → `FAILED` + `decision="upstream_blocked"`，不回退到通用 `ExperimentRunner`；
+- run 产物 `runs/run-1.json`（schema v1）：`schema_version/mode/status/returncode/elapsed_sec/timed_out/metrics/workspace/stdout/stderr/timestamp`；
+- `status` ∈ `completed|partial|timed_out|failed`；超时且无指标 → `FAILED`，不伪造 metrics；
+- 同时把 agent workspace 的 `results.json` 复制到 `runs/results.json` 供下游解析。
 
 ---
 
@@ -281,10 +297,16 @@ Profile 文件：`researchclaw/domains/profiles/*.yaml`（29 个，含 `_generic
 
 ## 9. 已知边界与缺口
 
-1. **`agentic` 模式未接线**：`EXPERIMENT_MODES` 声明了 `agentic`，`create_agentic_sandbox()` 也已实现，但 `create_sandbox()` 不处理它，且全仓库无调用方；在 Stage 12 使用会走到 `RuntimeError("Unsupported experiment mode...")`。
-2. **`biology_agent` / `stat_agent` 缺少 Stage 12 专用分派**：两者只有 Stage 13 的跳过逻辑；Stage 12 会进入通用分支，通过 `ExperimentRunner` 把「代码文本」传给领域 Sandbox 的 `run(prompt_text)`。使用前需确认这条路径符合预期（或参照 `collider_agent` 增加显式分支）。
-3. **Docker 镜像缺失**：`mode: docker` 要求本地已有 `researchclaw/experiment:latest`；`factory` 不会自动构建，只抛错并提示 `docker build`。
-4. **`simulated` 是配置默认值**：`ExperimentConfig.mode` 默认 `simulated`，会生成假数据，只适合框架调试。
+1. **Docker 镜像缺失**：`mode: docker` 要求本地已有 `researchclaw/experiment:latest`；`factory` 不会自动构建，只抛错并提示 `docker build`。
+2. **Agent 模式依赖外部 CLI**：`biology_agent` / `stat_agent` / `agentic` 需要 Claude Code（或等价 agent CLI）与相应技能目录；`agentic` 还需 Docker。
+
+### 9.1 默认模式与模拟数据（PR-4 已修复）
+
+- `ExperimentConfig.mode` 默认 `"sandbox"`；配置缺少 `experiment.mode` 时 `validate_config()` 追加 warning 并记录日志；
+- `simulated` 只能显式开启；
+- `pipeline_summary.data_origin` ∈ `real|simulated|mixed|unknown`，由 `pipeline/_helpers.py::detect_data_origin()` 推导；
+- Stage 20：`data_origin == "simulated"` 且未设 `research.allow_simulated_paper` → `FAILED` + `E20_SIMULATED_DATA`，写 `stage-20/quality_warning.txt`；
+- Stage 22：显式放行时 Markdown 前缀 `> **SIMULATED DATA — NOT FOR SUBMISSION**`，LaTeX 在 `\begin{document}` 后插入同义 banner，`sanitization_report.json` 记录 `data_origin` 与 `allow_simulated_paper`。
 
 ---
 
@@ -302,7 +324,10 @@ Profile 文件：`researchclaw/domains/profiles/*.yaml`（29 个，含 `_generic
 | `ColliderAgentSandbox` | `experiment/collider_agent_sandbox.py:49` | HEP Agent |
 | `BiologyAgentSandbox` | `experiment/biology_agent_sandbox.py:58` | 生物 Agent |
 | `StatAgentSandbox` | `experiment/stat_agent_sandbox.py:52` | 统计 Agent |
-| `AgenticSandbox` | `experiment/agentic_sandbox.py:51` | Docker+Agent（未接线） |
+| `AgenticSandbox` | `experiment/agentic_sandbox.py:51` | Docker+Agent（Stage 12 已接线） |
+| `_execute_agent_experiment()` | `stage_impls/_execution.py` | biology/stat/agentic 的 Stage 12 分派 |
+| `_execute_agent_plan_generation()` | `stage_impls/_code_generation.py` | 四类 agent 模式的 Stage 10 计划生成 |
+| `detect_data_origin()` / `simulated_paper_allowed()` | `pipeline/_helpers.py` | 数据来源判定与模拟论文放行 |
 | `create_sandbox()` | `experiment/factory.py:18` | 后端工厂 |
 | `ExperimentRunner` | `experiment/runner.py:104` | 执行—评估—改进循环 |
 | `validate_code()` / `CodeValidation` | `experiment/validator.py` | AST 安全校验 |

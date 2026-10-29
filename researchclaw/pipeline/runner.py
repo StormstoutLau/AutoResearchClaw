@@ -32,6 +32,16 @@ def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _resolve_data_origin(run_dir: Path, config: RCConfig | None) -> str:
+    """Classify experiment provenance for ``pipeline_summary.data_origin``."""
+    try:
+        from researchclaw.pipeline._helpers import detect_data_origin
+
+        return detect_data_origin(run_dir, config)
+    except Exception:  # noqa: BLE001 - summary must never fail the run
+        return "unknown"
+
+
 def _should_start(stage: Stage, from_stage: Stage, started: bool) -> bool:
     if started:
         return True
@@ -44,6 +54,7 @@ def _build_pipeline_summary(
     results: list[StageResult],
     from_stage: Stage,
     run_dir: Path | None = None,
+    data_origin: str = "unknown",
 ) -> dict[str, object]:
     summary: dict[str, object] = {
         "run_id": run_id,
@@ -63,6 +74,7 @@ def _build_pipeline_summary(
         "final_stage": int(results[-1].stage) if results else int(from_stage),
         "final_status": results[-1].status.value if results else "no_stages",
         "generated": _utcnow_iso(),
+        "data_origin": data_origin,
         "content_metrics": _collect_content_metrics(run_dir),
     }
     return summary
@@ -850,6 +862,7 @@ def execute_pipeline(
         results=results,
         from_stage=from_stage,
         run_dir=run_dir,
+        data_origin=_resolve_data_origin(run_dir, config),
     )
     _write_pipeline_summary(run_dir, summary)
 
