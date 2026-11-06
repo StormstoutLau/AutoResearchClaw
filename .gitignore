@@ -145,3 +145,19 @@ experiments/arc_bench/batch_logs/
 # README is tracked; any local checkout placed here stays local.
 external/agents/ColliderAgent/*
 !external/agents/ColliderAgent/README.md
+
+# ── Research reports (kept on disk, never committed) ────────────────────────
+# Local working documents only. Un-ignore with `git add -f` if a report is
+# deliberately promoted into the repo. Exception: /arc-master-roadmap.md is the
+# tracked master plan (promoted 2026-11-06, P-003) and is deliberately absent here.
+/academic-reasoning-base-fusion.md
+/arb-v2-decisions-research-design.md
+/arc-knowledge-paper-textbook-integration.md
+/clawsgo-*.md
+/dsh-superagent-absorption-analysis.md
+docs/artifact-node-evidence-ref-design.md
+docs/failure-guards-design.md
+docs/grounded-qa-backend-design.md
+docs/orchestration-capability-matrix.md
+docs/orchestration-benchmark-plan.md
+docs/research-plan-design.md
