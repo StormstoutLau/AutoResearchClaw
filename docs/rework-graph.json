@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "updated": "2026-11-06",
+  "owner": "ARC",
+  "truth_source": "registry",
+  "trigger_kinds": [
+    "upstream-overturned",
+    "verify-failed",
+    "scope-change",
+    "user-verdict",
+    "undecided"
+  ],
+  "provenance_prefixes": [
+    "manual",
+    "tool",
+    "filetrack",
+    "hash"
+  ],
+  "forks": [],
+  "non_rework": []
+}
