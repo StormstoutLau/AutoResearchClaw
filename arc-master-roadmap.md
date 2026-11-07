@@ -1,14 +1,14 @@
 ---
 id: arc-master-roadmap
 type: design
-version: 0.3
+version: 0.4
 status: draft
 date: 2026-11-04
 depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-textbook, clawsgo-cleanroom-arc]
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v0.3）
+# ARC 统一学术推理基座：调研总纲与实施路线（v0.4）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -19,6 +19,8 @@ upstream: arb-v2-decisions
 > **修订**：v0.2（2026-11-06，P-003）按 [审查报告](docs/arc-roadmap-review-20261106.md) §6 订正六处——G3 的 H-4 前提（§4 G3）、§5 新增 C-9 与「生效起点」列、A2-3 的测试口径（§4 G2）、§7 标题、Q11 与 §10 的钩子数。审查报告本身仍绑定 v0.1 / `7d0e70a`，不改写。
 >
 > **修订**：v0.3（2026-11-07）§11 增运行时后端审计依据；§7 增 Q17（默认后端选型，决定审计粒度）。
+>
+> **修订**：v0.4（2026-11-08，P-005）裁决落地——D-1=A（H-5 移入 C-9、§5 删箭头）、D-2=C（A2-4/5/6 谓词化）；D-3 执行矩阵（§5.1）、D-4 最小集定义（§1/§6）、D-5 交付物补全（G1/G3/G5）、D-6 覆盖声明 + CI 覆盖率门禁、D-7 新增 Q18..Q20。106 计数不变。依据：[D-1/D-2 裁决分析](docs/arc-d1-d2-verdict-analysis-20261108.md)。
 
 ---
 
@@ -89,7 +91,7 @@ flowchart LR
 
 **关键路径**：`G0a → G-1 → G2 → G3 → G7`。G1 与 G2 可并行；G6/G8b 不在关键路径上。
 
-**最短"不产出假结果"路径**：`G0a → G-1 → G3`（跳过 G1/G2 的完整实现，只保留 G3 所需的最小契约）。
+**最短"不产出假结果"路径**：`G0a → G-1 → G3`——跳过 G1/G2 的**完整**实现，最小契约 = **A0a-1..A0a-4 + H-1..H-8 + A1-1/A1-2/A1-5 + A2-1/A2-2**；未列入的 A1/A2 项在该路径下记 `N/A`，进入完整路线时转绿。
 
 ---
 
@@ -222,6 +224,13 @@ flowchart LR
 - `<run>/lease.json`（owner/pid/expires/fencing）
 - 原子 checkpoint（tmp + `os.replace` + `artifacts_digest`）
 - 幂等键 `stage_id + inputs_digest`
+- 事件日志滚动与单 run 体积上限（A1-6）
+- checkpoint 损坏时从事件日志重建（A1-5）
+- worker 退出码分类（A1-7）
+- `StageAttempt` 子进程 + `session_id` 续接（A1-9）
+- Transactional outbox/effect queue（A1-10）
+- Run / Stage / Attempt 三层状态模型（A1-11）
+- 恢复提示 `resume_note`（A1-12）
 
 **验收目标**
 
@@ -264,6 +273,7 @@ flowchart LR
 - 16 个 fixture（每条 1 正 1 反）
 - vendor 到 ARC：`datatypes`（裁剪）、`verdict/policy`、`sandbox/evaluator`
 - 3.12 子进程边界（完整 `proof_pipeline` / Lean 插件）
+- 发布判定谓词（纯函数）：`can_enter_deliverables` / `requires_annotation` / `downgrade_missing_citation`，各带 1 正 1 反 fixture
 
 **验收目标**
 
@@ -272,9 +282,9 @@ flowchart LR
 | A2-1 | 契约 JSON Schema + fixture 全通过（7 个 schema） | 缺 `claim_class` 必须失败 |
 | A2-2 | AR-01..08 共 16 fixture 全绿；**变异测试**：删掉任一判据 → 对应 fixture 变红 | 判据空实现必须失败 |
 | A2-3 | 判定内核在 Python 3.11 跑通「判定内核测试集」：该集合须在 G2 开工时以 `pytest --collect-only` 冻结为用例清单（禁止用文件名/关键字模糊计数）；冻结前记 `N/A` | 依赖 3.12-only 语法即失败 |
-| A2-4 | `FALSIFIED/FAILED` 的 claim **无法进入** `deliverables/` | 能进入即失败 |
-| A2-5 | `NUMERICALLY_VERIFIED` 可用，但论文必须带"numerically verified (N cases)"注记 | 无注记即失败 |
-| A2-6 | 缺引文的 A/B 类 → 移入 `assumptions`，正文不渲染，状态降 `speculation`（**不阻断**） | 一律 fail 即违背原语义 |
+| A2-4 | 谓词 `can_enter_deliverables(claim)`：`status ∈ {FALSIFIED, FAILED}` 一律返回 false（纯函数 + 1 正 1 反 fixture） | `FALSIFIED` 被谓词放行即失败 |
+| A2-5 | 谓词 `requires_annotation(claim)`：`status = NUMERICALLY_VERIFIED` ⇒ 必须携带 `annotation` 字段；G3 渲染侧仅消费该谓词 | `NUMERICALLY_VERIFIED` 且无 `annotation` 仍通过即失败 |
+| A2-6 | 谓词 `downgrade_missing_citation(claim)`：A/B 类缺引文 → 迁入 `assumptions`、状态降 `speculation`（**不阻断**），推导为纯函数 | 一律 fail 即违背原语义 |
 | A2-7 | 无 Lean / 编译失败 / 有 sorry → 上限 `PARTIALLY_FORMALIZED`，深度 `stage2` | 冒充 `FORMALLY_VERIFIED` 即失败 |
 
 **决策闸门**：Q1 Python 双轨（建议 B）；Q2 Lean 可选 Tier-3。
@@ -300,12 +310,16 @@ flowchart LR
 - `retrieval_degraded` 标记（**待 G-1 的 H-4 落地后**接入门禁；H-4 未落地前 A3-5 记 `N/A`，不得判绿）
 - `ArtifactNode v1`（content_hash + parent_ids + type + producer + locator）
 - `stage_events.jsonl` + 循环检测（连续同签名 + 0 新增 → PAUSE）
+- Stage 22 接入 `ClaimStatus` / `CitationLabel`（导出侧与 A2-4/5/6 谓词一致）
+- `RunMandate`（policy_version/scope/strength/requester）
+- LLM 请求记录 `prompt_version`
+- `StageHandback {reason, evidence}` 越界交回
 
 **验收目标**
 
 | ID | 断言 | 负向用例 |
 |---|---|---|
-| A3-1 | 一条 claim 端到端：ClaimRecord → 证据 → 段落 → Stage20 → Stage23，三出口状态一致 | 任一处状态不一致即失败 |
+| A3-1 | 一条 claim 端到端：ClaimRecord → 证据 → 段落 → Stage20 → Stage23 → **Stage22 导出侧**，三出口状态一致且与 A2-4/5/6 谓词判定一致 | 任一处与谓词判定不一致即失败 |
 | A3-2 | 手改 `pipeline_summary.json` 未重算 → 一致性检查失败 | 手改后仍通过即失败 |
 | A3-3 | 断网重算证据 digest，结果与运行期一致 | 依赖运行期内存即失败 |
 | A3-4 | K5 门禁：无法解析的 `tb:` / `paper:` 引用 → 阻断并给定位 | 静默通过即失败 |
@@ -380,6 +394,8 @@ flowchart LR
 - **K5** 计数与摘要同源（`m7_stats`/`repo_stats`）
 - **GQ** 可选 `GroundedQA` + `NullGroundedQA` 降级（默认关闭）
 - **G5-E（条件项）** K4 全文升级：**硬前置** Paper Phase 2（PDF→Markdown）完成
+- SkillPack 校验：version + digest + signature，篡改拒绝加载（A5-8）
+- 文献源 `read_position` 保存与恢复（A5-9）
 
 **验收目标**
 
@@ -448,7 +464,7 @@ flowchart LR
 - 72h soak 脚本与报告模板
 - 多 run 并发（独立目录、独立租约、独立沙箱）
 - 双平面（科研/生产）同 `ClaimStatus` 校验
-- 事件日志轮转/归档策略
+- 跨 run 事件归档策略（承接 G1 的单 run 滚动与体积上限）
 - Runbook + 观测看板（重启次数、恢复耗时、失败阶段分布）
 - 并发准入（`max_concurrent_attempts` + `max_inflight_llm_calls`）
 - 漂移护栏（FA-1..FA-3）
@@ -531,24 +547,44 @@ flowchart LR
 
 | ID | 套件 | 覆盖 | 生效起点（成员全部落地后） |
 |---|---|---|---|
-| C-1 | 事件链与回放 | I-2、A1-1、A1-2、A7-4 | G1 |
+| C-1 | 事件链与回放 | I-2、A1-1、A1-2、A1-6、A7-4 | G1 |
 | C-2 | 幂等与续跑 | I-3、A1-3..A1-5、A1-7、A1-9..A1-12、A7-1 | G1 |
 | C-3 | 证据复算与血缘 | I-4、A3-1..A3-4、A3-6..A3-8、A5-5、AN-1..AN-6 | G3 |
-| C-4 | 边界、配额与密钥 | I-5、A1-8、H-6..H-8（→G-1）；A4-2、A4-3、A4-7..A4-9（→G4） | G-1 起分段生效 |
+| C-4 | 边界、配额与密钥 | I-5、A1-8、H-6..H-8、A4-2、A4-3、A4-7..A4-9 | G4 |
 | C-5 | 契约与文档 | A0a-1..A0a-4、A0-1..A0-6、A2-1 | G0b |
 | C-6 | 路由确定性 | A6-1..A6-4 | G6 |
-| **C-7** | **失败护栏** | H-5（FB-1..3）、FC-1..3（→G3）；FA-1..3（→G7） | G3 起分段生效 |
-| **C-8** | **计划契约** | A8a-1..A8a-4（→G8a）、A8b-1..A8b-4（→G8b） | G8a 起分段生效 |
-| **C-9** | **可信执行（G-1 数据正确性）** | **H-1、H-2、H-3、H-4** | **G-1** |
+| **C-7** | **失败护栏（循环与漂移）** | **FC-1..FC-3、FA-1..FA-3** | **G7** |
+| **C-8** | **计划契约** | **A8a-1..A8a-4、A8b-1..A8b-4** | **G8b** |
+| **C-9** | **可信执行（G-1）** | **H-1..H-5** | **G-1** |
 
 **生效与判红规则**：
 - 成员所属阶段尚未完成 → 记 `N/A`，**不计红**；所属阶段完成后自动转为必绿。
+- 成员生效点一律由**交付阶段**推导（v0.4 起不再使用行内箭头注记）；声明与差集的一致性由 `scripts/roadmap_coverage_check.py --check` 在 CI 强制。
 - C-1/C-2/C-3/C-7/C-8/C-9 任一红 → **禁止发布**；
 - C-4 红 → 禁止接入新工具与外部数据；
 - C-5 红 → 禁止提交；
 - C-6 红 → 回退到上一版 `model_policy`（G6 降为 P2 后该项默认不阻塞）。
 
-**覆盖范围声明（P-003）**：C 套件只回归"已实现能力"，不追求对 106 条的穷举。当前未纳入任何套件的阶段出口有 `A2-2..A2-7`、`A4-1/A4-4/A4-5/A4-6/A4-10`、`A5-6`、`GQ-1..GQ-5`、`OB-1..OB-5`；这些在对应阶段 `RESEARCH.md` 登记后决定归属，本版不补齐。
+**覆盖范围声明（P-005）**：C 套件只回归"已实现能力"，不追求对 106 条的穷举。未纳入任何套件的阶段出口共 **35 条**：`A2-2..A2-7`、`A4-1/A4-4/A4-5/A4-6/A4-10`、`A5-1..A5-4`、`A5-6`、`A5-7..A5-9`、`A6-5`、`A7-2/A7-3/A7-5/A7-6/A7-7`、`GQ-1..GQ-5`、`OB-1..OB-5`；这些在对应阶段 `RESEARCH.md` 登记后决定归属，本版不补齐。另 `A3-5` 为**有意 N/A**（H-4 前置，见 §4 G3），不计入未归属。不变量 **I-1（单一真值）** 暂无专属套件，其判据由 C-1/C-2 的一致性校验间接承载，归属待 G1 的 RESEARCH 登记。
+
+### 5.1 验收执行矩阵（D-3，首批：G0a + G-1 共 12 条）
+
+> 判定方式与测试路径为**计划目标**，在对应阶段开工时冻结（同 A2-3 口径）；G0a 各项以既有钩子/脚本的当前输出为准。
+
+| ID | 判定方式 | 平台 | 证据落点 |
+|---|---|---|---|
+| A0a-1 | 既有钩子：dc_validator 对缺字段 fixture 退出码 1 | 本地 + CI | pre-commit 运行日志 |
+| A0a-2 | spec_runner step-gate 缺 verify 事件退出码 1 | 本地 + CI | step-gate 输出 |
+| A0a-3 | 会话审计：改动数 vs decision 事件数 | 本地 | session jsonl |
+| A0a-4 | bootstrap 提交后 step-enforce 全绿 | CI | workflow 日志 |
+| H-1 | pytest：`run-1.json` 含 `returncode`（wrapper/experiment 区分） | CI ubuntu-latest | tests/test_stage12_returncode.py |
+| H-2 | pytest：`max_retries=0` 不重试 / `=2` 最多 3 次 | CI | tests/test_stage_retries.py |
+| H-3 | pytest：Stage 20/23 门禁报告含 claim 校验结果 | CI | tests/test_claim_verifier_wiring.py |
+| H-4 | pytest：检索降级 → `retrieval_degraded=true` | CI | tests/test_retrieval_degraded.py |
+| H-5 | pytest：`completed + rc≠0` → FAILED（FB-1..3 变异） | CI | tests/test_forged_execution_guards.py |
+| H-6 | pytest：子进程 env 断言无密钥 | CI | tests/test_env_allowlist.py |
+| H-7 | pytest：`safe_join` 四类逃逸全拒 | CI | tests/test_safe_join.py |
+| H-8 | pytest：非白名单 Origin 被拒；默认无 `*` | CI | tests/test_cors_default.py |
 
 ---
 
@@ -562,18 +598,18 @@ G0a → G-1 → G0b ─┬→ G1 ─┐
                                └→ G8a → G8b（P1→P2）
 ```
 
-- **必须串行**：`G0a → G-1 → G0b → G2 → G3`。急救必须先于完整治理；契约与门禁必须先于脊柱。
+- **必须串行**：`G0a → G-1 → G0b → G2 → G3`。急救必须先于完整治理；契约与门禁必须先于脊柱。串行约束**完整路线**；§1 最小集路径不受此限（其 N/A 语义见 §1）。
 - **可并行**：G1 与 G2（不同目录、不同测试集），都在 G0b 之后启动。
 - **可并行**：G4 / G5 / G8a（P1）；G6 为 P2 可选。
 - **G8b 依赖 G8a**：先有可校验的计划对象，再谈重规划与懒惰分解。
 - **G7 最后**：需要 G1 的恢复、G4 的沙箱、G5 的知识；**不再依赖 G6**。
-- **如果只能做三件事**：`G0a → G-1 → G3 的最小集`（伪造执行护栏 + 路径/密钥/CORS），即可让"不产出假结果"成立。
+- **如果只能做三件事**：`G0a → G-1 → G3 最小集`（= §1 定义的最小契约：可信急救 + 事件链最小集 + ClaimRecord 契约），即可让"不产出假结果"成立。
 
 **每阶段的硬出口**：本阶段验收项全绿 + C 套件中**已生效成员**全绿 + 下一阶段前置的 `spec/` 四文档已齐。
 
 ---
 
-## 7. 尚未裁决的 17 项
+## 7. 尚未裁决的 20 项
 
 | # | 问题 | 影响阶段 | 默认建议 | 状态 |
 |---|---|---|---|---|
@@ -594,6 +630,9 @@ G0a → G-1 → G0b ─┬→ G1 ─┐
 | **Q15** | 研究计划 `max_versions`（默认 3）与节点上限（40） | G8a/G8b | 先用 3 / 40，按 ARC-Bench 校准 | 待确认 |
 | **Q16** | 懒惰分解触发阈值（失败 2 次 / 预算 50% 且 done<30%） | G8b | 先用经验值，需校准 | 待确认 |
 | **Q17** | 默认后端：API-first 还是 ACP 优先（决定审计粒度） | G-1/G1 | **API-first**；ACP 仅作免密钥替代，审计要求高的 run 禁用 ACP | 待确认 |
+| **Q18** | vendor 供应链与语料 pin（仓库 / commit / 许可证 / 校验和） | G2/G5 | SLSA L1 式 provenance + Croissant 四字段（name/version/hash/license） | 待确认 |
+| **Q19** | API 默认认证收紧（`auth_token=""` 且 `host=0.0.0.0`） | G-1 | 本地默认 127.0.0.1，绑定非回环地址时强制 token（OWASP API2） | 待确认 |
+| **Q20** | 预算字段统一（`hitl.cost_budget_usd` vs `cli_agent.max_budget_usd`，默认值不一致） | G6/G-1 | 统一为单一账本字段，默认上限对齐，前置拒绝接入 LLM 发送路径 | 待确认 |
 
 > 规则：未裁决项**不得进入对应阶段**；可用默认建议先行，但必须在 `spec/` 的决策流中记录为 `provisional`。
 
@@ -685,6 +724,8 @@ G0a → G-1 → G0b ─┬→ G1 ─┐
 | [dsh-superagent-absorption-analysis.md](dsh-superagent-absorption-analysis.md) | DSH 原型的运行时机制与 A1-10..A7-7 增量 | **G1/G3/G5/G7** |
 | [research-plan-design.md](docs/research-plan-design.md) | `ResearchPlan v1` + 12 条校验 + 版本化重规划 + A8a/A8b | **G8a/G8b** |
 | [arc-runtime-backend-audit-20261107.md](docs/arc-runtime-backend-audit-20261107.md) | 后端三形态、工具/上下文/记忆盘点、审计分层与 GAP-1..3 | **G-1/G1** |
+| [arc-roadmap-gaps-review-20261107.md](docs/arc-roadmap-gaps-review-20261107.md) | P-004 独立复核（主张全部成立 + F-1..F-8 修正） | **P-005 依据** |
+| [arc-d1-d2-verdict-analysis-20261108.md](docs/arc-d1-d2-verdict-analysis-20261108.md) | D-1/D-2 三方案七维对比、外部锚点与建议（裁决 A/C） | **G-1/G2/G3** |
 
 **四个已核实的急救事实**（对应 H-1..H-4）：
 

@@ -11,3 +11,4 @@
 | P-002 | 审查 ARC 总纲及 14 份关联文档的事实底座、引用可信度与路线可行性 | [spec/arc-roadmap-review/](../spec/arc-roadmap-review/) | done | P0 | 8 条代码事实逐条核验；106 条验收覆盖检查；P1/P2/P3 分级含证据；step-gate 5/5 通过 |
 | P-003 | 按审查结论订正总纲至 v0.2（H-4 前提、C-9 与生效起点、A2-3 口径、钩子数） | [spec/arc-roadmap-fix/](../spec/arc-roadmap-fix/) | done | P0 | 106 计数不变；H-1..H-4 全部进 C-9；矛盾表述清零；四道钩子全绿 |
 | P-004 | 落档总纲完备度审计，产出 12 项外部锚点与 7 项补全方案（未执行） | [spec/arc-roadmap-gaps/](../spec/arc-roadmap-gaps/) | done | P1 | 6 结构缺口 + 8 执行盲区有证据；12 锚点可核验；总纲与 106 计数不变；step-gate 5/5 |
+| P-005 | 裁决落地：总纲 v0.4（D-1=A、D-2=C）+ D-3..D-7 + 覆盖率 CI 门禁 | [spec/arc-roadmap-verdict/](../spec/arc-roadmap-verdict/) | done | P0 | 106 计数不变；H-5 进 C-9；A2-4/5/6 谓词化；覆盖率脚本 CI 绿（missing=0）；step-gate 5/5 |

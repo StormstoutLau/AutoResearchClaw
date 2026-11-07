@@ -109,3 +109,16 @@ jobs:
             tests/test_rc_config.py \
             tests/test_cli.py \
             -q
+
+  roadmap-coverage:
+    name: Roadmap coverage gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Acceptance coverage check (D-6)
+        run: python scripts/roadmap_coverage_check.py --check
