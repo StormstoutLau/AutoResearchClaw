@@ -1,14 +1,14 @@
 ---
 id: arc-master-roadmap
 type: design
-version: 0.2
+version: 0.3
 status: draft
 date: 2026-11-04
 depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-textbook, clawsgo-cleanroom-arc]
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v0.2）
+# ARC 统一学术推理基座：调研总纲与实施路线（v0.3）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -17,6 +17,8 @@ upstream: arb-v2-decisions
 > **口径**：本文只做"排期与验收"，不重复各报告的证据链。事实与代码行号以原报告为准。
 >
 > **修订**：v0.2（2026-11-06，P-003）按 [审查报告](docs/arc-roadmap-review-20261106.md) §6 订正六处——G3 的 H-4 前提（§4 G3）、§5 新增 C-9 与「生效起点」列、A2-3 的测试口径（§4 G2）、§7 标题、Q11 与 §10 的钩子数。审查报告本身仍绑定 v0.1 / `7d0e70a`，不改写。
+>
+> **修订**：v0.3（2026-11-07）§11 增运行时后端审计依据；§7 增 Q17（默认后端选型，决定审计粒度）。
 
 ---
 
@@ -48,7 +50,7 @@ upstream: arb-v2-decisions
 
 ### 0.3 2026-11-06 重评估结论
 
-根据 5 份专项调研（见 §11），对原 G0–G7 做如下调整：
+根据 §11 所列专项调研，对原 G0–G7 做如下调整：
 
 | # | 调整 | 理由 |
 |---|---|---|
@@ -571,7 +573,7 @@ G0a → G-1 → G0b ─┬→ G1 ─┐
 
 ---
 
-## 7. 尚未裁决的 16 项
+## 7. 尚未裁决的 17 项
 
 | # | 问题 | 影响阶段 | 默认建议 | 状态 |
 |---|---|---|---|---|
@@ -591,6 +593,7 @@ G0a → G-1 → G0b ─┬→ G1 ─┐
 | **Q14** | ArtifactNode 覆盖范围（全阶段 vs Stage 12-14/20/23） | G3 | 先覆盖实验与证据链相关阶段 | 待确认 |
 | **Q15** | 研究计划 `max_versions`（默认 3）与节点上限（40） | G8a/G8b | 先用 3 / 40，按 ARC-Bench 校准 | 待确认 |
 | **Q16** | 懒惰分解触发阈值（失败 2 次 / 预算 50% 且 done<30%） | G8b | 先用经验值，需校准 | 待确认 |
+| **Q17** | 默认后端：API-first 还是 ACP 优先（决定审计粒度） | G-1/G1 | **API-first**；ACP 仅作免密钥替代，审计要求高的 run 禁用 ACP | 待确认 |
 
 > 规则：未裁决项**不得进入对应阶段**；可用默认建议先行，但必须在 `spec/` 的决策流中记录为 `provisional`。
 
@@ -681,6 +684,7 @@ G0a → G-1 → G0b ─┬→ G1 ─┐
 | [failure-guards-design.md](docs/failure-guards-design.md) | 三道护栏 + FA-1..FC-3 | **G-1/G3/G7** |
 | [dsh-superagent-absorption-analysis.md](dsh-superagent-absorption-analysis.md) | DSH 原型的运行时机制与 A1-10..A7-7 增量 | **G1/G3/G5/G7** |
 | [research-plan-design.md](docs/research-plan-design.md) | `ResearchPlan v1` + 12 条校验 + 版本化重规划 + A8a/A8b | **G8a/G8b** |
+| [arc-runtime-backend-audit-20261107.md](docs/arc-runtime-backend-audit-20261107.md) | 后端三形态、工具/上下文/记忆盘点、审计分层与 GAP-1..3 | **G-1/G1** |
 
 **四个已核实的急救事实**（对应 H-1..H-4）：
 
