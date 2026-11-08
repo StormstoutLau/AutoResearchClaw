@@ -379,6 +379,22 @@ def _execute_search_strategy(
     )
 
 
+def _write_retrieval_status(stage_dir: Path, *, real_search_succeeded: bool) -> str:
+    """Persist the explicit retrieval-degradation marker (H-4)."""
+    payload = {
+        "retrieval_degraded": not real_search_succeeded,
+        "degraded_reason": (
+            [] if real_search_succeeded else ["academic_api_search_failed"]
+        ),
+        "real_search_succeeded": real_search_succeeded,
+        "generated": _utcnow_iso(),
+    }
+    (stage_dir / "retrieval_status.json").write_text(
+        json.dumps(payload, indent=2), encoding="utf-8"
+    )
+    return "retrieval_status.json"
+
+
 def _execute_literature_collect(
     stage_dir: Path,
     run_dir: Path,
@@ -565,6 +581,7 @@ def _execute_literature_collect(
     # BUG-L2: Do NOT overwrite real_search_succeeded here — it was already
     # set correctly in the search block above. Overwriting would mislabel
     # LLM-hallucinated or seminal papers as "real search" results.
+    _write_retrieval_status(stage_dir, real_search_succeeded=real_search_succeeded)
     if not candidates:
         logger.warning("Stage 4: All literature searches failed — using placeholder papers")
         candidates = [
@@ -630,7 +647,7 @@ def _execute_literature_collect(
         )
 
     # Write references.bib (F2.4)
-    artifacts = ["candidates.jsonl"]
+    artifacts = ["candidates.jsonl", "retrieval_status.json"]
     if web_context_parts:
         artifacts.append("web_context.md")
     if (stage_dir / "web_search_result.json").exists():

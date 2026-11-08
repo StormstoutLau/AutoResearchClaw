@@ -391,6 +391,19 @@ def _execute_paper_revision(
 # Stage 20: Quality Gate
 # ---------------------------------------------------------------------------
 
+def _write_claim_verification(
+    stage_dir: Path, run_dir: Path, text: str
+) -> str:
+    """Run ClaimVerifier and persist its report (H-3)."""
+    from researchclaw.hitl.claim_verifier import ClaimVerifier
+
+    report = ClaimVerifier(run_dir).verify_text(text)
+    (stage_dir / "claim_verification.json").write_text(
+        json.dumps(report.to_dict(), indent=2), encoding="utf-8"
+    )
+    return "claim_verification.json"
+
+
 def _execute_quality_gate(
     stage_dir: Path,
     run_dir: Path,
@@ -401,6 +414,7 @@ def _execute_quality_gate(
     prompts: PromptManager | None = None,
 ) -> StageResult:
     revised = _read_prior_artifact(run_dir, "paper_revised.md") or ""
+    _write_claim_verification(stage_dir, run_dir, revised)
 
     # D4: a paper built on simulated data may not pass the gate unless the
     # user explicitly opted in (`research.allow_simulated_paper: true`).
@@ -632,7 +646,7 @@ def _execute_quality_gate(
         return StageResult(
             stage=Stage.QUALITY_GATE,
             status=StageStatus.FAILED,
-            artifacts=("quality_report.json", "fabrication_flags.json"),
+            artifacts=("quality_report.json", "fabrication_flags.json", "claim_verification.json"),
             evidence_refs=("stage-20/quality_report.json",),
             error=(
                 "Quality gate BLOCKED: VerifiedRegistry has zero real experiment "
@@ -665,7 +679,7 @@ def _execute_quality_gate(
             return StageResult(
                 stage=Stage.QUALITY_GATE,
                 status=StageStatus.DONE,
-                artifacts=("quality_report.json",),
+                artifacts=("quality_report.json", "claim_verification.json"),
                 evidence_refs=("stage-20/quality_report.json",),
                 decision="degraded",
             )
@@ -676,7 +690,7 @@ def _execute_quality_gate(
         return StageResult(
             stage=Stage.QUALITY_GATE,
             status=StageStatus.FAILED,
-            artifacts=("quality_report.json", "fabrication_flags.json"),
+            artifacts=("quality_report.json", "fabrication_flags.json", "claim_verification.json"),
             evidence_refs=("stage-20/quality_report.json",),
             error=f"Quality score {score:.1f}/10 below threshold {threshold:.1f}. "
                   f"Paper needs revision before export.",
@@ -2743,6 +2757,7 @@ def _execute_citation_verify(
 
     bib_text = _read_prior_artifact(run_dir, "references.bib") or ""
     paper_text = _read_prior_artifact(run_dir, "paper_final.md") or ""
+    _write_claim_verification(stage_dir, run_dir, paper_text)
 
     if not bib_text.strip():
         report_data = {
@@ -2772,7 +2787,7 @@ def _execute_citation_verify(
         return StageResult(
             stage=Stage.CITATION_VERIFY,
             status=StageStatus.DONE,
-            artifacts=("verification_report.json", "references_verified.bib"),
+            artifacts=("verification_report.json", "references_verified.bib", "claim_verification.json"),
             evidence_refs=(
                 "stage-23/verification_report.json",
                 "stage-23/references_verified.bib",
@@ -2913,7 +2928,7 @@ def _execute_citation_verify(
 
     (stage_dir / "references_verified.bib").write_text(verified_bib, encoding="utf-8")
 
-    artifacts = ["verification_report.json", "references_verified.bib"]
+    artifacts = ["verification_report.json", "references_verified.bib", "claim_verification.json"]
 
     if paper_text.strip():
         annotated = annotate_paper_hallucinations(paper_text, report)

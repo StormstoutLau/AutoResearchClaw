@@ -14,6 +14,7 @@ from typing import Protocol
 
 from researchclaw.config import SandboxConfig
 from researchclaw.hardware import is_metric_name
+from researchclaw.utils.env import build_subprocess_env
 
 logger = logging.getLogger(__name__)
 
@@ -321,7 +322,7 @@ class ExperimentSandbox:
 
         result: SandboxResult
         try:
-            env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+            env = build_subprocess_env()
             completed = subprocess.run(
                 command,
                 capture_output=True,
@@ -422,9 +423,7 @@ class ExperimentSandbox:
 
         result: SandboxResult
         try:
-            env = {**os.environ, "PYTHONUNBUFFERED": "1"}
-            if env_overrides:
-                env.update(env_overrides)
+            env = build_subprocess_env(env_overrides)
             completed = subprocess.run(
                 command,
                 capture_output=True,

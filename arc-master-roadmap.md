@@ -1,14 +1,14 @@
 ---
 id: arc-master-roadmap
 type: design
-version: 0.4
+version: 0.5
 status: draft
 date: 2026-11-04
 depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-textbook, clawsgo-cleanroom-arc]
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v0.4）
+# ARC 统一学术推理基座：调研总纲与实施路线（v0.5）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -21,6 +21,8 @@ upstream: arb-v2-decisions
 > **修订**：v0.3（2026-11-07）§11 增运行时后端审计依据；§7 增 Q17（默认后端选型，决定审计粒度）。
 >
 > **修订**：v0.4（2026-11-08，P-005）裁决落地——D-1=A（H-5 移入 C-9、§5 删箭头）、D-2=C（A2-4/5/6 谓词化）；D-3 执行矩阵（§5.1）、D-4 最小集定义（§1/§6）、D-5 交付物补全（G1/G3/G5）、D-6 覆盖声明 + CI 覆盖率门禁、D-7 新增 Q18..Q20。106 计数不变。依据：[D-1/D-2 裁决分析](docs/arc-d1-d2-verdict-analysis-20261108.md)。
+>
+> **修订**：v0.5（2026-11-08，P-006）Q18/Q19/Q20 裁决 + H-1..H-8 落地：vendor/语料 L1 清单、API 回环默认 + 非回环强制 token、预算分层账本；H-1..H-8 代码与 8 个 pytest 文件已合入。依据：[G-1 开工前补充调研](docs/arc-g1-readiness-research-20261108.md)。
 
 ---
 
@@ -630,9 +632,9 @@ G0a → G-1 → G0b ─┬→ G1 ─┐
 | **Q15** | 研究计划 `max_versions`（默认 3）与节点上限（40） | G8a/G8b | 先用 3 / 40，按 ARC-Bench 校准 | 待确认 |
 | **Q16** | 懒惰分解触发阈值（失败 2 次 / 预算 50% 且 done<30%） | G8b | 先用经验值，需校准 | 待确认 |
 | **Q17** | 默认后端：API-first 还是 ACP 优先（决定审计粒度） | G-1/G1 | **API-first**；ACP 仅作免密钥替代，审计要求高的 run 禁用 ACP | 待确认 |
-| **Q18** | vendor 供应链与语料 pin（仓库 / commit / 许可证 / 校验和） | G2/G5 | SLSA L1 式 provenance + Croissant 四字段（name/version/hash/license） | 待确认 |
-| **Q19** | API 默认认证收紧（`auth_token=""` 且 `host=0.0.0.0`） | G-1 | 本地默认 127.0.0.1，绑定非回环地址时强制 token（OWASP API2） | 待确认 |
-| **Q20** | 预算字段统一（`hitl.cost_budget_usd` vs `cli_agent.max_budget_usd`，默认值不一致） | G6/G-1 | 统一为单一账本字段，默认上限对齐，前置拒绝接入 LLM 发送路径 | 待确认 |
+| **Q18** | vendor 供应链与语料 pin（仓库 / commit / 许可证 / 校验和） | G2/G5 | SLSA L1 式 provenance + Croissant 四字段（name/version/hash/license） | **已裁决（2026-11-08，P-006）：L1 清单** |
+| **Q19** | API 默认认证收紧（`auth_token=""` 且 `host=0.0.0.0`） | G-1 | 本地默认 127.0.0.1，绑定非回环地址时强制 token（OWASP API2） | **已裁决（2026-11-08，P-006）：回环默认 + 强制 token** |
+| **Q20** | 预算字段统一（`hitl.cost_budget_usd` vs `cli_agent.max_budget_usd`，默认值不一致） | G6/G-1 | **分层账本**：`run_budget_usd` 为唯一 run 账本；`cli_agent.max_budget_usd` 降为单次 CLI 调用派生上限；`LLMClient.chat` 前置检查（不合并字段） | **已裁决（2026-11-08，P-006）：A′ 分层** |
 
 > 规则：未裁决项**不得进入对应阶段**；可用默认建议先行，但必须在 `spec/` 的决策流中记录为 `provisional`。
 
@@ -726,6 +728,7 @@ G0a → G-1 → G0b ─┬→ G1 ─┐
 | [arc-runtime-backend-audit-20261107.md](docs/arc-runtime-backend-audit-20261107.md) | 后端三形态、工具/上下文/记忆盘点、审计分层与 GAP-1..3 | **G-1/G1** |
 | [arc-roadmap-gaps-review-20261107.md](docs/arc-roadmap-gaps-review-20261107.md) | P-004 独立复核（主张全部成立 + F-1..F-8 修正） | **P-005 依据** |
 | [arc-d1-d2-verdict-analysis-20261108.md](docs/arc-d1-d2-verdict-analysis-20261108.md) | D-1/D-2 三方案七维对比、外部锚点与建议（裁决 A/C） | **G-1/G2/G3** |
+| [arc-g1-readiness-research-20261108.md](docs/arc-g1-readiness-research-20261108.md) | H-1..H-8 现状复核与测试方案、Q18/Q19/Q20 七维对比与裁决建议 | **G-1** |
 
 **四个已核实的急救事实**（对应 H-1..H-4）：
 

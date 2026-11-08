@@ -946,6 +946,7 @@ def _collect_experiment_results(
     ``latex_table``, and optionally ``structured_results``.
     """
     runs_data: list[dict[str, Any]] = []
+    excluded_runs: list[dict[str, Any]] = []
     structured_results: Any = None
 
     # Scan all stage dirs for runs/ subdirectory
@@ -965,6 +966,20 @@ def _collect_experiment_results(
                 continue  # Already handled above
             parsed = _safe_json_loads(run_file.read_text(encoding="utf-8"), {})
             if isinstance(parsed, dict) and "metrics" in parsed:
+                # H-5: never aggregate a failed execution, even if it emitted
+                # metrics before exiting non-zero.
+                _rc = parsed.get("returncode")
+                if parsed.get("status") == "failed" or (
+                    isinstance(_rc, int) and _rc != 0
+                ):
+                    excluded_runs.append(
+                        {
+                            "file": str(run_file.relative_to(run_dir)),
+                            "status": parsed.get("status"),
+                            "returncode": _rc,
+                        }
+                    )
+                    continue
                 # Also check for structured_results inside run payload
                 if "structured_results" in parsed and structured_results is None:
                     structured_results = parsed["structured_results"]
@@ -976,6 +991,8 @@ def _collect_experiment_results(
 
     if not runs_data:
         result: dict[str, Any] = {"runs": [], "metrics_summary": {}, "best_run": None, "latex_table": ""}
+        if excluded_runs:
+            result["excluded_runs"] = excluded_runs
         if structured_results is not None:
             result["structured_results"] = structured_results
         return result
@@ -1073,6 +1090,8 @@ def _collect_experiment_results(
     }
     if paired_comparisons:
         collected["paired_comparisons"] = paired_comparisons
+    if excluded_runs:
+        collected["excluded_runs"] = excluded_runs
     if structured_results is not None:
         collected["structured_results"] = structured_results
     return collected

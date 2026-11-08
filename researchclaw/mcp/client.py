@@ -17,6 +17,8 @@ except ImportError as _exc:  # pragma: no cover - exercised only without the ext
         "MCP support requires the 'mcp' extra: pip install researchclaw[mcp]"
     ) from _exc
 
+from researchclaw.utils.env import build_subprocess_env
+
 logger = logging.getLogger(__name__)
 
 
@@ -66,7 +68,7 @@ class MCPClient:
             target: Any = StdioServerParameters(
                 command=parts[0],
                 args=parts[1:],
-                env=dict(os.environ),
+                env=build_subprocess_env(),
             )
         else:
             target = self._target

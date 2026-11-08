@@ -743,13 +743,32 @@ class ServerConfig:
     """Web server configuration."""
 
     enabled: bool = False
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     port: int = 8080
-    cors_origins: tuple[str, ...] = ("*",)
-    auth_token: str = ""  # empty = no authentication
+    cors_origins: tuple[str, ...] = (
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    )
+    auth_token: str = ""  # empty = no authentication (loopback only)
     voice_enabled: bool = False
     whisper_model: str = "whisper-1"
     whisper_api_url: str = ""  # empty = use OpenAI default
+
+
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+def validate_server_security(server: ServerConfig) -> None:
+    """Fail closed on unsafe server defaults (Q19 / H-8)."""
+    if "*" in server.cors_origins:
+        raise ValueError(
+            "server.cors_origins must not contain '*': list explicit origins"
+        )
+    if server.host not in _LOOPBACK_HOSTS and not server.auth_token:
+        raise ValueError(
+            "server.auth_token is required when server.host is not loopback "
+            f"({server.host!r})"
+        )
 
 
 @dataclass(frozen=True)

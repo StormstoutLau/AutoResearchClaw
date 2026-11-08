@@ -108,6 +108,14 @@ jobs:
             tests/test_docs_and_adapters.py \
             tests/test_rc_config.py \
             tests/test_cli.py \
+            tests/test_stage12_returncode.py \
+            tests/test_stage_retries.py \
+            tests/test_claim_verifier_wiring.py \
+            tests/test_retrieval_degraded.py \
+            tests/test_forged_execution_guards.py \
+            tests/test_env_allowlist.py \
+            tests/test_safe_join.py \
+            tests/test_cors_default.py \
             -q
 
   roadmap-coverage:

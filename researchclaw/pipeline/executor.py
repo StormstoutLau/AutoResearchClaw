@@ -610,6 +610,25 @@ _STAGE_EXECUTORS: dict[Stage, Callable[..., StageResult]] = {
 }
 
 
+def _call_with_retries(call: Callable[[], StageResult], max_retries: int, stage: Stage) -> StageResult:
+    """Invoke a stage executor up to ``max_retries + 1`` times (H-2)."""
+    attempts = max(1, int(max_retries) + 1)
+    result: StageResult | None = None
+    for attempt in range(attempts):
+        result = call()
+        if result.status is not StageStatus.FAILED:
+            return result
+        if attempt + 1 < attempts:
+            logger.warning(
+                "Stage %s failed (attempt %d/%d) — retrying",
+                stage.name,
+                attempt + 1,
+                attempts,
+            )
+    assert result is not None
+    return result
+
+
 def execute_stage(
     stage: Stage,
     *,
@@ -679,14 +698,17 @@ def execute_stage(
                 for stage_key, path_or_text in getattr(config.prompts, "extra_prompts", ())  # type: ignore[attr-defined]
             } or None,
         )
-        try:
-            result = executor(
-                stage_dir, run_dir, config, adapters, llm=llm, prompts=prompts
-            )
-        except TypeError as exc:
-            if "unexpected keyword argument 'prompts'" not in str(exc):
-                raise
-            result = executor(stage_dir, run_dir, config, adapters, llm=llm)
+        def _invoke() -> StageResult:
+            try:
+                return executor(
+                    stage_dir, run_dir, config, adapters, llm=llm, prompts=prompts
+                )
+            except TypeError as exc:
+                if "unexpected keyword argument 'prompts'" not in str(exc):
+                    raise
+                return executor(stage_dir, run_dir, config, adapters, llm=llm)
+
+        result = _call_with_retries(_invoke, contract.max_retries, stage)
     except Exception as exc:  # noqa: BLE001
         logger.exception("Stage %s failed", stage.name)
         result = StageResult(

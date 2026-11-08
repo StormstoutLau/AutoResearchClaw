@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from researchclaw.config import RCConfig
+from researchclaw.config import RCConfig, validate_server_security
 from researchclaw.server.middleware.auth import TokenAuthMiddleware
 from researchclaw.server.websocket.manager import ConnectionManager
 from researchclaw.server.websocket.events import Event, EventType
@@ -81,10 +81,11 @@ def create_app(
     _app_state["monitor_dir"] = monitor_dir
 
     # --- CORS ---
+    validate_server_security(config.server)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(config.server.cors_origins),
-        allow_credentials=True,
+        allow_credentials=bool(config.server.auth_token),
         allow_methods=["*"],
         allow_headers=["*"],
     )

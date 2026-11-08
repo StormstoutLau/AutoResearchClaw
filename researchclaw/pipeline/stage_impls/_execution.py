@@ -37,6 +37,7 @@ from researchclaw.pipeline._helpers import (
 )
 from researchclaw.pipeline.stages import Stage, StageStatus
 from researchclaw.prompts import PromptManager
+from researchclaw.utils.paths import safe_join
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +149,37 @@ _AGENT_EXPERIMENT_SPECS: dict[str, dict[str, str]] = {
 }
 
 
+def _build_run_payload(
+    *,
+    mode: str,
+    status: str,
+    metrics: dict[str, Any],
+    elapsed_sec: float,
+    returncode: int,
+    timed_out: bool,
+    stdout: str,
+    stderr: str,
+    **extra: Any,
+) -> dict[str, Any]:
+    """Build the run-1.json payload (single writer for H-1)."""
+    payload: dict[str, Any] = {
+        "schema_version": 1,
+        "mode": mode,
+        "run_id": "run-1",
+        "task_id": f"{mode}-main" if mode != "sandbox" else "sandbox-main",
+        "status": status,
+        "returncode": returncode,
+        "elapsed_sec": elapsed_sec,
+        "timed_out": timed_out,
+        "metrics": metrics,
+        "stdout": stdout,
+        "stderr": stderr,
+        "timestamp": _utcnow_iso(),
+    }
+    payload.update(extra)
+    return payload
+
+
 def _write_agent_run_payload(
     stage_dir: Path,
     runs_dir: Path,
@@ -163,23 +195,19 @@ def _write_agent_run_payload(
     stderr: str,
 ) -> dict[str, Any]:
     """Write the agent run JSON (schema v1) plus results.json for downstream."""
-    payload: dict[str, Any] = {
-        "schema_version": 1,
-        "mode": mode,
-        "run_id": "run-1",
-        "task_id": f"{mode}-main",
-        "status": status,
-        "returncode": returncode,
-        "elapsed_sec": elapsed_sec,
-        "timed_out": timed_out,
-        "metrics": metrics,
-        "workspace": workspace.relative_to(stage_dir).as_posix()
+    payload = _build_run_payload(
+        mode=mode,
+        status=status,
+        metrics=metrics,
+        elapsed_sec=elapsed_sec,
+        returncode=returncode,
+        timed_out=timed_out,
+        stdout=stdout[:4000],
+        stderr=stderr[:2000],
+        workspace=workspace.relative_to(stage_dir).as_posix()
         if workspace.is_relative_to(stage_dir)
         else workspace.name,
-        "stdout": stdout[:4000],
-        "stderr": stderr[:2000],
-        "timestamp": _utcnow_iso(),
-    }
+    )
     (runs_dir / "run-1.json").write_text(
         json.dumps(payload, indent=2), encoding="utf-8"
     )
@@ -572,17 +600,17 @@ def _execute_experiment_run(
                 result.elapsed_sec,
             )
 
-        run_payload: dict[str, Any] = {
-            "run_id": "run-1",
-            "task_id": "sandbox-main",
-            "status": run_status,
-            "metrics": effective_metrics,
-            "elapsed_sec": result.elapsed_sec,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "timed_out": result.timed_out,
-            "completed_at": _utcnow_iso(),
-        }
+        run_payload = _build_run_payload(
+            mode="sandbox",
+            status=run_status,
+            metrics=effective_metrics,
+            elapsed_sec=result.elapsed_sec,
+            returncode=result.returncode,
+            timed_out=result.timed_out,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            completed_at=_utcnow_iso(),
+        )
         if structured_results is not None:
             run_payload["structured_results"] = structured_results
         # Auto-generate results.json from parsed metrics if sandbox didn't produce one
@@ -1141,7 +1169,7 @@ def _execute_iterative_refine(
     def _write_project(target_dir: Path, project_files: dict[str, str]) -> None:
         target_dir.mkdir(parents=True, exist_ok=True)
         for fname, code in project_files.items():
-            (target_dir / fname).write_text(code, encoding="utf-8")
+            safe_join(target_dir, fname).write_text(code, encoding="utf-8")
 
     # --- Helper: format all files for LLM context ---
     def _files_to_context(project_files: dict[str, str]) -> str:
