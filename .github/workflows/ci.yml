@@ -130,3 +130,6 @@ jobs:
 
       - name: Acceptance coverage check (D-6)
         run: python scripts/roadmap_coverage_check.py --check
+
+      - name: Private endpoint / credential guard
+        run: python scripts/private_config_check.py

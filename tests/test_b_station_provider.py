@@ -5,7 +5,8 @@ request URL construction, factory dispatch, CLI menu registration, live
 smoke tests against the tunnel (skipped unless reachable and opted in).
 
 Endpoint reference: B 站 = node B of the three-node RPC cluster (not a video
-site). Halogen 无审查 Qwen3.8 1M, tunnel 127.0.0.1:<TUNNEL_PORT> -> <B_STATION_HOST>:8080.
+site). Live tests read the tunnel endpoint from ARC_BSTATION_BASE_URL and are
+skipped when it is unset, so no local address is committed.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import socket
 import urllib.request
 from types import SimpleNamespace
 from typing import Any, Mapping
+from urllib.parse import urlparse
 
 import pytest
 
@@ -24,15 +26,22 @@ from researchclaw.llm import PROVIDER_PRESETS, create_llm_client
 from researchclaw.llm.client import LLMClient, LLMConfig, LLMResponse
 
 
-BSTATION_BASE = "http://127.0.0.1:<TUNNEL_PORT>"
-BSTATION_TUNNEL_HOST = "127.0.0.1"
-BSTATION_TUNNEL_PORT = 18081
+BSTATION_BASE = os.environ.get("ARC_BSTATION_BASE_URL", "").rstrip("/")
+# RFC 2606 reserved TLD: safe for offline URL assertions, never a real host.
+BSTATION_TEST_BASE = "http://b-station.test"
 
 
 def _tunnel_reachable(timeout: float = 1.5) -> bool:
-    """Probe the SSH tunnel without sending a request."""
+    """Probe the configured tunnel without sending an API request."""
+    if not BSTATION_BASE:
+        return False
+    parsed = urlparse(BSTATION_BASE)
+    host = parsed.hostname
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    if not host:
+        return False
     try:
-        with socket.create_connection((BSTATION_TUNNEL_HOST, BSTATION_TUNNEL_PORT), timeout=timeout):
+        with socket.create_connection((host, port), timeout=timeout):
             return True
     except OSError:
         return False
@@ -47,12 +56,12 @@ class TestBStationPreset:
     def test_b_station_in_provider_presets(self):
         assert "b-station" in PROVIDER_PRESETS
 
-    def test_b_station_openai_wire_base_url(self):
-        assert PROVIDER_PRESETS["b-station"]["base_url"] == f"{BSTATION_BASE}/v1"
+    def test_b_station_openai_wire_has_no_baked_url(self):
+        assert PROVIDER_PRESETS["b-station"]["base_url"] is None
 
     def test_b_station_anthropic_wire_preset(self):
         preset = PROVIDER_PRESETS["b-station-anthropic"]
-        assert preset["base_url"] == BSTATION_BASE
+        assert preset["base_url"] is None
         assert preset.get("adapter") == "anthropic"
 
 
@@ -64,7 +73,7 @@ class TestBStationPreset:
 def _rc_llm(**overrides: Any) -> SimpleNamespace:
     defaults: dict[str, Any] = dict(
         provider="b-station",
-        base_url="",
+        base_url=f"{BSTATION_TEST_BASE}/v1",
         wire_api="chat_completions",
         api_key="local-halogen",
         api_key_env="BSTATION_API_KEY",
@@ -76,22 +85,34 @@ def _rc_llm(**overrides: Any) -> SimpleNamespace:
 
 
 class TestBStationFromRCConfig:
-    def test_preset_base_url_used_when_unset(self):
+    def test_explicit_base_url_is_used(self):
         client = LLMClient.from_rc_config(_rc_llm())
-        assert client.config.base_url == f"{BSTATION_BASE}/v1"
+        assert client.config.base_url == f"{BSTATION_TEST_BASE}/v1"
         assert client.config.primary_model == "qwen3.8-flash-next"
         assert client._anthropic is None
 
+    def test_env_base_url_is_used_when_config_empty(self, monkeypatch):
+        monkeypatch.setenv("RESEARCHCLAW_LLM_BASE_URL", f"{BSTATION_TEST_BASE}/v1")
+        client = LLMClient.from_rc_config(_rc_llm(base_url=""))
+        assert client.config.base_url == f"{BSTATION_TEST_BASE}/v1"
+
+    def test_missing_endpoint_fails_closed(self, monkeypatch):
+        monkeypatch.delenv("RESEARCHCLAW_LLM_BASE_URL", raising=False)
+        with pytest.raises(ValueError, match="private endpoint"):
+            LLMClient.from_rc_config(_rc_llm(base_url=""))
+
     def test_anthropic_preset_sets_adapter(self):
-        client = LLMClient.from_rc_config(_rc_llm(provider="b-station-anthropic"))
-        assert client.config.base_url == BSTATION_BASE
+        client = LLMClient.from_rc_config(
+            _rc_llm(provider="b-station-anthropic", base_url=BSTATION_TEST_BASE)
+        )
+        assert client.config.base_url == BSTATION_TEST_BASE
         assert client._anthropic is not None
 
     def test_custom_base_url_overrides_preset(self):
         client = LLMClient.from_rc_config(
-            _rc_llm(base_url="http://127.0.0.1:<ALT_TUNNEL_PORT>/v1")
+            _rc_llm(base_url="http://custom.test/v1")
         )
-        assert client.config.base_url == "http://127.0.0.1:<ALT_TUNNEL_PORT>/v1"
+        assert client.config.base_url == "http://custom.test/v1"
 
     def test_placeholder_key_survives_empty_env(self, monkeypatch):
         monkeypatch.delenv("BSTATION_API_KEY", raising=False)
@@ -137,11 +158,13 @@ class TestBStationEndpoints:
         resp = client._raw_call(
             "qwen3.8-flash-next", [{"role": "user", "content": "ping"}], 64, 0.5, False
         )
-        assert captured["url"] == f"{BSTATION_BASE}/v1/chat/completions"
+        assert captured["url"] == f"{BSTATION_TEST_BASE}/v1/chat/completions"
         assert resp.content == "ok"
 
     def test_anthropic_wire_url(self):
-        client = LLMClient.from_rc_config(_rc_llm(provider="b-station-anthropic"))
+        client = LLMClient.from_rc_config(
+            _rc_llm(provider="b-station-anthropic", base_url=BSTATION_TEST_BASE)
+        )
         captured: dict[str, Any] = {}
 
         class _Response:
@@ -167,7 +190,7 @@ class TestBStationEndpoints:
             "qwen3.8-flash-next", [{"role": "user", "content": "ping"}], 64, 0.5, False
         )
         # halogen natively serves /v1/messages — matches the doc's curl probe
-        assert captured["url"] == f"{BSTATION_BASE}/v1/messages"
+        assert captured["url"] == f"{BSTATION_TEST_BASE}/v1/messages"
         assert resp.content == "ok"
 
 
@@ -180,13 +203,12 @@ class TestBStationFactoryAndCli:
     def test_factory_dispatch(self):
         client = create_llm_client(_rc_llm())
         assert isinstance(client, LLMClient)
-        assert client.config.base_url == f"{BSTATION_BASE}/v1"
+        assert client.config.base_url == f"{BSTATION_TEST_BASE}/v1"
 
     def test_cli_menu_registration(self):
-        from researchclaw.cli import _PROVIDER_CHOICES, _PROVIDER_MODELS, _PROVIDER_URLS
+        from researchclaw.cli import _PROVIDER_CHOICES, _PROVIDER_MODELS
 
         assert ("b-station", "BSTATION_API_KEY") in _PROVIDER_CHOICES.values()
-        assert _PROVIDER_URLS["b-station"] == f"{BSTATION_BASE}/v1"
         primary, fallbacks = _PROVIDER_MODELS["b-station"]
         assert primary == "qwen3.8-flash-next"
         assert fallbacks == []
@@ -207,8 +229,10 @@ class TestBStationFactoryAndCli:
         raw = (tmp_path / "config.arc.yaml").read_text(encoding="utf-8")
         parsed = yaml.safe_load(raw)
         assert parsed["llm"]["provider"] == "b-station"
-        assert parsed["llm"]["base_url"] == f"{BSTATION_BASE}/v1"
+        # Private endpoint must stay blank in the generated template.
+        assert parsed["llm"]["base_url"] == ""
         assert parsed["llm"]["primary_model"] == "qwen3.8-flash-next"
+        assert "<TUNNEL_PORT>" in raw  # guidance uses placeholders, not real ports
 
 
 # ---------------------------------------------------------------------------
@@ -225,14 +249,14 @@ class TestClaudeCodeEnvExtra:
     def test_env_extra_reaches_subprocess(self, tmp_path):
         import sys
 
-        agent = self._agent([("ARC_BSTATION_TEST_VAR", "bili-ok")])
+        agent = self._agent([("ARC_BSTATION_TEST_VAR", "bstation-ok")])
         rc, stdout, _, _, _ = agent._run_subprocess(
             [sys.executable, "-c", "import os; print(os.environ.get('ARC_BSTATION_TEST_VAR', 'MISSING'))"],
             tmp_path,
             30,
         )
         assert rc == 0
-        assert "bili-ok" in stdout
+        assert "bstation-ok" in stdout
 
     def test_config_parse_env_extra(self):
         from researchclaw.config import _parse_cli_agent_config
@@ -346,7 +370,7 @@ class TestAnthropicCacheUsage:
 
 
 # ---------------------------------------------------------------------------
-# Live smoke tests — tunnel 18081 (skip unless opted in AND reachable)
+# Live smoke tests — configured tunnel (skip unless opted in AND reachable)
 # ---------------------------------------------------------------------------
 
 
@@ -356,7 +380,7 @@ class TestAnthropicCacheUsage:
 )
 @pytest.mark.skipif(
     not _tunnel_reachable(),
-    reason="B 站 tunnel 127.0.0.1:<TUNNEL_PORT> not reachable",
+    reason="ARC_BSTATION_BASE_URL not set or unreachable",
 )
 class TestBStationLiveAPI:
     """Live smoke against B 站 halogen (1M 档，输出上限 16384)."""
@@ -375,7 +399,11 @@ class TestBStationLiveAPI:
 
     def _anthropic_client(self) -> LLMClient:
         return LLMClient.from_rc_config(
-            _rc_llm(provider="b-station-anthropic", fallback_models=())
+            _rc_llm(
+                provider="b-station-anthropic",
+                base_url=BSTATION_BASE,
+                fallback_models=(),
+            )
         )
 
     def test_openai_wire_smoke(self):
@@ -388,10 +416,7 @@ class TestBStationLiveAPI:
         assert resp.content.strip(), "empty response"
 
     def test_anthropic_wire_smoke(self):
-        client = LLMClient.from_rc_config(
-            _rc_llm(provider="b-station-anthropic", fallback_models=())
-        )
-        resp = client.chat(
+        resp = self._anthropic_client().chat(
             [{"role": "user", "content": "只回复：OK"}],
             max_tokens=512,
             temperature=0.1,

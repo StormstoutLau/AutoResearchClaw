@@ -1148,6 +1148,15 @@ def validate_config(
     warnings: list[str] = []
 
     llm_provider = _get_by_path(data, "llm.provider")
+    if str(llm_provider or "").startswith("b-station"):
+        _base = _get_by_path(data, "llm.base_url")
+        if _is_blank(_base) and not os.environ.get(
+            "RESEARCHCLAW_LLM_BASE_URL", ""
+        ).strip():
+            errors.append(
+                "Missing required field: llm.base_url (b-station is a private "
+                "endpoint; set llm.base_url or RESEARCHCLAW_LLM_BASE_URL)"
+            )
     for key in REQUIRED_FIELDS:
         # ACP and Ollama don't need api_key_env (local/keyless providers)
         if llm_provider in ("acp", "ollama") and key == "llm.api_key_env":

@@ -51,14 +51,14 @@ PROVIDER_PRESETS = {
     "ollama": {
         "base_url": "http://localhost:11434/v1",
     },
-    # B 站：三机推理集群（A/B/C）中的节点 B，halogen / llama.cpp，
-    # 经 SSH 隧道 127.0.0.1:<TUNNEL_PORT> 暴露。引擎不校验 key；1M 档输出上限 16384。
-    # 命名与 RPC 集群拓扑一致（A/B/C 为站号，不是视频站标识）。
+    # B 站：三机推理集群（A/B/C）中的节点 B。端点属于私有基础设施，
+    # preset 只声明 wire/adapter，**不写死任何地址**；实际 base_url 由
+    # 配置 llm.base_url 或环境变量 RESEARCHCLAW_LLM_BASE_URL 提供。
     "b-station": {
-        "base_url": "http://127.0.0.1:<TUNNEL_PORT>/v1",
+        "base_url": None,
     },
     "b-station-anthropic": {
-        "base_url": "http://127.0.0.1:<TUNNEL_PORT>",
+        "base_url": None,
         "adapter": "anthropic",
     },
     "openai-compatible": {

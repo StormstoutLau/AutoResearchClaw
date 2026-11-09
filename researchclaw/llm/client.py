@@ -134,8 +134,17 @@ class LLMClient:
             rc_config.llm.api_key or os.environ.get(rc_config.llm.api_key_env, "") or ""
         )
 
-        # Use preset base_url if available and config doesn't override
-        base_url = rc_config.llm.base_url or preset_base_url or ""
+        # Resolve endpoint: explicit config > generic env var > preset.
+        # Private endpoints (e.g. b-station) deliberately have no preset URL.
+        base_url = str(getattr(rc_config.llm, "base_url", "") or "").strip()
+        if not base_url:
+            base_url = os.environ.get("RESEARCHCLAW_LLM_BASE_URL", "").strip()
+        base_url = base_url or str(preset_base_url or "").strip()
+        if provider.startswith("b-station") and not base_url:
+            raise ValueError(
+                "provider %r is a private endpoint: set llm.base_url or "
+                "RESEARCHCLAW_LLM_BASE_URL" % provider
+            )
 
         # Preserve original URL/key before MetaClaw bridge override
         # (needed for Anthropic adapter which should always talk directly
@@ -215,9 +224,9 @@ class LLMClient:
 
         base_url = (
             str(getattr(llm, "reviewer_base_url", "") or "").strip()
-            or llm.base_url
-            or preset_base_url
-            or ""
+            or str(getattr(llm, "base_url", "") or "").strip()
+            or os.environ.get("RESEARCHCLAW_LLM_BASE_URL", "").strip()
+            or str(preset_base_url or "").strip()
         )
 
         reviewer_key_env = str(getattr(llm, "reviewer_api_key_env", "") or "").strip()

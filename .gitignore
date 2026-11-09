@@ -146,6 +146,16 @@ experiments/arc_bench/batch_logs/
 external/agents/ColliderAgent/*
 !external/agents/ColliderAgent/README.md
 
+# ── Local runtime config / credentials (never commit) ────────────────────────
+# Only the *.example templates are tracked; fill real values locally.
+/config.arc.yaml
+/config.*.local.yaml
+*.local.yaml
+.env
+.env.*
+!.env.example
+!*.example.env
+
 # ── Research reports (kept on disk, never committed) ────────────────────────
 # Local working documents only. Un-ignore with `git add -f` if a report is
 # deliberately promoted into the repo. Exception: /arc-master-roadmap.md is the

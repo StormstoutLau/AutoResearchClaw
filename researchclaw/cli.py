@@ -817,7 +817,6 @@ _PROVIDER_URLS = {
     "minimax-anthropic-cn": "https://api.minimaxi.com/anthropic",
     "ollama": "http://localhost:11434/v1",
     "atlascloud": "https://api.atlascloud.ai/v1",
-    "b-station": "http://127.0.0.1:<TUNNEL_PORT>/v1",
 }
 
 _MINIMAX_MODELS = (
@@ -918,6 +917,16 @@ def cmd_init(args: argparse.Namespace) -> int:
         )
         content = content.replace('api_key_env: "OPENAI_API_KEY"', 'api_key_env: ""')
         content = content.replace('api_key: ""', 'api_key: "ollama"')
+    elif provider == "b-station":
+        # Private infrastructure: never bake an address into the template.
+        content = content.replace(
+            'base_url: "https://api.openai.com/v1"',
+            'base_url: ""  # set to your tunnel endpoint, e.g. http://127.0.0.1:<port>/v1',
+        )
+        content = content.replace(
+            'api_key_env: "OPENAI_API_KEY"', 'api_key_env: "BSTATION_API_KEY"'
+        )
+        content = content.replace('api_key: ""', 'api_key: "local-halogen"')
     else:
         base_url = _PROVIDER_URLS.get(provider, "https://api.openai.com/v1")
         content = content.replace(
@@ -954,11 +963,13 @@ def cmd_init(args: argparse.Namespace) -> int:
         print("  4. Run: researchclaw doctor")
     elif provider == "b-station":
         print("\nNext steps:")
-        print("  1. Ensure the SSH tunnel is up: ssh -N -L 127.0.0.1:<TUNNEL_PORT>:127.0.0.1:<API_PORT> <user>@<B_STATION_HOST>")
-        print("  2. 'b-station' is node B of the A/B/C inference cluster (not a video site)")
-        print("  3. The engine does not validate keys — any placeholder api_key works")
-        print("  4. 1M context tier caps output at 16384 tokens")
-        print("  5. Run: researchclaw doctor")
+        print("  1. Start your tunnel (address is local infrastructure, not committed):")
+        print("     ssh -N -L 127.0.0.1:<TUNNEL_PORT>:127.0.0.1:<API_PORT> <user>@<B_STATION_HOST>")
+        print("  2. Set llm.base_url (or RESEARCHCLAW_LLM_BASE_URL) to that tunnel endpoint")
+        print("  3. 'b-station' is node B of the A/B/C inference cluster")
+        print("  4. The engine does not validate keys — any placeholder api_key works")
+        print("  5. 1M context tier caps output at 16384 tokens")
+        print("  6. Run: researchclaw doctor")
     elif provider in ("minimax-anthropic", "minimax-anthropic-cn"):
         print("\nNext steps:")
         print('  1. Install the adapter: pip install "researchclaw[anthropic]"')
