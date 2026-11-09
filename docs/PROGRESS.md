@@ -16,3 +16,4 @@
 | P-007 | B 站（集群节点 B）LLM 端点与 Claude Code 接入（preset×2 + CLI 菜单 + env 注入 + 思考模型兼容修复） | [spec/arc-b-station-endpoint/](../spec/arc-b-station-endpoint/) | done | P1 | 离线 18 测试全绿；live 双 wire 实测命中 B 站 1M；LLM 回归 105 passed；step-gate 5/5 |
 | P-008 | B 站 live 覆盖扩展（health/JSON/系统提示/多轮/用量/preflight）+ Anthropic cache 计费修复 | [spec/arc-b-station-live/](../spec/arc-b-station-live/) | done | P2 | live 9 用例全绿；离线 19 passed；cache 输入计入 prompt；回归 43 passed；step-gate 5/5 |
 | P-009 | 私有端点卫生：清私网地址、端点改配置/环境变量、新增泄漏扫描门禁 | [spec/arc-private-endpoint-hygiene/](../spec/arc-private-endpoint-hygiene/) | done | P1 | 全仓扫描 0 违规；live 未设端点即 skip；离线 21 passed；pre-commit 六钩子全绿 |
+| P-010 | 历史提交脱敏：filter-repo 重写 323 提交并验证全历史 0 命中 | [spec/arc-history-scrub/](../spec/arc-history-scrub/) | done | P1 | 四 token 全历史 0 命中；旧对象不可达；当前树扫描 0、测试 21 passed；强推待授权 |
