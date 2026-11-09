@@ -17,3 +17,5 @@
 | P-008 | B 站 live 覆盖扩展（health/JSON/系统提示/多轮/用量/preflight）+ Anthropic cache 计费修复 | [spec/arc-b-station-live/](../spec/arc-b-station-live/) | done | P2 | live 9 用例全绿；离线 19 passed；cache 输入计入 prompt；回归 43 passed；step-gate 5/5 |
 | P-009 | 私有端点卫生：清私网地址、端点改配置/环境变量、新增泄漏扫描门禁 | [spec/arc-private-endpoint-hygiene/](../spec/arc-private-endpoint-hygiene/) | done | P1 | 全仓扫描 0 违规；live 未设端点即 skip；离线 21 passed；pre-commit 六钩子全绿 |
 | P-010 | 历史提交脱敏：filter-repo 重写 323 提交并验证全历史 0 命中 | [spec/arc-history-scrub/](../spec/arc-history-scrub/) | done | P1 | 四 token 全历史 0 命中；旧对象不可达；当前树扫描 0、测试 21 passed；强推待授权 |
+| P-011 | CLI 代码代理接线断裂调研：问题链追溯、13 项外部锚点、6 种社区接法与 4 条路线建议 | [spec/arc-cli-agent-wiring/](../spec/arc-cli-agent-wiring/) | done | P1 | F-1..F-9 可复现；锚点 13 项；R-1..R-4 含推荐；未改代码与总纲；step-gate 5/5 |
+| P-012 | R-3 统一接缝落地：配置去重 + Stage 10/13 CLI 接线与回退 + Codex stdin + doctor/适应度函数 | [spec/arc-cli-agent-seam/](../spec/arc-cli-agent-seam/) | done | P1 | 16 新用例全绿；相关回归 171；真实 CLI E2E 4 文件；wiring check PASS；默认 llm 零变化 |

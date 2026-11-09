@@ -679,6 +679,34 @@ def check_acp_agent(agent_command: str) -> CheckResult:
     )
 
 
+def check_cli_agent(provider: str, binary_path: str = "") -> CheckResult:
+    """Check that an explicitly selected CLI code agent is installed."""
+    provider = (provider or "llm").strip().lower()
+    if provider == "llm":
+        return CheckResult(
+            name="cli_agent",
+            status="pass",
+            detail="CLI code agent disabled (provider=llm)",
+        )
+    expected = {"claude_code": "claude", "codex": "codex"}.get(provider, provider)
+    resolved = binary_path or shutil.which(expected)
+    if resolved:
+        return CheckResult(
+            name="cli_agent",
+            status="pass",
+            detail=f"{provider} backend found: {resolved}",
+        )
+    return CheckResult(
+        name="cli_agent",
+        status="fail",
+        detail=f"{provider} backend '{expected}' not found",
+        fix=(
+            f"Install {expected} or set experiment.cli_agent.binary_path "
+            f"(or switch experiment.cli_agent.provider to 'llm')"
+        ),
+    )
+
+
 def check_docker_runtime(config: RCConfig) -> CheckResult:
     """Check Docker daemon, image availability, and optional NVIDIA runtime."""
     from researchclaw.experiment.docker_sandbox import DockerSandbox
@@ -724,6 +752,8 @@ def run_doctor(config_path: str | Path) -> DoctorReport:
     experiment_mode = ""
     provider = ""
     acp_agent_command = "claude"
+    cli_agent_provider = "llm"
+    cli_agent_binary = ""
 
     try:
         config = RCConfig.load(path, check_paths=False)
@@ -735,6 +765,8 @@ def run_doctor(config_path: str | Path) -> DoctorReport:
         sandbox_python_path = config.experiment.sandbox.python_path
         experiment_mode = config.experiment.mode
         acp_agent_command = config.llm.acp.agent
+        cli_agent_provider = config.experiment.cli_agent.provider
+        cli_agent_binary = config.experiment.cli_agent.binary_path
     except (FileNotFoundError, OSError, ValueError, yaml.YAMLError) as exc:
         logger.debug("Could not fully load config for doctor checks: %s", exc)
 
@@ -747,6 +779,7 @@ def run_doctor(config_path: str | Path) -> DoctorReport:
     checks.append(check_sandbox_python(sandbox_python_path))
     checks.append(check_matplotlib())
     checks.append(check_experiment_mode(experiment_mode))
+    checks.append(check_cli_agent(cli_agent_provider, cli_agent_binary))
 
     if experiment_mode == "docker":
         try:

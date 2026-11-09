@@ -400,7 +400,7 @@ def test_run_doctor_all_pass_openai(tmp_path: Path) -> None:
     ):
         report = health.run_doctor(config_path)
     assert report.overall == "pass"
-    assert len(report.checks) == 9
+    assert len(report.checks) == 10
 
 
 def test_run_doctor_with_failures(tmp_path: Path) -> None:
@@ -644,8 +644,9 @@ def test_run_doctor_acp_includes_agent_check(tmp_path: Path) -> None:
 
     check_names = [c.name for c in report.checks]
     assert "acp_agent" in check_names
+    assert "cli_agent" in check_names
     assert report.overall == "pass"
-    assert len(report.checks) == 7
+    assert len(report.checks) == 8
 
 
 def test_print_doctor_report_ascii_fallback(monkeypatch: pytest.MonkeyPatch) -> None:

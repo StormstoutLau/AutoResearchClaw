@@ -258,6 +258,44 @@ class TestClaudeCodeEnvExtra:
         assert rc == 0
         assert "bstation-ok" in stdout
 
+    def test_stdin_prompt_preserves_newlines(self, tmp_path):
+        """Windows .CMD shims truncate multi-line argv; prompt must go via stdin."""
+        import sys
+
+        agent = self._agent([])
+        rc, stdout, _, _, _ = agent._run_subprocess(
+            [sys.executable, "-c", "import sys; print(sys.stdin.read())"],
+            tmp_path,
+            30,
+            stdin_text="TOPIC: line-one\nINSTRUCTION: line-two",
+        )
+        assert rc == 0
+        assert "line-one" in stdout
+        assert "line-two" in stdout
+
+    def test_generate_sends_prompt_via_stdin_not_argv(self, tmp_path, monkeypatch):
+        agent = self._agent([])
+        captured: dict[str, Any] = {}
+
+        def fake_run(cmd, workdir, timeout_sec, stdin_text=None):
+            captured["cmd"] = cmd
+            captured["stdin"] = stdin_text
+            return 0, "", "", 0.0, False
+
+        monkeypatch.setattr(agent, "_run_subprocess", fake_run)
+        agent.generate(
+            exp_plan="PLAN BODY",
+            topic="Test topic",
+            metric_key="accuracy",
+            pkg_hint="",
+            compute_budget="",
+            extra_guidance="",
+            workdir=tmp_path,
+        )
+        assert "TOPIC: Test topic" in captured["stdin"]
+        assert "PLAN BODY" in captured["stdin"]
+        assert not any("PLAN BODY" in part for part in captured["cmd"])
+
     def test_config_parse_env_extra(self):
         from researchclaw.config import _parse_cli_agent_config
 

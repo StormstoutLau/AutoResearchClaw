@@ -408,13 +408,36 @@ class _CliAgentBase:
     def name(self) -> str:
         return self._provider_name
 
+    @staticmethod
+    def _kill_process_tree(proc: subprocess.Popen) -> None:
+        """Kill a subprocess and its children (npm .CMD wrappers spawn a child)."""
+        if os.name == "nt":
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                    capture_output=True,
+                    timeout=15,
+                )
+                return
+            except (OSError, subprocess.SubprocessError):
+                pass
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        except (OSError, AttributeError):
+            proc.terminate()
+
     def _run_subprocess(
         self,
         cmd: list[str],
         workdir: Path,
         timeout_sec: int,
+        stdin_text: str | None = None,
     ) -> tuple[int, str, str, float, bool]:
         """Run command as subprocess with process-group cleanup on timeout.
+
+        ``stdin_text`` is required on Windows when the prompt contains newlines:
+        npm ``.CMD`` shims route argv through cmd.exe, which truncates a quoted
+        argument at the first newline.
 
         Returns (returncode, stdout, stderr, elapsed_sec, timed_out).
         """
@@ -423,6 +446,7 @@ class _CliAgentBase:
         timed_out = False
         proc = subprocess.Popen(
             cmd,
+            stdin=subprocess.PIPE if stdin_text is not None else None,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=workdir,
@@ -430,24 +454,24 @@ class _CliAgentBase:
             start_new_session=True,
         )
         try:
-            stdout_bytes, stderr_bytes = proc.communicate(timeout=timeout_sec)
+            stdout_bytes, stderr_bytes = proc.communicate(
+                stdin_text.encode("utf-8") if stdin_text is not None else None,
+                timeout=timeout_sec,
+            )
         except subprocess.TimeoutExpired:
             timed_out = True
-            # Kill entire process group. os.killpg/os.getpgid do not exist on
-            # Windows (AttributeError, not OSError), so fall back to killing the
-            # process directly there instead of crashing the cleanup path.
+            # Kill the whole tree: os.killpg/os.getpgid do not exist on Windows
+            # (AttributeError, not OSError), and terminate() only reaps the
+            # cmd.exe shim while the node child keeps the pipes open.
+            self._kill_process_tree(proc)
             try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            except (OSError, AttributeError):
-                proc.terminate()
-            try:
-                stdout_bytes, stderr_bytes = proc.communicate(timeout=5)
+                stdout_bytes, stderr_bytes = proc.communicate(timeout=10)
             except subprocess.TimeoutExpired:
+                proc.kill()
                 try:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                except (OSError, AttributeError):
-                    proc.kill()
-                stdout_bytes, stderr_bytes = proc.communicate(timeout=5)
+                    stdout_bytes, stderr_bytes = proc.communicate(timeout=5)
+                except subprocess.TimeoutExpired:
+                    stdout_bytes, stderr_bytes = b"", b""
 
         elapsed = time.monotonic() - start
         return (
@@ -492,7 +516,10 @@ class _CliAgentBase:
         extra_guidance: str,
     ) -> str:
         return (
-            "You are generating experiment code for a research paper.\n\n"
+            "You are a non-interactive code-generation agent for a research "
+            "paper. Do NOT ask questions or wait for clarification; if any "
+            "detail is missing, choose a reasonable default and write the "
+            "files now.\n\n"
             f"TOPIC: {topic}\n\n"
             f"EXPERIMENT PLAN:\n{exp_plan}\n\n"
             f"PRIMARY METRIC: {metric_key}\n"
@@ -507,6 +534,8 @@ class _CliAgentBase:
             "6. Use deterministic seeds (numpy.random.seed or random.seed).\n"
             "7. Write ALL files to the current working directory.\n"
             "8. Do NOT create subdirectories.\n"
+            "9. Write the files and stop. Do NOT run the code or any "
+            "experiments; the harness executes main.py separately.\n"
         )
 
     @staticmethod
@@ -523,7 +552,8 @@ class _CliAgentBase:
         )
         summaries_text = "\n".join(run_summaries[:10]) if run_summaries else "(no prior runs)"
         return (
-            "You are improving experiment code for a research paper.\n\n"
+            "You are improving experiment code for a research paper. Do NOT ask "
+            "questions; edit the files directly.\n\n"
             f"TOPIC: {topic}\n"
             f"TARGET: {metric_direction} '{metric_key}'\n\n"
             f"EXISTING FILES in current directory:\n{files_listing}\n\n"
@@ -547,7 +577,8 @@ class _CliAgentBase:
             f"  - {fname} ({len(code)} chars)" for fname, code in files.items()
         )
         return (
-            "The experiment code has validation or runtime issues.\n\n"
+            "The experiment code has validation or runtime issues. Do NOT ask "
+            "questions; fix the files directly.\n\n"
             f"ISSUES:\n{issues}\n\n"
             f"FILES in current directory:\n{files_listing}\n\n"
             "INSTRUCTIONS:\n"
@@ -567,10 +598,13 @@ class ClaudeCodeAgent(_CliAgentBase):
 
     _provider_name = "claude_code"
 
-    def _build_cmd(self, prompt: str, workdir: Path) -> list[str]:
+    def _build_cmd(self, workdir: Path) -> list[str]:
+        # The prompt is piped via stdin, not argv: on Windows the npm .CMD shim
+        # passes argv through cmd.exe, which truncates a multi-line argument at
+        # the first newline (the model then only sees the first sentence).
         cmd = [
             self._binary,
-            "-p", prompt,
+            "-p",
             "--dangerously-skip-permissions",
             "--output-format", "text",
             "--allowed-tools", "Bash Edit Write Read",
@@ -598,9 +632,10 @@ class ClaudeCodeAgent(_CliAgentBase):
         prompt = self._generate_prompt(
             topic, exp_plan, metric_key, pkg_hint, compute_budget, extra_guidance,
         )
-        cmd = self._build_cmd(prompt, workdir)
+        cmd = self._build_cmd(workdir)
         rc, stdout, stderr, elapsed, to = self._run_subprocess(
             cmd, workdir, timeout_sec or self._default_timeout,
+            stdin_text=prompt,
         )
         return self._build_result(workdir, rc, stdout, stderr, elapsed, to)
 
@@ -621,9 +656,10 @@ class ClaudeCodeAgent(_CliAgentBase):
             current_files, run_summaries, metric_key, metric_direction,
             topic, extra_hints,
         )
-        cmd = self._build_cmd(prompt, workdir)
+        cmd = self._build_cmd(workdir)
         rc, stdout, stderr, elapsed, to = self._run_subprocess(
             cmd, workdir, timeout_sec or self._default_timeout,
+            stdin_text=prompt,
         )
         return self._build_result(workdir, rc, stdout, stderr, elapsed, to)
 
@@ -637,9 +673,10 @@ class ClaudeCodeAgent(_CliAgentBase):
     ) -> CodeAgentResult:
         _seed_workdir(workdir, files)
         prompt = self._repair_prompt(files, issues)
-        cmd = self._build_cmd(prompt, workdir)
+        cmd = self._build_cmd(workdir)
         rc, stdout, stderr, elapsed, to = self._run_subprocess(
             cmd, workdir, timeout_sec or self._default_timeout,
+            stdin_text=prompt,
         )
         return self._build_result(workdir, rc, stdout, stderr, elapsed, to)
 
@@ -653,10 +690,12 @@ class CodexAgent(_CliAgentBase):
 
     _provider_name = "codex"
 
-    def _build_cmd(self, prompt: str, workdir: Path) -> list[str]:
+    def _build_cmd(self, workdir: Path) -> list[str]:
+        # `codex exec -` reads the full prompt from stdin; argv stays free of
+        # newlines (same Windows .cmd shim constraint as ClaudeCodeAgent).
         cmd = [
             self._binary,
-            "exec", prompt,
+            "exec", "-",
             "--sandbox", "workspace-write",
             "--json",
             "-C", str(workdir),
@@ -681,9 +720,10 @@ class CodexAgent(_CliAgentBase):
         prompt = self._generate_prompt(
             topic, exp_plan, metric_key, pkg_hint, compute_budget, extra_guidance,
         )
-        cmd = self._build_cmd(prompt, workdir)
+        cmd = self._build_cmd(workdir)
         rc, stdout, stderr, elapsed, to = self._run_subprocess(
             cmd, workdir, timeout_sec or self._default_timeout,
+            stdin_text=prompt,
         )
         return self._build_result(workdir, rc, stdout, stderr, elapsed, to)
 
@@ -704,9 +744,10 @@ class CodexAgent(_CliAgentBase):
             current_files, run_summaries, metric_key, metric_direction,
             topic, extra_hints,
         )
-        cmd = self._build_cmd(prompt, workdir)
+        cmd = self._build_cmd(workdir)
         rc, stdout, stderr, elapsed, to = self._run_subprocess(
             cmd, workdir, timeout_sec or self._default_timeout,
+            stdin_text=prompt,
         )
         return self._build_result(workdir, rc, stdout, stderr, elapsed, to)
 
@@ -720,9 +761,10 @@ class CodexAgent(_CliAgentBase):
     ) -> CodeAgentResult:
         _seed_workdir(workdir, files)
         prompt = self._repair_prompt(files, issues)
-        cmd = self._build_cmd(prompt, workdir)
+        cmd = self._build_cmd(workdir)
         rc, stdout, stderr, elapsed, to = self._run_subprocess(
             cmd, workdir, timeout_sec or self._default_timeout,
+            stdin_text=prompt,
         )
         return self._build_result(workdir, rc, stdout, stderr, elapsed, to)
 
@@ -752,7 +794,7 @@ def create_code_agent(
         if not binary:
             raise RuntimeError(
                 "Claude Code binary not found. "
-                "Install it or set experiment.code_agent.binary_path."
+                "Install it or set experiment.cli_agent.binary_path."
             )
         return ClaudeCodeAgent(  # type: ignore[return-value]
             binary_path=binary,
@@ -768,7 +810,7 @@ def create_code_agent(
         if not binary:
             raise RuntimeError(
                 "Codex binary not found. "
-                "Install it or set experiment.code_agent.binary_path."
+                "Install it or set experiment.cli_agent.binary_path."
             )
         return CodexAgent(  # type: ignore[return-value]
             binary_path=binary,

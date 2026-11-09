@@ -796,6 +796,74 @@ def _execute_experiment_run(
     )
 
 
+def _try_agent_refine(
+    agent: Any | None,
+    *,
+    current_files: dict[str, str],
+    run_summaries: list[str],
+    metric_key: str,
+    metric_direction: str,
+    topic: str,
+    extra_hints: str,
+    workdir: Path,
+    timeout_sec: int,
+) -> dict[str, str] | None:
+    """Use the configured CLI agent for Stage 13 refinement, if available."""
+    if agent is None:
+        return None
+    try:
+        result = agent.refine(
+            current_files=current_files,
+            run_summaries=run_summaries,
+            metric_key=metric_key,
+            metric_direction=metric_direction,
+            topic=topic,
+            extra_hints=extra_hints,
+            workdir=workdir,
+            timeout_sec=timeout_sec,
+        )
+    except Exception as exc:  # noqa: BLE001 - optional backend must not abort Stage 13
+        logger.warning("Stage 13: CLI refine failed (%s); falling back to LLM", exc)
+        return None
+    if not result.ok or not result.files:
+        logger.warning(
+            "Stage 13: CLI refine produced no usable files (%s); falling back to LLM",
+            result.error or "empty files",
+        )
+        return None
+    return dict(result.files)
+
+
+def _try_agent_repair(
+    agent: Any | None,
+    *,
+    files: dict[str, str],
+    issues: str,
+    workdir: Path,
+    timeout_sec: int,
+) -> dict[str, str] | None:
+    """Use the configured CLI agent to repair Stage 13 files, if available."""
+    if agent is None:
+        return None
+    try:
+        result = agent.repair(
+            files=files,
+            issues=issues,
+            workdir=workdir,
+            timeout_sec=timeout_sec,
+        )
+    except Exception as exc:  # noqa: BLE001 - optional backend must not abort Stage 13
+        logger.warning("Stage 13: CLI repair failed (%s); falling back to LLM", exc)
+        return None
+    if not result.ok or not result.files:
+        logger.warning(
+            "Stage 13: CLI repair produced no usable files (%s); falling back to LLM",
+            result.error or "empty files",
+        )
+        return None
+    return dict(result.files)
+
+
 def _execute_iterative_refine(
     stage_dir: Path,
     run_dir: Path,
@@ -1248,6 +1316,33 @@ def _execute_iterative_refine(
         )
 
     _pm = prompts or PromptManager()
+
+    # ── Explicit CLI code agent (opt-in via experiment.cli_agent.provider) ──
+    _agent_cfg = getattr(config.experiment, "cli_agent", None)
+    _agent_provider = (
+        getattr(_agent_cfg, "provider", "") or "llm"
+    ).strip().lower()
+    _refine_agent = None
+    if _agent_provider != "llm":
+        try:
+            from researchclaw.experiment.code_agent import create_code_agent
+
+            _refine_agent = create_code_agent(config, llm=llm, prompts=_pm)
+        except Exception as exc:  # noqa: BLE001 - fall back to LLM refinement
+            logger.warning(
+                "Stage 13: CLI code agent unavailable (%s); using LLM refinement",
+                exc,
+            )
+    log["cli_agent"] = {
+        "provider": _agent_provider,
+        "enabled": _refine_agent is not None,
+        "refine_calls": 0,
+        "repair_calls": 0,
+    }
+    _agent_timeout = int(
+        getattr(_agent_cfg, "timeout_sec", 600) or 600
+    )
+
     timeout_refine_attempts = 0
 
     # R7-3: Read experiment plan to detect condition coverage gaps
@@ -1344,6 +1439,7 @@ def _execute_iterative_refine(
 
         # --- Timeout-aware prompt injection ---
         user_prompt = ip.user + _saturation_hint
+        timeout_hint = ""
         if prior_timed_out and baseline_metric is None:
             timeout_refine_attempts += 1
             timeout_hint = (
@@ -1362,31 +1458,52 @@ def _execute_iterative_refine(
                 timeout_refine_attempts,
             )
 
-        try:
-            response = _chat_with_prompt(
-                llm,
-                ip.system,
-                user_prompt,
-                max_tokens=ip.max_tokens or 8192,
-            )
-        except RuntimeError as exc:
-            if "ACP prompt timed out after" in str(exc):
-                logger.warning(
-                    "Stage 13: ACP prompt timed out during iteration %d; pausing for resume",
-                    iteration,
+        extracted_files: dict[str, str] = {}
+        _agent_files = _try_agent_refine(
+            _refine_agent,
+            current_files=best_files,
+            run_summaries=run_summaries,
+            metric_key=metric_key,
+            metric_direction=metric_direction,
+            topic=config.research.topic,
+            extra_hints=(
+                _exp_plan_anchor
+                + _condition_coverage_hint
+                + _saturation_hint
+                + timeout_hint
+            ).strip(),
+            workdir=stage_dir / f"agent_refine_v{iteration}",
+            timeout_sec=_agent_timeout,
+        )
+        if _agent_files is not None:
+            log["cli_agent"]["refine_calls"] += 1
+            extracted_files = _agent_files
+        else:
+            try:
+                response = _chat_with_prompt(
+                    llm,
+                    ip.system,
+                    user_prompt,
+                    max_tokens=ip.max_tokens or 8192,
                 )
-                return _pause_refinement(
-                    reason=str(exc),
-                    stop_reason="acp_prompt_timeout",
-                    iteration=iteration,
-                )
-            raise
-        extracted_files = _extract_multi_file_blocks(response.content)
-        # If LLM returns only single block, treat as main.py update
-        if not extracted_files:
-            single_code = _extract_code_block(response.content)
-            if single_code.strip():
-                extracted_files = {"main.py": single_code}
+            except RuntimeError as exc:
+                if "ACP prompt timed out after" in str(exc):
+                    logger.warning(
+                        "Stage 13: ACP prompt timed out during iteration %d; pausing for resume",
+                        iteration,
+                    )
+                    return _pause_refinement(
+                        reason=str(exc),
+                        stop_reason="acp_prompt_timeout",
+                        iteration=iteration,
+                    )
+                raise
+            extracted_files = _extract_multi_file_blocks(response.content)
+            # If LLM returns only single block, treat as main.py update
+            if not extracted_files:
+                single_code = _extract_code_block(response.content)
+                if single_code.strip():
+                    extracted_files = {"main.py": single_code}
         # R8-2: Merge with best_files to preserve supporting modules
         # (e.g., graphs.py, game.py) that the LLM didn't rewrite
         candidate_files = dict(best_files)
@@ -1432,28 +1549,41 @@ def _execute_iterative_refine(
                 iteration,
                 validation.summary(),
             )
-            irp = _pm.sub_prompt(
-                "iterative_repair",
-                issue_text=issue_text,
-                all_files_ctx=_files_to_context(candidate_files),
+            _agent_repaired = _try_agent_repair(
+                _refine_agent,
+                files=candidate_files,
+                issues=issue_text,
+                workdir=stage_dir / f"agent_repair_v{iteration}",
+                timeout_sec=_agent_timeout,
             )
-            try:
-                repair_response = _chat_with_prompt(llm, irp.system, irp.user)
-            except RuntimeError as exc:
-                if "ACP prompt timed out after" in str(exc):
-                    logger.warning(
-                        "Stage 13: ACP repair prompt timed out during iteration %d; pausing for resume",
-                        iteration,
-                    )
-                    return _pause_refinement(
-                        reason=str(exc),
-                        stop_reason="acp_prompt_timeout",
-                        iteration=iteration,
-                    )
-                raise
-            candidate_files["main.py"] = _extract_code_block(repair_response.content)
-            validation = validate_code(candidate_files["main.py"])
-            repaired = True
+            if _agent_repaired:
+                log["cli_agent"]["repair_calls"] += 1
+                candidate_files.update(_agent_repaired)
+                validation = validate_code(candidate_files.get("main.py", ""))
+                repaired = True
+            else:
+                irp = _pm.sub_prompt(
+                    "iterative_repair",
+                    issue_text=issue_text,
+                    all_files_ctx=_files_to_context(candidate_files),
+                )
+                try:
+                    repair_response = _chat_with_prompt(llm, irp.system, irp.user)
+                except RuntimeError as exc:
+                    if "ACP prompt timed out after" in str(exc):
+                        logger.warning(
+                            "Stage 13: ACP repair prompt timed out during iteration %d; pausing for resume",
+                            iteration,
+                        )
+                        return _pause_refinement(
+                            reason=str(exc),
+                            stop_reason="acp_prompt_timeout",
+                            iteration=iteration,
+                        )
+                    raise
+                candidate_files["main.py"] = _extract_code_block(repair_response.content)
+                validation = validate_code(candidate_files["main.py"])
+                repaired = True
 
         # Save version directory
         version_dir = stage_dir / f"experiment_v{iteration}"
@@ -1556,32 +1686,44 @@ def _execute_iterative_refine(
                     iteration,
                     runtime_issues[:200],
                 )
-                # Attempt LLM repair with runtime context
-                rrp = _pm.sub_prompt(
-                    "iterative_repair",
-                    issue_text=runtime_issues,
-                    all_files_ctx=_files_to_context(candidate_files),
+                # Attempt configured CLI agent first, then LLM repair
+                repaired_files: dict[str, str] = {}
+                _agent_runtime_fix = _try_agent_repair(
+                    _refine_agent,
+                    files=candidate_files,
+                    issues=runtime_issues,
+                    workdir=stage_dir / f"agent_runtime_repair_v{iteration}",
+                    timeout_sec=_agent_timeout,
                 )
-                try:
-                    repair_resp = _chat_with_prompt(llm, rrp.system, rrp.user)
-                except RuntimeError as exc:
-                    if "ACP prompt timed out after" in str(exc):
-                        logger.warning(
-                            "Stage 13: ACP runtime-repair prompt timed out during iteration %d; pausing for resume",
-                            iteration,
-                        )
-                        return _pause_refinement(
-                            reason=str(exc),
-                            stop_reason="acp_prompt_timeout",
-                            iteration=iteration,
-                        )
-                    raise
-                repaired_files = _extract_multi_file_blocks(repair_resp.content)
-                if not repaired_files:
-                    single = _extract_code_block(repair_resp.content)
-                    if single.strip():
-                        repaired_files = dict(candidate_files)
-                        repaired_files["main.py"] = single
+                if _agent_runtime_fix:
+                    log["cli_agent"]["repair_calls"] += 1
+                    repaired_files = dict(_agent_runtime_fix)
+                else:
+                    rrp = _pm.sub_prompt(
+                        "iterative_repair",
+                        issue_text=runtime_issues,
+                        all_files_ctx=_files_to_context(candidate_files),
+                    )
+                    try:
+                        repair_resp = _chat_with_prompt(llm, rrp.system, rrp.user)
+                    except RuntimeError as exc:
+                        if "ACP prompt timed out after" in str(exc):
+                            logger.warning(
+                                "Stage 13: ACP runtime-repair prompt timed out during iteration %d; pausing for resume",
+                                iteration,
+                            )
+                            return _pause_refinement(
+                                reason=str(exc),
+                                stop_reason="acp_prompt_timeout",
+                                iteration=iteration,
+                            )
+                        raise
+                    repaired_files = _extract_multi_file_blocks(repair_resp.content)
+                    if not repaired_files:
+                        single = _extract_code_block(repair_resp.content)
+                        if single.strip():
+                            repaired_files = dict(candidate_files)
+                            repaired_files["main.py"] = single
                 if repaired_files:
                     # BUG-106 fix: merge instead of replace to preserve
                     # supporting modules (trainers.py, utils.py, etc.)

@@ -131,5 +131,8 @@ jobs:
       - name: Acceptance coverage check (D-6)
         run: python scripts/roadmap_coverage_check.py --check
 
+      - name: CLI code agent wiring guard
+        run: python scripts/code_agent_wiring_check.py
+
       - name: Private endpoint / credential guard
         run: python scripts/private_config_check.py

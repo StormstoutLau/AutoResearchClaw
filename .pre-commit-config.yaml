@@ -35,6 +35,13 @@ repos:
         pass_filenames: false
         files: ^(docs/PROGRESS\.md|tools/spec_runner/sessions/.*\.jsonl|spec/.*(?:RESEARCH|DESIGN|IMPLEMENTATION|CHECKLIST)\.md)$
 
+      - id: code-agent-wiring
+        name: CLI code agent wiring / transport guard
+        entry: python scripts/code_agent_wiring_check.py
+        language: system
+        pass_filenames: false
+        files: ^(researchclaw/(config|health)\.py|researchclaw/experiment/code_agent\.py|researchclaw/pipeline/(code_agent|stage_impls/_code_generation|stage_impls/_execution)\.py|scripts/code_agent_wiring_check\.py)$
+
       - id: rework-graph
         name: Rework graph check
         entry: python scripts/rework_graph_check.py

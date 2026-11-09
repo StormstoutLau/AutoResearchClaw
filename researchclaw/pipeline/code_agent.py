@@ -31,49 +31,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
+from researchclaw.config import CodeAgentConfig
+
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class CodeAgentConfig:
-    """Configuration for the advanced code generation agent.
-
-    All phases are independently toggleable.  The default profile enables
-    Phases 1 (blueprint), 2 (sequential generation + exec-fix), and 5
-    (review), which gives a large quality boost at moderate extra cost.
-    Phase 4 (tree search) is opt-in because it multiplies both LLM and
-    sandbox usage.
-    """
-
-    enabled: bool = True
-
-    # Phase 1: Blueprint planning (deep implementation blueprint)
-    architecture_planning: bool = True
-
-    # Phase 2: Sequential file generation (generate files one-by-one
-    # following dependency order from blueprint, with CodeMem summaries)
-    sequential_generation: bool = True
-
-    # Phase 2.5: Hard validation gates (AST-based)
-    hard_validation: bool = True
-    hard_validation_max_repairs: int = 4
-
-    # Phase 3: Execution-in-the-loop
-    exec_fix_max_iterations: int = 3
-    exec_fix_timeout_sec: int = 60
-
-    # Phase 4: Solution tree search (off by default)
-    tree_search_enabled: bool = False
-    tree_search_candidates: int = 3
-    tree_search_max_depth: int = 2
-    tree_search_eval_timeout_sec: int = 120
-
-    # Phase 5: Multi-agent review dialog
-    review_max_rounds: int = 2
 
 
 # ---------------------------------------------------------------------------

@@ -362,6 +362,95 @@ def _execute_agent_plan_generation(
     )
 
 
+def _try_cli_code_agent(
+    config: RCConfig,
+    llm: Any | None,
+    prompts: Any | None,
+    *,
+    stage_dir: Path,
+    topic: str,
+    exp_plan: str,
+    metric: str,
+    pkg_hint: str,
+    compute_budget: str,
+    extra_guidance: str,
+) -> dict[str, str] | None:
+    """Run the explicitly configured CLI code agent, or return None.
+
+    ``provider == "llm"`` keeps the existing pipeline untouched. Any failure
+    is logged to ``cli_agent_log.json`` and returns None so the caller can
+    fall back to Beast Mode / multi-phase CodeAgent / legacy single-shot.
+    """
+    agent_cfg = getattr(config.experiment, "cli_agent", None)
+    provider = (getattr(agent_cfg, "provider", "") or "llm").strip().lower()
+    if provider == "llm":
+        return None
+
+    from researchclaw.experiment.code_agent import create_code_agent
+
+    log: dict[str, Any] = {
+        "provider": provider,
+        "ok": False,
+        "files": [],
+        "elapsed_sec": 0.0,
+        "error": None,
+    }
+
+    def _write_log() -> None:
+        (stage_dir / "cli_agent_log.json").write_text(
+            json.dumps(log, indent=2), encoding="utf-8"
+        )
+
+    try:
+        agent = create_code_agent(config, llm=llm, prompts=prompts)
+        result = agent.generate(
+            exp_plan=exp_plan,
+            topic=topic,
+            metric_key=metric,
+            pkg_hint=pkg_hint,
+            compute_budget=compute_budget,
+            extra_guidance=extra_guidance,
+            workdir=stage_dir / "cli_agent_workspace",
+            timeout_sec=int(getattr(agent_cfg, "timeout_sec", 600) or 600),
+        )
+    except Exception as exc:  # noqa: BLE001 - optional backend must not abort Stage 10
+        logger.warning(
+            "CLI code agent (%s) failed: %s; falling back to LLM path",
+            provider,
+            exc,
+        )
+        log["error"] = str(exc)
+        _write_log()
+        return None
+
+    log.update(
+        {
+            "ok": bool(result.ok) and bool(result.files),
+            "files": sorted(result.files),
+            "elapsed_sec": round(result.elapsed_sec, 2),
+            "error": result.error,
+            "raw_output_tail": (result.raw_output or "")[-1000:],
+        }
+    )
+    _write_log()
+
+    if not result.ok or not result.files:
+        logger.warning(
+            "CLI code agent (%s) produced no usable files (%s); falling back",
+            provider,
+            result.error or "empty files",
+        )
+        return None
+
+    logger.info(
+        "CLI code agent (%s): %d files in %.1fs",
+        provider,
+        len(result.files),
+        result.elapsed_sec,
+    )
+    return dict(result.files)
+
+
 def _execute_code_generation(
     stage_dir: Path,
     run_dir: Path,
@@ -637,14 +726,33 @@ def _execute_code_generation(
         "- The experiment MUST be self-contained and runnable without GPU.\n"
     )
 
-    # --- Code generation: Beast Mode → CodeAgent → Legacy single-shot ---
+    # --- Code generation: explicit CLI provider → Beast Mode → CodeAgent → Legacy ---
     _code_agent_active = False
     _beast_mode_used = False
+    _cli_agent_used = False
     _code_max_tokens = 8192
+
+    # ── Explicit CLI code agent (opt-in via experiment.cli_agent.provider) ──
+    _cli_files = _try_cli_code_agent(
+        config,
+        llm,
+        prompts,
+        stage_dir=stage_dir,
+        topic=config.research.topic,
+        exp_plan=exp_plan,
+        metric=metric,
+        pkg_hint=pkg_hint,
+        compute_budget=compute_budget,
+        extra_guidance=extra_guidance,
+    )
+    if _cli_files:
+        files = _cli_files
+        _cli_agent_used = True
+        _code_agent_active = True  # Phase-5 review is LLM-specific; skip it
 
     # ── Beast Mode: OpenCode external agent (optional) ─────────────────
     _oc_cfg = config.experiment.opencode
-    if _oc_cfg.enabled:
+    if not _cli_agent_used and _oc_cfg.enabled:
         from researchclaw.pipeline.opencode_bridge import (
             OpenCodeBridge,
             OpenCodeResult,
@@ -763,7 +871,12 @@ def _execute_code_generation(
                 _oc_cfg.complexity_threshold,
             )
 
-    if not _beast_mode_used and config.experiment.code_agent.enabled and llm is not None:
+    if (
+        not _cli_agent_used
+        and not _beast_mode_used
+        and config.experiment.code_agent.enabled
+        and llm is not None
+    ):
         # ── F-02: Advanced Code Agent path ────────────────────────────────
         from researchclaw.pipeline.code_agent import CodeAgent as _CodeAgent
 
@@ -866,7 +979,7 @@ def _execute_code_generation(
             _agent_result.total_sandbox_runs,
             _agent_result.best_score,
         )
-    elif not _beast_mode_used and llm is not None:
+    elif not _cli_agent_used and not _beast_mode_used and llm is not None:
         # ── Legacy single-shot generation ─────────────────────────────────
         topic = config.research.topic
         _md = config.experiment.metric_direction
