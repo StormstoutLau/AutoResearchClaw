@@ -395,12 +395,14 @@ class _CliAgentBase:
         max_budget_usd: float = 5.0,
         timeout_sec: int = 600,
         extra_args: list[str] | None = None,
+        env_extra: list[tuple[str, str]] | None = None,
     ) -> None:
         self._binary = binary_path
         self._model = model
         self._max_budget_usd = max_budget_usd
         self._default_timeout = timeout_sec
         self._extra_args = extra_args or []
+        self._env_extra = dict(env_extra or [])
 
     @property
     def name(self) -> str:
@@ -424,7 +426,7 @@ class _CliAgentBase:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=workdir,
-            env={**os.environ},
+            env={**os.environ, **self._env_extra},
             start_new_session=True,
         )
         try:
@@ -758,6 +760,7 @@ def create_code_agent(
             max_budget_usd=agent_cfg.max_budget_usd,
             timeout_sec=agent_cfg.timeout_sec,
             extra_args=list(agent_cfg.extra_args),
+            env_extra=list(agent_cfg.env_extra),
         )
 
     if provider == "codex":
@@ -773,6 +776,7 @@ def create_code_agent(
             max_budget_usd=agent_cfg.max_budget_usd,
             timeout_sec=agent_cfg.timeout_sec,
             extra_args=list(agent_cfg.extra_args),
+            env_extra=list(agent_cfg.env_extra),
         )
 
     raise ValueError(f"Unknown code agent provider: {provider}")

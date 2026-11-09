@@ -804,6 +804,7 @@ _PROVIDER_CHOICES = {
     "8": ("minimax-anthropic", "MINIMAX_API_KEY"),
     "9": ("minimax-anthropic-cn", "MINIMAX_API_KEY"),
     "10": ("atlascloud", "ATLASCLOUD_API_KEY"),
+    "11": ("bilibili", "BILI_API_KEY"),
 }
 
 _PROVIDER_URLS = {
@@ -816,6 +817,7 @@ _PROVIDER_URLS = {
     "minimax-anthropic-cn": "https://api.minimaxi.com/anthropic",
     "ollama": "http://localhost:11434/v1",
     "atlascloud": "https://api.atlascloud.ai/v1",
+    "bilibili": "http://127.0.0.1:<TUNNEL_PORT>/v1",
 }
 
 _MINIMAX_MODELS = (
@@ -839,6 +841,7 @@ _PROVIDER_MODELS = {
         "deepseek-ai/deepseek-v4-pro",
         ["deepseek-ai/deepseek-v4-flash"],
     ),
+    "bilibili": ("qwen3.8-flash-next", []),
 }
 
 
@@ -948,6 +951,12 @@ def cmd_init(args: argparse.Namespace) -> int:
         print("  1. Ensure Ollama is running: ollama serve")
         print("  2. Pull your model: ollama pull llama3.2")
         print("  3. Edit config.arc.yaml to set llm.primary_model to your model name")
+        print("  4. Run: researchclaw doctor")
+    elif provider == "bilibili":
+        print("\nNext steps:")
+        print("  1. Ensure the SSH tunnel is up: ssh -N -L 127.0.0.1:<TUNNEL_PORT>:127.0.0.1:<API_PORT> <user>@<B_STATION_HOST>")
+        print("  2. The engine does not validate keys — any placeholder api_key works")
+        print("  3. 1M context tier caps output at 16384 tokens")
         print("  4. Run: researchclaw doctor")
     elif provider in ("minimax-anthropic", "minimax-anthropic-cn"):
         print("\nNext steps:")

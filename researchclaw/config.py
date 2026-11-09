@@ -588,6 +588,9 @@ class CliAgentConfig:
     max_budget_usd: float = 5.0
     timeout_sec: int = 600
     extra_args: tuple[str, ...] = ()
+    # Extra environment variables injected into the CLI subprocess (H: B站
+    # endpoint — ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN / CLAUDE_CODE_*).
+    env_extra: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1523,6 +1526,10 @@ def _parse_cli_agent_config(data: dict[str, Any]) -> CliAgentConfig:
         model=data.get("model", ""),
         max_budget_usd=_safe_float(data.get("max_budget_usd"), 5.0),
         timeout_sec=_safe_int(data.get("timeout_sec"), 600),
+        env_extra=tuple(
+            (str(k), str(v))
+            for k, v in (data.get("env_extra") or {}).items()
+        ),
         extra_args=tuple(data.get("extra_args") or ()),
     )
 

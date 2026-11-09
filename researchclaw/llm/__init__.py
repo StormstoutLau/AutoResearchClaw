@@ -51,6 +51,15 @@ PROVIDER_PRESETS = {
     "ollama": {
         "base_url": "http://localhost:11434/v1",
     },
+    # B 站局域网推理集群（halogen / llama.cpp，经 SSH 隧道 127.0.0.1:<TUNNEL_PORT>）。
+    # 引擎不校验 key；1M 档 max 输出 16384。参考 docs/arc-bilibili-endpoint 批次。
+    "bilibili": {
+        "base_url": "http://127.0.0.1:<TUNNEL_PORT>/v1",
+    },
+    "bilibili-anthropic": {
+        "base_url": "http://127.0.0.1:<TUNNEL_PORT>",
+        "adapter": "anthropic",
+    },
     "openai-compatible": {
         "base_url": None,  # Use user-provided base_url
     },
