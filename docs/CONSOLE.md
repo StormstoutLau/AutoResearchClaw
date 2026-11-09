@@ -8,7 +8,7 @@
 |---|---|
 | 在册批次 | 7（done 7 · pending 0 · in-progress 0 · blocked 0） |
 | 最近批次 | P-007 done（2026-11-09） |
-| session 覆盖 | 7 个 P（最近 specwf-p007-arc-bilibili-endpoint · 2026-11-09T12:00:00+08:00） |
+| session 覆盖 | 7 个 P（最近 specwf-p007-arc-b-station-endpoint · 2026-11-09T12:00:00+08:00） |
 | 行动队列 | Needs Attention 0 · Ready to Verify 0 · Recommended 0 |
 | feature 阶段 | 7（调研 0 · 设计 0 · 实施 0 · 验收 7 · 未启动 0） |
 
@@ -28,7 +28,7 @@
 ## feature 视图（分组键）
 | feature | 描述 | 制品链 R/D/I/C | 阶段 | 关联 P | 最远 step |
 |---------|------|---------------|------|--------|----------|
-| arc-bilibili-endpoint | B站 LLM 端点与 Claude Code 接入 | ✓✓✓✓ | 验收 | P-007 | finalize |
+| arc-b-station-endpoint | B 站 LLM 端点与 Claude Code 接入 | ✓✓✓✓ | 验收 | P-007 | finalize |
 | arc-g1-hardening | G-1 急救项落地依据 | ✓✓✓✓ | 验收 | P-006 | finalize |
 | arc-roadmap-fix | 总纲审查结论的修复范围界定 | ✓✓✓✓ | 验收 | P-003 | finalize |
 | arc-roadmap-gaps | 总纲完备度与执行盲区 | ✓✓✓✓ | 验收 | P-004 | finalize |
@@ -98,11 +98,11 @@ flowchart LR
 ### per-feature 流程（默认折叠）
 > **默认展示上方「项目级」架构与流程**；下列 per-feature 流程各自独立折叠，点击摘要行展开。交互形态 = Markdown 原生折叠元素（`details` / `summary`）+ 锚点跳转，**不含 Mermaid `click`**（C-10：默认 `strict` 禁用，`loose` 属 XSS 载体）。
 
-锚点目录：[arc-bilibili-endpoint](#feat-arc-bilibili-endpoint) · [arc-g1-hardening](#feat-arc-g1-hardening) · [arc-roadmap-fix](#feat-arc-roadmap-fix) · [arc-roadmap-gaps](#feat-arc-roadmap-gaps) · [arc-roadmap-review](#feat-arc-roadmap-review) · [arc-roadmap-verdict](#feat-arc-roadmap-verdict) · [arc-spec-workflow-install](#feat-arc-spec-workflow-install)
+锚点目录：[arc-b-station-endpoint](#feat-arc-b-station-endpoint) · [arc-g1-hardening](#feat-arc-g1-hardening) · [arc-roadmap-fix](#feat-arc-roadmap-fix) · [arc-roadmap-gaps](#feat-arc-roadmap-gaps) · [arc-roadmap-review](#feat-arc-roadmap-review) · [arc-roadmap-verdict](#feat-arc-roadmap-verdict) · [arc-spec-workflow-install](#feat-arc-spec-workflow-install)
 
-<a name="feat-arc-bilibili-endpoint" id="feat-arc-bilibili-endpoint"></a>
+<a name="feat-arc-b-station-endpoint" id="feat-arc-b-station-endpoint"></a>
 <details>
-<summary><b>arc-bilibili-endpoint</b> ｜ 验收 ｜ P-007</summary>
+<summary><b>arc-b-station-endpoint</b> ｜ 验收 ｜ P-007</summary>
 
 **派生状态**：`done` —— PROGRESS 状态列 = done
 
@@ -115,11 +115,11 @@ flowchart LR
 
 | 步骤 | 制品 | 主题（本步做什么） | 创建时间 | 简要描述（本步结论） | 修改历史 |
 |------|------|--------------------|---------|--------------------|---------|
-| research | RESEARCH.md ✓ | 界定 B站端点接入面与测试基座形态 | 2026-11-09 11:00 | P-007 = preset×2 + CLI choice 11 + env_extra 注入 … | #1 2026-11-09 |
+| research | RESEARCH.md ✓ | 界定 B 站端点接入面与测试基座形态 | 2026-11-09 11:00 | P-007 = preset×2 + CLI choice 11 + env_extra 注入 … | #1 2026-11-09 |
 | design | DESIGN.md ✓ | 设计四条不变量：默认零变化、占位 key、env 通用化、思考回退仅空 content | 2026-11-09 11:10 | DESIGN §2 七处改动面 + §3 双层测试策略 | #1 2026-11-09 |
 | implement | IMPLEMENTATION.md ✓ | 落地接入与思考模型兼容修复 | 2026-11-09 11:30 | 7 处改动落地；空 content 缺口修复 | #1 2026-11-09 |
 | verify | CHECKLIST.md ✓ | 离线 + live + 回归三层验证 | 2026-11-09 11:50 | V1/V2/V3 全部通过 | #1 2026-11-09 |
-| finalize | —（finalize 不新增制品） | 登记 P-007 并收口 | 2026-11-09 12:00 | P-007 done；B站端点与 Claude Code 接入入库 | #1 2026-11-09 |
+| finalize | —（finalize 不新增制品） | 登记 P-007 并收口 | 2026-11-09 12:00 | P-007 done；B 站端点与 Claude Code 接入入库 | #1 2026-11-09 |
 
 **决策链**（sessions 机械重数）：research → design → implement → verify → finalize
 
@@ -292,7 +292,7 @@ flowchart LR
 | P-004 | 落档总纲完备度审计，产出 12 项外部锚点与 7 项补全方案（未执行） | finalize | 2026-11-07 | P1 |
 | P-005 | 裁决落地：总纲 v0.4（D-1=A、D-2=C）+ D-3..D-7 + 覆盖率 CI 门禁 | finalize | 2026-11-08 | P0 |
 | P-006 | G-1 急救落地：Q18/Q19/Q20 裁决 + H-1..H-8 代码与 8 个测试 | finalize | 2026-11-08 | P0 |
-| P-007 | B站 LLM 端点与 Claude Code 接入（preset×2 + CLI 菜单 + env 注入 + 思考模型兼容修复） | finalize | 2026-11-09 | P1 |
+| P-007 | B 站（集群节点 B）LLM 端点与 Claude Code 接入（preset×2 + CLI 菜单 + env 注入 + 思考模型兼容修复） | finalize | 2026-11-09 | P1 |
 
 ## ⑂ fork / 支线
 - 本地分支属**环境态**，不纳入派生视图（保证跨环境可复现；P-070 追加轮方案 A）

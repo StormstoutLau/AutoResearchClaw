@@ -1,11 +1,11 @@
-"""Tests for the B站 (Bilibili LAN cluster) LLM endpoint integration.
+"""Tests for the B-station (node B of the A/B/C inference cluster) LLM endpoint.
 
 Covers: provider presets (OpenAI + Anthropic wires), from_rc_config wiring,
 request URL construction, factory dispatch, CLI menu registration, live
 smoke tests against the tunnel (skipped unless reachable and opted in).
 
-Endpoint reference: docs/arc-g1-readiness lineage — B 站 halogen
-无审查 Qwen3.8 1M, tunnel 127.0.0.1:<TUNNEL_PORT> -> <B_STATION_HOST>:8080.
+Endpoint reference: B 站 = node B of the three-node RPC cluster (not a video
+site). Halogen 无审查 Qwen3.8 1M, tunnel 127.0.0.1:<TUNNEL_PORT> -> <B_STATION_HOST>:8080.
 """
 
 from __future__ import annotations
@@ -23,15 +23,15 @@ from researchclaw.llm import PROVIDER_PRESETS, create_llm_client
 from researchclaw.llm.client import LLMClient, LLMConfig, LLMResponse
 
 
-BILI_BASE = "http://127.0.0.1:<TUNNEL_PORT>"
-BILI_TUNNEL_HOST = "127.0.0.1"
-BILI_TUNNEL_PORT = 18081
+BSTATION_BASE = "http://127.0.0.1:<TUNNEL_PORT>"
+BSTATION_TUNNEL_HOST = "127.0.0.1"
+BSTATION_TUNNEL_PORT = 18081
 
 
 def _tunnel_reachable(timeout: float = 1.5) -> bool:
     """Probe the SSH tunnel without sending a request."""
     try:
-        with socket.create_connection((BILI_TUNNEL_HOST, BILI_TUNNEL_PORT), timeout=timeout):
+        with socket.create_connection((BSTATION_TUNNEL_HOST, BSTATION_TUNNEL_PORT), timeout=timeout):
             return True
     except OSError:
         return False
@@ -42,16 +42,16 @@ def _tunnel_reachable(timeout: float = 1.5) -> bool:
 # ---------------------------------------------------------------------------
 
 
-class TestBilibiliPreset:
-    def test_bilibili_in_provider_presets(self):
-        assert "bilibili" in PROVIDER_PRESETS
+class TestBStationPreset:
+    def test_b_station_in_provider_presets(self):
+        assert "b-station" in PROVIDER_PRESETS
 
-    def test_bilibili_openai_wire_base_url(self):
-        assert PROVIDER_PRESETS["bilibili"]["base_url"] == f"{BILI_BASE}/v1"
+    def test_b_station_openai_wire_base_url(self):
+        assert PROVIDER_PRESETS["b-station"]["base_url"] == f"{BSTATION_BASE}/v1"
 
-    def test_bilibili_anthropic_wire_preset(self):
-        preset = PROVIDER_PRESETS["bilibili-anthropic"]
-        assert preset["base_url"] == BILI_BASE
+    def test_b_station_anthropic_wire_preset(self):
+        preset = PROVIDER_PRESETS["b-station-anthropic"]
+        assert preset["base_url"] == BSTATION_BASE
         assert preset.get("adapter") == "anthropic"
 
 
@@ -62,11 +62,11 @@ class TestBilibiliPreset:
 
 def _rc_llm(**overrides: Any) -> SimpleNamespace:
     defaults: dict[str, Any] = dict(
-        provider="bilibili",
+        provider="b-station",
         base_url="",
         wire_api="chat_completions",
         api_key="local-halogen",
-        api_key_env="BILI_API_KEY",
+        api_key_env="BSTATION_API_KEY",
         primary_model="qwen3.8-flash-next",
         fallback_models=(),
     )
@@ -74,16 +74,16 @@ def _rc_llm(**overrides: Any) -> SimpleNamespace:
     return SimpleNamespace(llm=SimpleNamespace(**defaults))
 
 
-class TestBilibiliFromRCConfig:
+class TestBStationFromRCConfig:
     def test_preset_base_url_used_when_unset(self):
         client = LLMClient.from_rc_config(_rc_llm())
-        assert client.config.base_url == f"{BILI_BASE}/v1"
+        assert client.config.base_url == f"{BSTATION_BASE}/v1"
         assert client.config.primary_model == "qwen3.8-flash-next"
         assert client._anthropic is None
 
     def test_anthropic_preset_sets_adapter(self):
-        client = LLMClient.from_rc_config(_rc_llm(provider="bilibili-anthropic"))
-        assert client.config.base_url == BILI_BASE
+        client = LLMClient.from_rc_config(_rc_llm(provider="b-station-anthropic"))
+        assert client.config.base_url == BSTATION_BASE
         assert client._anthropic is not None
 
     def test_custom_base_url_overrides_preset(self):
@@ -93,7 +93,7 @@ class TestBilibiliFromRCConfig:
         assert client.config.base_url == "http://127.0.0.1:<ALT_TUNNEL_PORT>/v1"
 
     def test_placeholder_key_survives_empty_env(self, monkeypatch):
-        monkeypatch.delenv("BILI_API_KEY", raising=False)
+        monkeypatch.delenv("BSTATION_API_KEY", raising=False)
         client = LLMClient.from_rc_config(_rc_llm())
         assert client.config.api_key == "local-halogen"
 
@@ -117,7 +117,7 @@ class _DummyHTTPResponse:
         return None
 
 
-class TestBilibiliEndpoints:
+class TestBStationEndpoints:
     def test_openai_wire_url(self, monkeypatch):
         client = LLMClient.from_rc_config(_rc_llm())
         captured: dict[str, Any] = {}
@@ -136,11 +136,11 @@ class TestBilibiliEndpoints:
         resp = client._raw_call(
             "qwen3.8-flash-next", [{"role": "user", "content": "ping"}], 64, 0.5, False
         )
-        assert captured["url"] == f"{BILI_BASE}/v1/chat/completions"
+        assert captured["url"] == f"{BSTATION_BASE}/v1/chat/completions"
         assert resp.content == "ok"
 
     def test_anthropic_wire_url(self):
-        client = LLMClient.from_rc_config(_rc_llm(provider="bilibili-anthropic"))
+        client = LLMClient.from_rc_config(_rc_llm(provider="b-station-anthropic"))
         captured: dict[str, Any] = {}
 
         class _Response:
@@ -166,7 +166,7 @@ class TestBilibiliEndpoints:
             "qwen3.8-flash-next", [{"role": "user", "content": "ping"}], 64, 0.5, False
         )
         # halogen natively serves /v1/messages — matches the doc's curl probe
-        assert captured["url"] == f"{BILI_BASE}/v1/messages"
+        assert captured["url"] == f"{BSTATION_BASE}/v1/messages"
         assert resp.content == "ok"
 
 
@@ -175,22 +175,22 @@ class TestBilibiliEndpoints:
 # ---------------------------------------------------------------------------
 
 
-class TestBilibiliFactoryAndCli:
+class TestBStationFactoryAndCli:
     def test_factory_dispatch(self):
         client = create_llm_client(_rc_llm())
         assert isinstance(client, LLMClient)
-        assert client.config.base_url == f"{BILI_BASE}/v1"
+        assert client.config.base_url == f"{BSTATION_BASE}/v1"
 
     def test_cli_menu_registration(self):
         from researchclaw.cli import _PROVIDER_CHOICES, _PROVIDER_MODELS, _PROVIDER_URLS
 
-        assert ("bilibili", "BILI_API_KEY") in _PROVIDER_CHOICES.values()
-        assert _PROVIDER_URLS["bilibili"] == f"{BILI_BASE}/v1"
-        primary, fallbacks = _PROVIDER_MODELS["bilibili"]
+        assert ("b-station", "BSTATION_API_KEY") in _PROVIDER_CHOICES.values()
+        assert _PROVIDER_URLS["b-station"] == f"{BSTATION_BASE}/v1"
+        primary, fallbacks = _PROVIDER_MODELS["b-station"]
         assert primary == "qwen3.8-flash-next"
         assert fallbacks == []
 
-    def test_init_generates_bilibili_config(self, tmp_path, monkeypatch):
+    def test_init_generates_b_station_config(self, tmp_path, monkeypatch):
         from researchclaw import cli as rc_cli
 
         monkeypatch.chdir(tmp_path)
@@ -205,13 +205,13 @@ class TestBilibiliFactoryAndCli:
 
         raw = (tmp_path / "config.arc.yaml").read_text(encoding="utf-8")
         parsed = yaml.safe_load(raw)
-        assert parsed["llm"]["provider"] == "bilibili"
-        assert parsed["llm"]["base_url"] == f"{BILI_BASE}/v1"
+        assert parsed["llm"]["provider"] == "b-station"
+        assert parsed["llm"]["base_url"] == f"{BSTATION_BASE}/v1"
         assert parsed["llm"]["primary_model"] == "qwen3.8-flash-next"
 
 
 # ---------------------------------------------------------------------------
-# Unit tests — cli_agent env_extra injection (B站 Claude Code path)
+# Unit tests — cli_agent env_extra injection (B 站 Claude Code path)
 # ---------------------------------------------------------------------------
 
 
@@ -224,9 +224,9 @@ class TestClaudeCodeEnvExtra:
     def test_env_extra_reaches_subprocess(self, tmp_path):
         import sys
 
-        agent = self._agent([("ARC_BILI_TEST_VAR", "bili-ok")])
+        agent = self._agent([("ARC_BSTATION_TEST_VAR", "bili-ok")])
         rc, stdout, _, _, _ = agent._run_subprocess(
-            [sys.executable, "-c", "import os; print(os.environ.get('ARC_BILI_TEST_VAR', 'MISSING'))"],
+            [sys.executable, "-c", "import os; print(os.environ.get('ARC_BSTATION_TEST_VAR', 'MISSING'))"],
             tmp_path,
             30,
         )
@@ -240,13 +240,13 @@ class TestClaudeCodeEnvExtra:
             {
                 "provider": "claude_code",
                 "env_extra": {
-                    "ANTHROPIC_BASE_URL": BILI_BASE,
+                    "ANTHROPIC_BASE_URL": BSTATION_BASE,
                     "ANTHROPIC_AUTH_TOKEN": "local-halogen",
                 },
             }
         )
         assert dict(cfg.env_extra) == {
-            "ANTHROPIC_BASE_URL": BILI_BASE,
+            "ANTHROPIC_BASE_URL": BSTATION_BASE,
             "ANTHROPIC_AUTH_TOKEN": "local-halogen",
         }
 
@@ -308,20 +308,20 @@ class TestThinkingModelParse:
 
 
 @pytest.mark.skipif(
-    os.environ.get("ARC_BILI_LIVE") != "1",
-    reason="ARC_BILI_LIVE not set (live B站 smoke tests are opt-in)",
+    os.environ.get("ARC_BSTATION_LIVE") != "1",
+    reason="ARC_BSTATION_LIVE not set (live B 站 smoke tests are opt-in)",
 )
 @pytest.mark.skipif(
     not _tunnel_reachable(),
-    reason="B站 tunnel 127.0.0.1:<TUNNEL_PORT> not reachable",
+    reason="B 站 tunnel 127.0.0.1:<TUNNEL_PORT> not reachable",
 )
-class TestBilibiliLiveAPI:
-    """Live smoke against B站 halogen (1M 档，输出上限 16384)."""
+class TestBStationLiveAPI:
+    """Live smoke against B 站 halogen (1M 档，输出上限 16384)."""
 
     def _openai_client(self) -> LLMClient:
         return LLMClient(
             LLMConfig(
-                base_url=f"{BILI_BASE}/v1",
+                base_url=f"{BSTATION_BASE}/v1",
                 api_key="local-halogen",
                 primary_model="qwen3.8-flash-next",
                 fallback_models=[],
@@ -341,7 +341,7 @@ class TestBilibiliLiveAPI:
 
     def test_anthropic_wire_smoke(self):
         client = LLMClient.from_rc_config(
-            _rc_llm(provider="bilibili-anthropic", fallback_models=())
+            _rc_llm(provider="b-station-anthropic", fallback_models=())
         )
         resp = client.chat(
             [{"role": "user", "content": "只回复：OK"}],

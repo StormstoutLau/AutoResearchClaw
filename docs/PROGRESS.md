@@ -13,4 +13,4 @@
 | P-004 | 落档总纲完备度审计，产出 12 项外部锚点与 7 项补全方案（未执行） | [spec/arc-roadmap-gaps/](../spec/arc-roadmap-gaps/) | done | P1 | 6 结构缺口 + 8 执行盲区有证据；12 锚点可核验；总纲与 106 计数不变；step-gate 5/5 |
 | P-005 | 裁决落地：总纲 v0.4（D-1=A、D-2=C）+ D-3..D-7 + 覆盖率 CI 门禁 | [spec/arc-roadmap-verdict/](../spec/arc-roadmap-verdict/) | done | P0 | 106 计数不变；H-5 进 C-9；A2-4/5/6 谓词化；覆盖率脚本 CI 绿（missing=0）；step-gate 5/5 |
 | P-006 | G-1 急救落地：Q18/Q19/Q20 裁决 + H-1..H-8 代码与 8 个测试 | [spec/arc-g1-hardening/](../spec/arc-g1-hardening/) | done | P0 | 28 个新测试全绿；既有回归 346 passed；Q19 回环默认生效；覆盖 missing=0；step-gate 5/5 |
-| P-007 | B站 LLM 端点与 Claude Code 接入（preset×2 + CLI 菜单 + env 注入 + 思考模型兼容修复） | [spec/arc-bilibili-endpoint/](../spec/arc-bilibili-endpoint/) | done | P1 | 离线 18 测试全绿；live 双 wire 实测命中 B站 1M；LLM 回归 105 passed；step-gate 5/5 |
+| P-007 | B 站（集群节点 B）LLM 端点与 Claude Code 接入（preset×2 + CLI 菜单 + env 注入 + 思考模型兼容修复） | [spec/arc-b-station-endpoint/](../spec/arc-b-station-endpoint/) | done | P1 | 离线 18 测试全绿；live 双 wire 实测命中 B 站 1M；LLM 回归 105 passed；step-gate 5/5 |

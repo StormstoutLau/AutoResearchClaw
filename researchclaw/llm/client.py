@@ -685,7 +685,7 @@ class LLMClient:
         message = choice.get("message", {})
         content = message.get("content") or ""
         if not content:
-            # Thinking-model backends (e.g. halogen Qwen3.8 on the B站
+            # Thinking-model backends (e.g. halogen Qwen3.8 on the B 站
             # cluster) may spend the whole output budget in reasoning_content
             # and return an empty content field. Fall back to the reasoning
             # trace rather than propagating an empty string downstream;

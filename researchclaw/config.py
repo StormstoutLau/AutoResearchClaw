@@ -588,7 +588,7 @@ class CliAgentConfig:
     max_budget_usd: float = 5.0
     timeout_sec: int = 600
     extra_args: tuple[str, ...] = ()
-    # Extra environment variables injected into the CLI subprocess (H: B站
+    # Extra environment variables injected into the CLI subprocess (B 站
     # endpoint — ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN / CLAUDE_CODE_*).
     env_extra: tuple[tuple[str, str], ...] = ()
 

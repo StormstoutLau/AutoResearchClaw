@@ -51,12 +51,13 @@ PROVIDER_PRESETS = {
     "ollama": {
         "base_url": "http://localhost:11434/v1",
     },
-    # B 站局域网推理集群（halogen / llama.cpp，经 SSH 隧道 127.0.0.1:<TUNNEL_PORT>）。
-    # 引擎不校验 key；1M 档 max 输出 16384。参考 docs/arc-bilibili-endpoint 批次。
-    "bilibili": {
+    # B 站：三机推理集群（A/B/C）中的节点 B，halogen / llama.cpp，
+    # 经 SSH 隧道 127.0.0.1:<TUNNEL_PORT> 暴露。引擎不校验 key；1M 档输出上限 16384。
+    # 命名与 RPC 集群拓扑一致（A/B/C 为站号，不是视频站标识）。
+    "b-station": {
         "base_url": "http://127.0.0.1:<TUNNEL_PORT>/v1",
     },
-    "bilibili-anthropic": {
+    "b-station-anthropic": {
         "base_url": "http://127.0.0.1:<TUNNEL_PORT>",
         "adapter": "anthropic",
     },

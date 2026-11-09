@@ -73,19 +73,19 @@ llm:
   # primary_model: "llama3.2"
   # fallback_models:
   #   - "mistral"
-  # --- B站 局域网推理集群（SSH 隧道 127.0.0.1:<TUNNEL_PORT> → B站 127.0.0.1:8080） ---
+  # --- B 站：三机推理集群（A/B/C）节点 B，SSH 隧道 127.0.0.1:<TUNNEL_PORT> → B 站 127.0.0.1:8080 ---
   # halogen 无审查 Qwen3.8 1M；引擎不校验 key（占位串即可）；1M 档输出上限 16384。
   # 前置：隧道常驻（cc-switch-tunnels.cmd）或手动
   #   ssh -N -L 127.0.0.1:<TUNNEL_PORT>:127.0.0.1:<API_PORT> <user>@<B_STATION_HOST>
-  # provider: "bilibili"                    # OpenAI wire → /v1/chat/completions
+  # provider: "b-station"                   # OpenAI wire → /v1/chat/completions
   # base_url: "http://127.0.0.1:<TUNNEL_PORT>/v1"
-  # api_key_env: "BILI_API_KEY"
+  # api_key_env: "BSTATION_API_KEY"
   # api_key: "local-halogen"
   # primary_model: "qwen3.8-flash-next"
   # fallback_models: []
-  # provider: "bilibili-anthropic"          # Anthropic wire → /v1/messages（halogen 原生）
+  # provider: "b-station-anthropic"         # Anthropic wire → /v1/messages（halogen 原生）
   # base_url: "http://127.0.0.1:<TUNNEL_PORT>"      # 适配器自动追加 /v1/messages
-  # api_key_env: "BILI_API_KEY"
+  # api_key_env: "BSTATION_API_KEY"
   # api_key: "local-halogen"
   # primary_model: "qwen3.8-flash-next"
 
@@ -164,10 +164,10 @@ experiment:
   # --- CLI code agent（Stages 10/13 可选后端） ---
   # provider: "llm" | "claude_code" | "codex"
   # claude_code 的鉴权走 ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN（继承自
-  # 本进程环境，或用 env_extra 显式注入——不经 cc-switch 直连 B站 1M）：
+  # 本进程环境，或用 env_extra 显式注入——不经 cc-switch 直连 B 站 1M）：
   # cli_agent:
   #   provider: "claude_code"
-  #   model: "main"              # 未识别模型名 → claude code 按 1M 档假设（B站口径）
+  #   model: "main"              # 未识别模型名 → claude code 按 1M 档假设（B 站口径）
   #   max_budget_usd: 5.0
   #   timeout_sec: 600
   #   env_extra:
