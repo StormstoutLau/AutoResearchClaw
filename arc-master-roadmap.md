@@ -1,9 +1,9 @@
 ---
 id: arc-master-roadmap
 type: design
-version: 0.5
+version: 0.6
 status: draft
-date: 2026-11-04
+date: 2026-11-10
 depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-textbook, clawsgo-cleanroom-arc]
 upstream: arb-v2-decisions
 ---
@@ -23,6 +23,8 @@ upstream: arb-v2-decisions
 > **修订**：v0.4（2026-11-08，P-005）裁决落地——D-1=A（H-5 移入 C-9、§5 删箭头）、D-2=C（A2-4/5/6 谓词化）；D-3 执行矩阵（§5.1）、D-4 最小集定义（§1/§6）、D-5 交付物补全（G1/G3/G5）、D-6 覆盖声明 + CI 覆盖率门禁、D-7 新增 Q18..Q20。106 计数不变。依据：[D-1/D-2 裁决分析](docs/arc-d1-d2-verdict-analysis-20261108.md)。
 >
 > **修订**：v0.5（2026-11-08，P-006）Q18/Q19/Q20 裁决 + H-1..H-8 落地：vendor/语料 L1 清单、API 回环默认 + 非回环强制 token、预算分层账本；H-1..H-8 代码与 8 个 pytest 文件已合入。依据：[G-1 开工前补充调研](docs/arc-g1-readiness-research-20261108.md)。
+>
+> **修订**：v0.6（2026-11-10，P-016）状态同步：G-1 标记完成、G0b 标记未就绪、Q17 裁决、P-011..P-015 依据挂载、G3 回退/传播候选增量；**106 计数不变**。依据：[P-016 实施记录](spec/arc-roadmap-v06/IMPLEMENTATION.md)。
 
 ---
 
@@ -159,7 +161,9 @@ flowchart LR
 
 ---
 
-### G-1｜可信性与安全急救（P0-急救，前置：G0a）
+### G-1｜可信性与安全急救（P0-急救，前置：G0a）——**已完成（P-006，2026-11-08）**
+
+> **状态**：H-1..H-8 已落地；8 个 pytest 文件 **28 passed**；C-9 已生效；`roadmap_coverage_check --check` missing=0。
 
 > **为什么必须在 G0b 之前**：这 8 项都是"代码里已证实存在缺口"，拖到完整治理之后会持续产出不可信结果。
 
@@ -182,7 +186,9 @@ flowchart LR
 
 ---
 
-### G0b｜完整治理基座（P0，前置：G-1）
+### G0b｜完整治理基座（P0，前置：G-1）——**未就绪**
+
+> **状态（2026-11-10）**：G-1 前置已满足，但 G0b 自身交付物未齐——缺 `spec/SPEC_PROCESS.md`、`scripts/spec/{m7_stats,repo_stats}.py`（及 blackbox 钩子）、`spec/grandfather.yaml`、CI `spec-gates` job；当前六钩子组成与 A0-1 要求的 dc/m7/repo/step/console/blackbox 不一致。决策闸门 Q3 仍为“待确认”。
 
 **目标**：让"文档即契约"成立，后续所有改动都有准入与审计。
 
@@ -316,6 +322,8 @@ flowchart LR
 - `RunMandate`（policy_version/scope/strength/requester）
 - LLM 请求记录 `prompt_version`
 - `StageHandback {reason, evidence}` 越界交回
+
+> **候选增量（P-014/P-015，不改 106 计数）**：`revision_log.json` + `impact_set`（回退/传播留痕）；R-3a 依赖清单 + 内容哈希 + 保守闭包；R-3b 补偿注册表 + pivot 标记；R-3c 引擎化仅在 P-015 §8 五项触发满足时评估。**R-3 结论以 P-015 为准；P-014 §6.2 的“R-3 拒绝”已被 P-015 取代。** 当前不新增验收 ID。
 
 **验收目标**
 
@@ -631,7 +639,7 @@ G0a → G-1 → G0b ─┬→ G1 ─┐
 | **Q14** | ArtifactNode 覆盖范围（全阶段 vs Stage 12-14/20/23） | G3 | 先覆盖实验与证据链相关阶段 | 待确认 |
 | **Q15** | 研究计划 `max_versions`（默认 3）与节点上限（40） | G8a/G8b | 先用 3 / 40，按 ARC-Bench 校准 | 待确认 |
 | **Q16** | 懒惰分解触发阈值（失败 2 次 / 预算 50% 且 done<30%） | G8b | 先用经验值，需校准 | 待确认 |
-| **Q17** | 默认后端：API-first 还是 ACP 优先（决定审计粒度） | G-1/G1 | **API-first**；ACP 仅作免密钥替代，审计要求高的 run 禁用 ACP | 待确认 |
+| **Q17** | 默认后端：API-first 还是 ACP 优先（决定审计粒度） | G-1/G1 | **已裁决（2026-11-10，P-012/P-013）：API-first；CLI 为显式 opt-in；ACP 仅 LLM 层；高审计 run 禁用非 API 后端** | **已裁决** |
 | **Q18** | vendor 供应链与语料 pin（仓库 / commit / 许可证 / 校验和） | G2/G5 | SLSA L1 式 provenance + Croissant 四字段（name/version/hash/license） | **已裁决（2026-11-08，P-006）：L1 清单** |
 | **Q19** | API 默认认证收紧（`auth_token=""` 且 `host=0.0.0.0`） | G-1 | 本地默认 127.0.0.1，绑定非回环地址时强制 token（OWASP API2） | **已裁决（2026-11-08，P-006）：回环默认 + 强制 token** |
 | **Q20** | 预算字段统一（`hitl.cost_budget_usd` vs `cli_agent.max_budget_usd`，默认值不一致） | G6/G-1 | **分层账本**：`run_budget_usd` 为唯一 run 账本；`cli_agent.max_budget_usd` 降为单次 CLI 调用派生上限；`LLMClient.chat` 前置检查（不合并字段） | **已裁决（2026-11-08，P-006）：A′ 分层** |
@@ -729,6 +737,9 @@ G0a → G-1 → G0b ─┬→ G1 ─┐
 | [arc-roadmap-gaps-review-20261107.md](docs/arc-roadmap-gaps-review-20261107.md) | P-004 独立复核（主张全部成立 + F-1..F-8 修正） | **P-005 依据** |
 | [arc-d1-d2-verdict-analysis-20261108.md](docs/arc-d1-d2-verdict-analysis-20261108.md) | D-1/D-2 三方案七维对比、外部锚点与建议（裁决 A/C） | **G-1/G2/G3** |
 | [arc-g1-readiness-research-20261108.md](docs/arc-g1-readiness-research-20261108.md) | H-1..H-8 现状复核与测试方案、Q18/Q19/Q20 七维对比与裁决建议 | **G-1** |
+| [spec/arc-cli-agent-wiring/](../spec/arc-cli-agent-wiring/)（P-011..P-013） | CLI 代码代理接线断裂、R-3 统一接缝、U-3/U-5 收口 | **G-1/G1** |
+| [spec/arc-belief-revision-propagation/RESEARCH.md](../spec/arc-belief-revision-propagation/RESEARCH.md)（P-014） | 回退/回写、外部信息多步传播、Saga/backjump/HARKing 锚点 | **G3/G-1** |
+| [spec/arc-r3-engine-impact/RESEARCH.md](../spec/arc-r3-engine-impact/RESEARCH.md)（P-015） | R-3a/b/c 分层、Saga/Temporal/DAG/自动闭包影响面与触发条件 | **G1/G3/G7** |
 
 **四个已核实的急救事实**（对应 H-1..H-4）：
 

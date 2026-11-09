@@ -20,3 +20,6 @@
 | P-011 | CLI 代码代理接线断裂调研：问题链追溯、13 项外部锚点、6 种社区接法与 4 条路线建议 | [spec/arc-cli-agent-wiring/](../spec/arc-cli-agent-wiring/) | done | P1 | F-1..F-9 可复现；锚点 13 项；R-1..R-4 含推荐；未改代码与总纲；step-gate 5/5 |
 | P-012 | R-3 统一接缝落地：配置去重 + Stage 10/13 CLI 接线与回退 + Codex stdin + doctor/适应度函数 | [spec/arc-cli-agent-seam/](../spec/arc-cli-agent-seam/) | done | P1 | 16 新用例全绿；相关回归 171；真实 CLI E2E 4 文件；wiring check PASS；默认 llm 零变化 |
 | P-013 | CLI 代理未决项收口：U-3 传输选型裁决、U-5 Stage 13 边界提示+审计、U-4 前移、U-6 新开 | [spec/arc-cli-agent-followups/](../spec/arc-cli-agent-followups/) | done | P2 | 边界测试 18 passed；相关回归 130；wiring check PASS；默认 llm 零变化 |
+| P-014 | 信念修正与多步传播调研：回退链审计、7+5 缺口、13 项外部锚点、外部文档复用评估与 R-1..R-3 | [spec/arc-belief-revision-propagation/](../spec/arc-belief-revision-propagation/) | done | P1 | 场景 A/B 机制与 12 缺口可复现；锚点 13 项；复用边界明确；未改代码与总纲；step-gate 5/5 |
+| P-015 | R-3 重型方案补充分析：Saga/Temporal/DAG/自动闭包影响面与可控性；R-3a/b/c 分层 | [spec/arc-r3-engine-impact/](../spec/arc-r3-engine-impact/) | done | P1 | 8 维影响矩阵；可控性判定；5 项引擎触发；未改代码；step-gate 5/5 |
+| P-016 | 总纲 v0.6 状态同步：G-1 完成、G0b 未就绪、Q17 裁决、P-011..P-015 依据挂载、G3 候选增量 | [spec/arc-roadmap-v06/](../spec/arc-roadmap-v06/) | done | P0 | 106 计数不变；G-1/Q17/G0b 状态一致；覆盖率 missing=0；step-gate 5/5 |
