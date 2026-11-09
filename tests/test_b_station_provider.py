@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 import urllib.request
 from types import SimpleNamespace
@@ -303,6 +304,48 @@ class TestThinkingModelParse:
 
 
 # ---------------------------------------------------------------------------
+# Unit tests — Anthropic cache accounting (halogen returns input_tokens=0)
+# ---------------------------------------------------------------------------
+
+
+class TestAnthropicCacheUsage:
+    def test_cached_input_tokens_are_counted_in_prompt_usage(self):
+        client = LLMClient.from_rc_config(
+            _rc_llm(provider="b-station-anthropic", fallback_models=())
+        )
+
+        class _Response:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict[str, Any]:
+                return {
+                    "type": "message",
+                    "model": "halogen-qwen3.8-flash-next",
+                    "content": [{"type": "text", "text": "OK"}],
+                    "stop_reason": "end_turn",
+                    "usage": {
+                        "input_tokens": 0,
+                        "output_tokens": 29,
+                        "cache_read_input_tokens": 56,
+                        "cache_creation_input_tokens": 0,
+                    },
+                }
+
+        class _Client:
+            def post(self, url: str, headers: dict, json: dict) -> _Response:
+                return _Response()
+
+        client._anthropic._client = _Client()
+        resp = client._raw_call(
+            "qwen3.8-flash-next", [{"role": "user", "content": "ping"}], 64, 0.1, False
+        )
+        assert resp.prompt_tokens == 56
+        assert resp.completion_tokens == 29
+        assert resp.total_tokens == 85
+
+
+# ---------------------------------------------------------------------------
 # Live smoke tests — tunnel 18081 (skip unless opted in AND reachable)
 # ---------------------------------------------------------------------------
 
@@ -318,16 +361,21 @@ class TestThinkingModelParse:
 class TestBStationLiveAPI:
     """Live smoke against B 站 halogen (1M 档，输出上限 16384)."""
 
-    def _openai_client(self) -> LLMClient:
+    def _openai_client(self, max_tokens: int = 64) -> LLMClient:
         return LLMClient(
             LLMConfig(
                 base_url=f"{BSTATION_BASE}/v1",
                 api_key="local-halogen",
                 primary_model="qwen3.8-flash-next",
                 fallback_models=[],
-                max_tokens=64,
-                timeout_sec=120,
+                max_tokens=max_tokens,
+                timeout_sec=180,
             )
+        )
+
+    def _anthropic_client(self) -> LLMClient:
+        return LLMClient.from_rc_config(
+            _rc_llm(provider="b-station-anthropic", fallback_models=())
         )
 
     def test_openai_wire_smoke(self):
@@ -349,3 +397,84 @@ class TestBStationLiveAPI:
             temperature=0.1,
         )
         assert resp.content.strip(), "empty response"
+
+    # -- 端点能力 ---------------------------------------------------------
+
+    def test_health_reports_1m_context_and_both_wires(self):
+        """1M 能力由 /health 声明，避免用长 prefill 烧时间。"""
+        with urllib.request.urlopen(f"{BSTATION_BASE}/health", timeout=30) as r:
+            data = json.load(r)
+        assert data["status"] == "ok"
+        assert "qwen3.8" in data["model"].lower()
+        assert data["context"] == 1048576
+        assert data["capability_probe"] == "ok"
+        assert "/v1/chat/completions" in data["endpoints"]
+        assert "/v1/messages" in data["endpoints"]
+
+    def test_json_mode_returns_parseable_json(self):
+        client = self._openai_client(max_tokens=512)
+        resp = client.chat(
+            [
+                {"role": "system", "content": "Return JSON only."},
+                {"role": "user", "content": 'Return {"status":"ok"}.'},
+            ],
+            max_tokens=512,
+            temperature=0.1,
+            json_mode=True,
+        )
+        text = resp.content.strip()
+        fence = re.search(r"```(?:json)?\s*\n(.*?)```", text, re.DOTALL)
+        if fence:
+            text = fence.group(1).strip()
+        parsed = json.loads(text)
+        assert parsed.get("status") == "ok"
+
+    def test_system_prompt_is_respected(self):
+        resp = self._openai_client().chat(
+            [{"role": "user", "content": "2 + 2 = ?"}],
+            system="You are a calculator. Reply with digits only.",
+            max_tokens=512,
+            temperature=0,
+        )
+        assert "4" in resp.content
+
+    def test_multi_turn_context_recall(self):
+        resp = self._openai_client().chat(
+            [
+                {"role": "user", "content": "Remember the number 42."},
+                {"role": "assistant", "content": "Noted."},
+                {
+                    "role": "user",
+                    "content": "What number did I ask you to remember? "
+                    "Reply with the number only.",
+                },
+            ],
+            max_tokens=512,
+            temperature=0,
+        )
+        assert "42" in resp.content
+
+    def test_token_usage_is_reported(self):
+        resp = self._openai_client().chat(
+            [{"role": "user", "content": "只回复：OK"}],
+            max_tokens=512,
+            temperature=0.1,
+        )
+        assert resp.prompt_tokens > 0
+        assert resp.completion_tokens > 0
+        assert resp.total_tokens >= resp.completion_tokens
+        assert "qwen" in (resp.model or "").lower()
+
+    def test_anthropic_wire_reports_usage(self):
+        resp = self._anthropic_client().chat(
+            [{"role": "user", "content": "只回复：OK"}],
+            max_tokens=512,
+            temperature=0.1,
+        )
+        assert resp.content.strip()
+        assert resp.prompt_tokens > 0
+        assert resp.completion_tokens > 0
+
+    def test_preflight_reports_ok(self):
+        ok, message = self._openai_client().preflight()
+        assert ok, message

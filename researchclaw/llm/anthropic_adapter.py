@@ -184,6 +184,18 @@ class AnthropicAdapter:
         raw_stop_reason = data.get("stop_reason", "end_turn")
         finish_reason = _STOP_REASON_MAP.get(raw_stop_reason, "stop")
 
+        usage = data.get("usage", {})
+        # Anthropic reports cached prompt tokens separately: the billable input
+        # is input + cache_read + cache_creation. halogen (B 站) can return
+        # input_tokens=0 with the whole prompt counted as cache_read, so summing
+        # is required to avoid under-reporting prompt usage/cost.
+        prompt_tokens = (
+            usage.get("input_tokens", 0)
+            + usage.get("cache_read_input_tokens", 0)
+            + usage.get("cache_creation_input_tokens", 0)
+        )
+        completion_tokens = usage.get("output_tokens", 0)
+
         return {
             "choices": [
                 {
@@ -192,12 +204,9 @@ class AnthropicAdapter:
                 }
             ],
             "usage": {
-                "prompt_tokens": data.get("usage", {}).get("input_tokens", 0),
-                "completion_tokens": data.get("usage", {}).get("output_tokens", 0),
-                "total_tokens": (
-                    data.get("usage", {}).get("input_tokens", 0)
-                    + data.get("usage", {}).get("output_tokens", 0)
-                ),
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens,
             },
             "model": data.get("model", model),
         }
