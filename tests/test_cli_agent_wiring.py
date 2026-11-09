@@ -218,6 +218,24 @@ class TestCodexTransport:
         assert not any("PLAN BODY" in str(part) for part in captured["cmd"])
 
 
+class TestStage13CliBoundary:
+    def test_stage13_cli_boundary_declared(self):
+        from researchclaw.pipeline.stage_impls._execution import (
+            _STAGE13_CLI_BOUNDARY,
+        )
+
+        assert "Do NOT change the experimental design" in _STAGE13_CLI_BOUNDARY
+        assert "condition" in _STAGE13_CLI_BOUNDARY.lower()
+
+    def test_stage13_cli_boundary_is_wired(self):
+        root = Path(__file__).resolve().parents[1]
+        text = (
+            root / "researchclaw/pipeline/stage_impls/_execution.py"
+        ).read_text(encoding="utf-8")
+        assert text.count("_STAGE13_CLI_BOUNDARY") >= 2
+        assert '"boundary": "repair_and_tune"' in text
+
+
 class TestWiringFitnessFunction:
     def test_wiring_script_passes(self):
         root = Path(__file__).resolve().parents[1]

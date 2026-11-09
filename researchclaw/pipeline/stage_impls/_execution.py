@@ -41,6 +41,15 @@ from researchclaw.utils.paths import safe_join
 
 logger = logging.getLogger(__name__)
 
+# U-5: Stage 13 CLI refinement is repair/tuning, not a redesign. The boundary
+# is advisory (prompt-level) and recorded as `refinement_log.cli_agent.boundary`.
+_STAGE13_CLI_BOUNDARY = (
+    "STAGE 13 BOUNDARY: This is a repair/tuning pass, not a redesign. "
+    "Do NOT change the experimental design, conditions, dataset, model family, "
+    "or evaluation protocol. Preserve every condition name from the plan. "
+    "Only fix bugs, improve robustness, and tune existing parameters."
+)
+
 
 def _execute_resource_planning(
     stage_dir: Path,
@@ -1336,6 +1345,7 @@ def _execute_iterative_refine(
     log["cli_agent"] = {
         "provider": _agent_provider,
         "enabled": _refine_agent is not None,
+        "boundary": "repair_and_tune",
         "refine_calls": 0,
         "repair_calls": 0,
     }
@@ -1467,7 +1477,9 @@ def _execute_iterative_refine(
             metric_direction=metric_direction,
             topic=config.research.topic,
             extra_hints=(
-                _exp_plan_anchor
+                _STAGE13_CLI_BOUNDARY
+                + "\n\n"
+                + _exp_plan_anchor
                 + _condition_coverage_hint
                 + _saturation_hint
                 + timeout_hint

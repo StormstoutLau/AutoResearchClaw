@@ -64,6 +64,14 @@ def main(root: Path | None = None) -> int:
             errors.append(f"Stage 13: {helper}) call missing")
     if "cli_agent" not in stage13_text:
         errors.append("Stage 13: config.experiment.cli_agent not consulted")
+    if stage13_text.count("_STAGE13_CLI_BOUNDARY") < 2:
+        errors.append(
+            "Stage 13: _STAGE13_CLI_BOUNDARY must be declared and passed to refine"
+        )
+    if '"boundary": "repair_and_tune"' not in stage13_text:
+        errors.append(
+            "Stage 13: refinement log must record boundary=repair_and_tune"
+        )
 
     claude_start = factory_text.find("class ClaudeCodeAgent")
     codex_start = factory_text.find("class CodexAgent")
