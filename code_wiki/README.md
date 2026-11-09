@@ -11,15 +11,15 @@
 | 维度 | 事实 |
 |------|------|
 | 项目定位 | 将一句研究主题自动推进为「可编译论文」的自治研究流水线，支持全自动与 Human-in-the-Loop（HITL）协作 |
-| 包名 / 版本 | `researchclaw` / `0.5.0`（`pyproject.toml:2`、`researchclaw/__init__.py:3`） |
-| 控制台入口 | `researchclaw = researchclaw.cli:main`（`pyproject.toml:32`） |
+| 包名 / 版本 | `researchclaw` / `0.5.0`（`pyproject.toml:3`、`researchclaw/__init__.py:3`） |
+| 控制台入口 | `researchclaw = researchclaw.cli:main`（`pyproject.toml:48`） |
 | 运行时要求 | Python `>=3.11` |
 | 必需依赖 | `pyyaml`、`rich`、`arxiv`、`numpy` |
-| 可选依赖 | `anthropic`（Anthropic Messages API）、`web`（scholarly / crawl4ai / tavily）、`pdf`（PyMuPDF）、`all`、`dev` |
-| 代码规模 | `researchclaw/` 275 个 Python 文件、约 81,520 行；`tests/` 101 个文件、约 38,848 行 |
+| 可选依赖 | `server`（FastAPI/uvicorn）、`mcp`（官方 MCP SDK）、`anthropic`、`web`（scholarly / crawl4ai / tavily，含 `bibtexparser<2` 上界）、`pdf`（PyMuPDF）、`voice`、`all`、`dev` |
+| 代码规模 | `researchclaw/` 280 个 Python 文件、约 84,146 行；`tests/` 118 个文件、约 41,771 行 |
 | 流水线 | 23 个阶段、8 个 Phase、3 个审批门（Stage 5 / 9 / 20） |
 | 领域支持 | `researchclaw/domains/profiles/` 下 29 个 YAML（28 个具体领域 + `_generic.yaml`，另有自定义示例模板） |
-| 实验执行模式 | `simulated`、`sandbox`、`docker`、`ssh_remote`、`colab_drive`、`agentic`、`collider_agent`、`biology_agent`、`stat_agent`（`config.py:98-108`） |
+| 实验执行模式 | `simulated`、`sandbox`（默认）、`docker`、`ssh_remote`、`colab_drive`、`agentic`、`collider_agent`、`biology_agent`、`stat_agent`（`config.py:101-111`） |
 | 最终交付 | `deliverables/`：`paper_final.md`、`paper.tex`、`references.bib`、`code/`、`charts/`、`verification_report.json` |
 
 ---
@@ -119,7 +119,7 @@ AutoResearchClaw-main/
 | [06-knowledge-memory-evolution.md](06-knowledge-memory-evolution.md) | 知识库、知识图谱、记忆检索、演化闭环、MetaClaw | 平台/知识层开发者 |
 | [07-hitl-and-collaboration.md](07-hitl-and-collaboration.md) | HITL 六模式、会话生命周期、适配器、工坊、CoPilot | 产品/HITL 开发者 |
 | [08-literature-and-publishing.md](08-literature-and-publishing.md) | 文献检索、4 层引用校验、写作防伪、图表、LaTeX、Overleaf | 写作/出版链路开发者 |
-| [09-interfaces-and-ops.md](09-interfaces-and-ops.md) | CLI、FastAPI、WebSocket、前端、MCP、配置、安装、Docker、测试 | 运维/集成开发者 |
+| [09-interfaces-and-ops.md](09-interfaces-and-ops.md) | CLI、启动链路（进程入口 → 阶段执行）、FastAPI、WebSocket、前端、MCP、配置、安装、Docker、测试 | 运维/集成开发者 |
 | [10-module-reference.md](10-module-reference.md) | 全模块职责表、关键类/函数索引、依赖矩阵、已知缺口 | 查阅型读者 |
 | [11-gap-remediation-research.md](11-gap-remediation-research.md) | 实际缺口复现、社区案例、修复方案、实施顺序与验收清单 | 维护者/技术负责人 |
 | [12-remediation-acceptance-checklist.md](12-remediation-acceptance-checklist.md) | 逐缺口验收命令、负向/回归检查、发布门与签署表 | 维护者/QA/评审人 |
@@ -139,23 +139,35 @@ pip install -e .
 researchclaw init
 # 或：cp config.researchclaw.example.yaml config.arc.yaml
 
-# 3. 设置 API Key（示例为 OpenAI 兼容端点）
+# 3. 先自检配置与环境（不需要花费一次完整运行）
+researchclaw validate -c config.arc.yaml
+researchclaw info -c config.arc.yaml
+researchclaw doctor -c config.arc.yaml
+
+# 4. 设置 API Key（示例为 OpenAI 兼容端点）
 export OPENAI_API_KEY="sk-..."
 
-# 4. 全自动跑完 23 个阶段
+# 5. 只跑前 8 个阶段，验证预检 + 调度链路
+researchclaw run -c config.arc.yaml -t "Your research idea" --to-stage HYPOTHESIS_GEN
+
+# 6. 全自动跑完 23 个阶段
 researchclaw run --config config.arc.yaml --topic "Your research idea" --auto-approve
 
-# 5. 需要人机协作时
+# 7. 中断后从检查点续跑
+researchclaw run -c config.arc.yaml --resume
+
+# 8. 需要人机协作时
 researchclaw run --topic "Your research idea" --mode co-pilot
 ```
 
-输出目录：`artifacts/rc-YYYYMMDD-HHMMSS-<topic_hash>/`，最终文件在 `deliverables/`。
+输出目录：`artifacts/rc-YYYYMMDD-HHMMSS-<topic_hash>/`，最终文件在 `deliverables/`。启动链路的逐步拆解见 `09-interfaces-and-ops.md` §1.5。
 
 ---
 
 ## 6. 推荐阅读顺序
 
 - **第一次接触**：`01-overview` → `02-pipeline-core` → `03-stage-reference` → `09-interfaces-and-ops`。
+- **想知道「程序怎么启动的」**：`01-overview` §3 → `09-interfaces-and-ops` §1.5（进程入口 → `cmd_run` → `execute_pipeline` → `execute_stage`）→ `02-pipeline-core` 的检查点与回滚章节。
 - **要改某个 Stage**：`02-pipeline-core` → `03-stage-reference` 对应阶段 → `04/05/08` 中该阶段依赖的子系统。
 - **要接新领域**：`05-experiment-and-domains` → `03-stage-reference`（Stage 9/10/12/22）→ `docs/DOMAIN_INTEGRATION_GUIDE.md`。
 - **要接新模型/Agent**：`04-llm-and-agents.md` → `09-interfaces-and-ops.md` 的配置章节。
@@ -166,5 +178,5 @@ researchclaw run --topic "Your research idea" --mode co-pilot
 ## 7. 文档约定与免责说明
 
 1. **事实来源**：所有模块职责、类名、函数名、行号均来自当前仓库代码；README 中的宣传性数字（如测试全部通过）未被当作事实引用。
-2. **可选模块**：部分代码通过 `try/except ImportError` 引用不存在的模块（如 `researchclaw.cost_tracker`、`pipeline.event_log`），属于**可选/缺失依赖**，不会阻断主流程；详见 `10-module-reference.md` 的「已知缺口」。
-3. **配置默认值**：`ExperimentConfig.mode` 的 dataclass 默认值是 `"simulated"`，而示例配置写的是 `"sandbox"`。生产使用务必显式设置 `experiment.mode: sandbox`（或 `docker`），否则不会真实执行实验。
+2. **可选模块**：`researchclaw.cost_tracker` 已实现并接入 `execute_pipeline`（记账写入 `<run_dir>/cost_log.jsonl`）；`pipeline/event_log.py`、`pitfall_detector` 等死代码已删除。目前仍以 `try/except` 包裹的只是真正的可选集成（Docker / SSH / PRM / 知识库 / 记忆 / MetaClaw / OpenClaw 适配器），缺失时降级且不阻断主流程。
+3. **配置默认值**：`ExperimentConfig.mode` 的默认值已是 `"sandbox"`。`simulated` 必须显式设置，且当 `research.allow_simulated_paper=false`（默认）时 Stage 20 会以 `E20_SIMULATED_DATA` 阻断论文；显式放行则产物带 `SIMULATED DATA — NOT FOR SUBMISSION` 水印。

@@ -66,13 +66,15 @@ sequenceDiagram
 
 | 步骤 | 代码位置 |
 |------|----------|
-| CLI 入口 `main()` | `researchclaw/cli.py:1511` |
+| CLI 入口 `main()` | `researchclaw/cli.py:1565` |
 | `run` 命令实现 | `researchclaw/cli.py:156` |
-| 配置加载 `RCConfig.load()` | `researchclaw/config.py:1050` |
-| 流水线执行 `execute_pipeline()` | `researchclaw/pipeline/runner.py:431` |
-| 单阶段执行 `execute_stage()` | `researchclaw/pipeline/executor.py:594` |
-| 阶段实现分发表 `_STAGE_EXECUTORS` | `researchclaw/pipeline/executor.py:567-591` |
-| 交付物打包 `_package_deliverables()` | `researchclaw/pipeline/runner.py:915` |
+| 配置加载 `RCConfig.load()` | `researchclaw/config.py:1088` |
+| 流水线执行 `execute_pipeline()` | `researchclaw/pipeline/runner.py:443` |
+| 单阶段执行 `execute_stage()` | `researchclaw/pipeline/executor.py:632` |
+| 阶段实现分发表 `_STAGE_EXECUTORS` | `researchclaw/pipeline/executor.py:586-610` |
+| 交付物打包 `_package_deliverables()` | `researchclaw/pipeline/runner.py:873` |
+
+> 更细的逐层启动链路（5 种进程入口 → `cmd_run` 时序 → `execute_pipeline` 循环 → `execute_stage` 内部 → 断点恢复与验证命令）见 [09-interfaces-and-ops.md §1.5](09-interfaces-and-ops.md)。
 
 ---
 
@@ -180,7 +182,7 @@ flowchart TD
 
 ### 5.7 依赖注入与可选依赖
 
-- `AdapterBundle` 把 cron/message/memory/sessions/web_fetch/browser/HITL 七类能力以 Protocol 注入（`adapters.py:121-139`）；
+- `AdapterBundle` 把 cron/message/memory/sessions/web_fetch/browser/HITL 七类能力以 Protocol 注入（`adapters.py:139-187`）；
 - 所有重依赖（Docker、SSH、scholarly、crawl4ai、PyMuPDF、anthropic、httpx）都在函数内部延迟导入；
 - 可选能力缺失时返回「录制桩」或降级结果，而不是 ImportError。
 
