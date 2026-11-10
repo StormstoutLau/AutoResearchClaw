@@ -25,3 +25,4 @@
 | P-016 | 总纲 v0.6 状态同步：G-1 完成、G0b 未就绪、Q17 裁决、P-011..P-015 依据挂载、G3 候选增量 | [spec/arc-roadmap-v06/](../spec/arc-roadmap-v06/) | done | P0 | 106 计数不变；G-1/Q17/G0b 状态一致；覆盖率 missing=0；step-gate 5/5 |
 | P-017 | G0b 治理基座调研：A0-1..A0-6 缺口、路径迁移、钩子组成、Q3、统计/黑盒/CI 方案 | [spec/arc-g0b-governance-base/](../spec/arc-g0b-governance-base/) | done | P0 | 实测 6 钩子全绿但组成不符；三方案对比；推荐迁移+根壳+6+2 钩子；未改代码；step-gate 5/5 |
 | P-018 | 总纲 v0.7：纳入 G0b 调研结论（状态、交付物、A0-1 口径、Q3/Q11、§11） | [spec/arc-roadmap-v07/](../spec/arc-roadmap-v07/) | done | P0 | 106 计数不变；G0b 标调研完成待实施；Q3/Q11 写入 P-017 建议；step-gate 5/5 |
+| P-019 | Q3 裁决调研：touch=migrate 与存量 grandfather 策略；A/B/C/D 对比与建议 B | [spec/arc-q3-grandfather-policy/](../spec/arc-q3-grandfather-policy/) | done | P0 | 当前 DC 0 违规、基线可空；建议 B 基线+棘轮、90 天、只豁免 DC1-DC3；未改代码；step-gate 5/5 |
