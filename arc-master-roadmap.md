@@ -1,14 +1,14 @@
 ---
 id: arc-master-roadmap
 type: design
-version: 0.7
+version: 0.8
 status: draft
 date: 2026-11-10
 depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-textbook, clawsgo-cleanroom-arc]
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v0.7）
+# ARC 统一学术推理基座：调研总纲与实施路线（v0.8）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -27,6 +27,8 @@ upstream: arb-v2-decisions
 > **修订**：v0.6（2026-11-10，P-016）状态同步：G-1 标记完成、G0b 标记未就绪、Q17 裁决、P-011..P-015 依据挂载、G3 回退/传播候选增量；**106 计数不变**。依据：[P-016 实施记录](spec/arc-roadmap-v06/IMPLEMENTATION.md)。
 >
 > **修订**：v0.7（2026-11-10，P-018）纳入 G0b 调研结论：G0b 标“调研完成、实施未开始”；A0-1 明确六必需 + 两额外；Q3/Q11 写入 P-017 建议；§11 增 P-017 依据；**106 计数不变**。依据：[P-017 调研](spec/arc-g0b-governance-base/RESEARCH.md)。
+>
+> **修订**：v0.8（2026-11-10，Q3 裁决）Q3 正式裁决 = **B（基线 + 棘轮）**：新文档立即合规；`spec/grandfather.yaml` 空清单 + cutoff 2026-11-10；豁免 90 天过期（内部政策参数 E3）、最多续期一次；仅豁免 DC1-DC3，语义触碰必须迁移。G0b 实施批可开工，开工前须吸收 4 项实施前提。**106 计数不变**。依据：[P-019 调研](spec/arc-q3-grandfather-policy/RESEARCH.md) + [P-020 复核](docs/arc-q3-grandfather-review-20261110.md)。
 
 ---
 
@@ -190,7 +192,7 @@ flowchart LR
 
 ### G0b｜完整治理基座（P0，前置：G-1）——**未就绪（调研完成，待实施）**
 
-> **状态（2026-11-10，P-017 调研完成）**：G-1 前置已满足；G0b **实施未开始**。调研实测：`pre-commit run --all-files` 当前 exit 0，但六钩子组成缺 `m7/repo/blackbox`；A0-2..A0-5 机制已存在，主要缺负向用例固化；A0-6 `spec-gates` 缺失。推荐 **S-1 + T-1 + H-1**：`SPEC_PROCESS.md` 迁 `spec/` + 根指针；治理脚本迁 `scripts/spec/` + 根兼容壳；六必需钩子 + `private-config`/`code-agent-wiring` 两个额外守卫。Q3 建议“新文档立即 + 空 grandfather + 90 天过期”，待裁决。
+> **状态（2026-11-10，P-017 调研完成）**：G-1 前置已满足；G0b **实施未开始**。调研实测：`pre-commit run --all-files` 当前 exit 0，但六钩子组成缺 `m7/repo/blackbox`；A0-2..A0-5 机制已存在，主要缺负向用例固化；A0-6 `spec-gates` 缺失。推荐 **S-1 + T-1 + H-1**：`SPEC_PROCESS.md` 迁 `spec/` + 根指针；治理脚本迁 `scripts/spec/` + 根兼容壳；六必需钩子 + `private-config`/`code-agent-wiring` 两个额外守卫。Q3 **已裁决 = B（基线 + 棘轮）**（2026-11-10，P-019 调研 + P-020 独立复核）：新文档立即合规；空 grandfather；豁免 90 天、最多续期一次；仅豁免 DC1-DC3，语义触碰必须迁移。
 
 **目标**：让"文档即契约"成立，后续所有改动都有准入与审计。
 
@@ -215,7 +217,7 @@ flowchart LR
 
 > A0-2..A0-5 的机制已在 `dc_validator` / `step_enforce` / `console_gen` 中实现；实施批只固化负向用例，不新增规则。
 
-**决策闸门**：Q3「touch = migrate」——P-017 建议“新文档立即 + 空 grandfather + 90 天过期”，待用户裁决后开工。
+**决策闸门**：Q3「touch = migrate」——**已裁决（B，2026-11-10）**，G0b 实施批可开工；开工前须吸收 [P-020 复核](docs/arc-q3-grandfather-review-20261110.md) 的 4 项实施前提（F-1 权威源修订/独立策略层二选一、F-2 豁免机制写明 check_id 过滤、F-3 90 天标内部参数 E3、F-5 续期基准 append-only）。
 
 **外锚**：pre-commit（staged 语义 / `--all-files`）；GitHub Spec Kit；OpenSpec；ISO/IEC/IEEE 29148 双向追溯；SonarQube Clean as You Code；Spec_Workflow v1.7.1 原仓。
 
@@ -629,7 +631,7 @@ G0a → G-1 → G0b ─┬→ G1 ─┐
 |---|---|---|---|---|
 | Q1 | Python 双轨（3.11 内核 + 3.12 子进程）还是统一 3.12 | G2 | **双轨 B** | 待确认 |
 | Q2 | Lean 是否作为安装前置 | G2 | **否，可选 Tier-3** | 待确认 |
-| Q3 | Spec "touch = migrate" 是否立即生效 | G0b | 新文档立即，存量入 grandfather | 待确认（P-017 建议：空 grandfather + 90 天过期） |
+| Q3 | Spec "touch = migrate" 是否立即生效 | G0b | 新文档立即，存量入 grandfather | **已裁决（B 基线+棘轮，P-019/P-020，2026-11-10）** |
 | Q4 | Embedding 后端（OpenAI / sentence-transformers / TF-IDF） | G5 | 默认本地，缺失即降级并标记 | 待确认 |
 | Q5 | R1 后端：纯文件 + supervisor vs SQLite WAL | G1 | **先纯文件**，压测后再评估 | 待确认 |
 | Q6 | KG 扩词表 vs 外包外部 KG 服务 | G5 | 先扩词表（6→14），外包留接口 | 待确认 |
