@@ -1,9 +1,9 @@
 ---
 id: arc-g2-decisions-RESEARCH
 type: design
-version: 1.1
+version: 1.2
 status: verified
-date: 2026-11-10
+date: 2026-11-11
 depends: [arc-master-roadmap, arb-v2-decisions-research-design]
 upstream: arc-master-roadmap
 ---
@@ -12,7 +12,8 @@ upstream: arc-master-roadmap
 
 > **Feature**：P-042，G2 开工前的两项决策闸门。
 > **Spec 步骤**：T3 轻批（Layer-0：本文件 + session + PROGRESS 行 + 总纲 Q1/Q2 状态；零代码/零门禁）。
-> **修订**：v1.1（2026-11-10，P-043）**U-1 关闭**——AP 已采用 **Apache-2.0**（`LICENSE` 官方全文、`NOTICE`、PEP 639 元数据 `License-Expression: Apache-2.0` / `License-File: LICENSE, NOTICE` 均已验证）；Q2 的 L-1 许可证闸门解除，并新增 §9 vendor 合规要求。
+> **修订**：v1.1（2026-11-10，P-043）**U-1 关闭**——AP 已采用 **Apache-2.0**（`LICENSE` 官方全文、`NOTICE`、PEP 639 元数据 `License-Expression: Apache-2.0` / `License-File: LICENSE, NOTICE` 均已验证）；Q2 的 L-1 许可证闸门解除，并新增 §8 vendor 合规要求。
+> **修订**：v1.2（2026-11-11，P-044）**I-8 关闭**——`atlas_*.py`（9 个）与 `lean4_cases`（23 条）经一手比对确认均为作者自有代码，无第三方归属要求；结论与证据落 AP `THIRD_PARTY_NOTICES.md`（commit `1ded9be`），§8.4 审计闸门关闭；Q2 自此无保留。
 > **优先级声明**：本文件 **取代** [R-03 §1.3/§2.3/§7](../../arb-v2-decisions-research-design.md) 的「建议」为正式裁决；R-03 原文不改（追加式证据）。
 
 ## 1. 问题与判据
@@ -135,11 +136,12 @@ upstream: arc-master-roadmap
 | I-5 | Lean 未启用时导出 `verification_depth=stage2` 与 `lean_unavailable_reason` | A2-7 |
 | I-6 | 变异测试至少对 AR-01/AR-04/AR-07 各做一次「删判据→fixture 变红」 | A2-2 + S-13 |
 | I-7 | **Vendor 合规四件套**：Apache `LICENSE` + `NOTICE` + 修改声明 + 来源 commit（§9） | Q2 L-1 + S-5 |
-| I-8 | **第三方血统审计收口**：`atlas_*.py` 与 `lean4_cases` 结论落 `THIRD_PARTY_NOTICES.md`；未收口前不 vendor 这两项 | Q2 + §9 |
+| I-8 | ~~第三方血统审计收口~~ **已完成（2026-11-11，P-044）**：9 个 `atlas_*.py` 与 `lean4_cases` 均为作者自有（来源 `D:\Textbook\scripts`，5 个逐字节、4 个有记录在案的偏离），无第三方归属要求；结论落 AP `THIRD_PARTY_NOTICES.md`。仍按 Q2 边界不 vendor 这两项（属 sidecar 层，非最小 kernel） | Q2 + §8 |
 
 ## 7. 未决
 
-- ~~**U-1 AP 许可证**：判据 = 仓库根出现可并入 MIT 的 LICENSE；触发 = G2 M2；阻塞级。~~ **已关闭（2026-11-10，P-043）**：AP 采用 Apache-2.0，LICENSE/NOTICE/PEP 639 元数据均验证；后续合规要求见 §9。
+- ~~**U-1 AP 许可证**：判据 = 仓库根出现可并入 MIT 的 LICENSE；触发 = G2 M2；阻塞级。~~ **已关闭（2026-11-10，P-043）**：AP 采用 Apache-2.0，LICENSE/NOTICE/PEP 639 元数据均验证；后续合规要求见 §8。
+- ~~**U-5 第三方血统审计**：判据 = `THIRD_PARTY_NOTICES.md` 无 pending；触发 = G2 M2。~~ **已关闭（2026-11-11，P-044）**：两项均为自有代码，见 §8.4。
 - **U-2 3.11 内核复跑**：R-03 的 65 用例在本批未重跑（仅验语法与构造）；触发 = G2 开工首日；失败即 Q1 kill criteria。
 - **U-3 sidecar 传输**：JSON 文件 vs 本地 HTTP；触发 = M3；倾向 = 先文件（零端口、易审计），需要长驻时再升 HTTP。
 - **U-4 vendor 同步机制**：subtree vs patch 集；触发 = M2；倾向 = subtree + commit pin。
@@ -172,19 +174,20 @@ researchclaw/vendor/auto_prover/
 
 | 项 | 原因 |
 |---|---|
-| `atlas_bridge/vendor/atlas_*.py`（8 文件） | 第三方血统**未审计**（P-043 时仍为 pending） |
-| `atlas_bridge/vendor/data/lean4_cases/` | 可能派生自 mathlib，**未审计** |
+| `atlas_bridge/vendor/atlas_*.py`（9 个） | **自有代码**（P-044 已核验）；仍不 vendor：属 proof-pipeline sidecar 层，不在 Q2 最小 kernel 边界内 |
+| `atlas_bridge/vendor/data/lean4_cases/` | **自有教材语料**（23 条，P-044 已核验）；仍不 vendor：服务于 Lean case library，非 M2 判定内核所需 |
 | `stages/`、`kg/`、`lean_meta/`、`mcp_servers/` | 3.12 / MCP / Lean 绑定，违 L-2/L-3/L-4 |
 | `proof_pipeline/stages/lean*` | Lean 绑定，属 sidecar/Tier-3 |
 
-### 8.4 审计闸门
+### 8.4 审计闸门（**已关闭，2026-11-11，P-044**）
 
-- M2 开工前：`THIRD_PARTY_NOTICES.md` 中所有 **pending** 项必须有结论（确认自有或补许可证）；
-- 若结论为「第三方且不可再分发」：该文件不进 vendor，必要时以 sidecar 调用替代；
-- 若 AP 许可证被撤销：M2 暂停，按 Q2 第 2 条转 D。
+- **结论**：`THIRD_PARTY_NOTICES.md` 中所有 pending 项已核验完毕——`atlas_*.py`（9 个）与 `lean4_cases`（23 条）均为作者自有代码，无第三方归属要求，无需追加 `NOTICE`。
+- **证据**：来源 `D:\Textbook\scripts`（同作者）；5 个模块与源逐字节一致，4 个有记录在案的偏离（prover 2 行导入、synthesizer `block_mode`、refiner 1 行导入、lean4_case_library faiss 降级）；两侧均无 URL/DOI/`@author`/`Copyright`/SPDX 标记；数据 id 为教材条目且无 `source/license` 字段。
+- **文档订正**：`DESIGN_T14` §2/§3.6、`IMPL_T14` §2、`DESIGN_ATLAS_PHASE_5B_VENDR` §8、`IMPL_ATLAS_PHASE_5B_VENDR` §2/§5/§8 的「仅 prover/refiner 偏离」旧断言已同步改为逐模块清单。
+- **保留规则**：若未来审计发现不可再分发代码，该文件不进 vendor，必要时以 sidecar 调用替代；若 AP 许可证被撤销，M2 暂停并按 Q2 第 2 条转 D。
 
 ## 9. 引用
 
 1. 仓内：[R-03](../../arb-v2-decisions-research-design.md) §1-§2/§7、[总纲 §4 G2 / §7](../../arc-master-roadmap.md)、`hitl/claim_verifier.py`、`pyproject.toml`、`.github/workflows/ci.yml`。
-2. 本地上游：`F:\Auto_Prover\pyproject.toml`、`proof_pipeline/{datatypes,verdict,sandbox}/`（HEAD `d06699d`）。
+2. 本地上游：`F:\Auto_Prover\pyproject.toml`、`proof_pipeline/{datatypes,verdict,sandbox}/`（HEAD `63565bd`，2026-11-11）。
 3. 外部：S-1..S-13（§3 表，URL/DOI 已逐条解析）。

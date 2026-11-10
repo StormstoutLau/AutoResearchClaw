@@ -1,14 +1,14 @@
 ---
 id: arc-master-roadmap
 type: design
-version: 1.3c
+version: 1.3d
 status: draft
-date: 2026-11-10
+date: 2026-11-11
 depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-textbook, clawsgo-cleanroom-arc]
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.3c）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.3d）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -45,6 +45,7 @@ upstream: arb-v2-decisions
 > **修订**：v1.3b（2026-11-10，P-042）**G2 前置闸门裁决**：**Q1 = B（双轨）**——ARC 维持 `>=3.11`，3.11 进程内只放纯判定内核（datatypes 裁剪 + verdict/policy + sandbox/evaluator），完整 AP（Lean/ATLAS/MCP）作为 3.12 sidecar 经 JSON 契约调用；**Q2 = B（最小 kernel vendor + 全量 sidecar + Lean 可选 Tier-3），附许可证闸门**——AP 当前无任何 LICENSE（本批穷举确认），按 pip vendoring 政策不得并入 MIT 项目，M2 前必须补许可证，否则自动转 clean-room 重写（D 路径）。一手证据：AP 内核 94 文件在 3.11 语法下 0 失败、0 处 3.12-only 构造；ARC CI 3.11 必过且 3.11 EOL 2027-10。**106 计数不变**。依据：[P-042 调研](spec/arc-g2-decisions/RESEARCH.md)。
 >
 > **修订**：v1.3c（2026-11-10，P-043）**Q2 许可证闸门解除**：AP 采用 **Apache-2.0**——`LICENSE` 官方全文（SHA-256 与 apache.org 一致）、`NOTICE`、PEP 639 元数据（实测 `License-Expression: Apache-2.0` 与 `License-File: LICENSE/NOTICE`）；G2 M2 可开工。Vendor 合规要求写入 [P-042 §8](spec/arc-g2-decisions/RESEARCH.md)：**ARC 整体仍 MIT，vendor 子目录按文件保持 Apache-2.0**，必须携带 LICENSE/NOTICE、修改声明与 `SOURCE.json`（commit+sha256）；`atlas_*.py` 与 `lean4_cases` 的第三方血统审计仍是 M2 闸门。**106 计数不变**。依据：[P-043 更新](spec/arc-g2-decisions/RESEARCH.md)。
+> **修订**：v1.3d（2026-11-11，P-044）**Q2 第三方审计闸门关闭**：`atlas_*.py`（9 个）与 `lean4_cases`（23 条）经一手比对确认均为作者自有代码（来源 `D:\Textbook\scripts`；5 个逐字节、4 个有记录在案的偏离），无第三方归属要求，`NOTICE` 无需追加；结论落 AP `THIRD_PARTY_NOTICES.md`（commit `1ded9be`），四份上游文档的旧「唯一偏离」断言已订正。Q2 自此无保留，G2 仅剩 U-2（3.11 内核 65 用例复跑）。**106 计数不变**。依据：[P-042 §8.4](spec/arc-g2-decisions/RESEARCH.md)。
 
 ---
 
@@ -324,7 +325,7 @@ flowchart LR
 | A2-6 | 谓词 `downgrade_missing_citation(claim)`：A/B 类缺引文 → 迁入 `assumptions`、状态降 `speculation`（**不阻断**），推导为纯函数 | 一律 fail 即违背原语义 |
 | A2-7 | 无 Lean / 编译失败 / 有 sorry → 上限 `PARTIALLY_FORMALIZED`，深度 `stage2` | 冒充 `FORMALLY_VERIFIED` 即失败 |
 
-**决策闸门**：**Q1 = B（双轨）**、**Q2 = B（最小 vendor + sidecar + Lean 可选 Tier-3）**——均已于 2026-11-10 由 P-042 裁决；Q2 的许可证闸门由 P-043 解除（AP = Apache-2.0），vendor 合规要求见 [P-042 调研](spec/arc-g2-decisions/RESEARCH.md) §4/§5/§8。
+**决策闸门**：**Q1 = B（双轨）**、**Q2 = B（最小 vendor + sidecar + Lean 可选 Tier-3）**——均已于 2026-11-10 由 P-042 裁决；Q2 的许可证闸门由 P-043 解除（AP = Apache-2.0），第三方审计闸门由 P-044 关闭（两项均自有），vendor 合规要求见 [P-042 调研](spec/arc-g2-decisions/RESEARCH.md) §4/§5/§8。G2 开工仅剩 U-2（3.11 内核 65 用例复跑）。
 
 **外锚**
 - W3C PROV-O：`Entity/Activity/Agent`、`used/generatedBy/wasDerivedFrom` → 映射到 `EvidenceRef`，保证跨系统可交换。
@@ -653,7 +654,7 @@ G0a → G-1 → G0b ─┬→ G1 ─┐
 | # | 问题 | 影响阶段 | 默认建议 | 状态 |
 |---|---|---|---|---|
 | Q1 | Python 双轨（3.11 内核 + 3.12 子进程）还是统一 3.12 | G2 | **双轨 B** | **已裁决（B 双轨，P-042；3.11 内核实跑 94 文件 0 语法失败）** |
-| Q2 | Lean 是否作为安装前置 | G2 | **否，可选 Tier-3** | **已裁决（B 最小 vendor + sidecar + Lean 可选；许可证已解除：AP=Apache-2.0，P-043）** |
+| Q2 | Lean 是否作为安装前置 | G2 | **否，可选 Tier-3** | **已裁决（B 最小 vendor + sidecar + Lean 可选；许可证与第三方审计均已关闭：P-043/P-044）** |
 | Q3 | Spec "touch = migrate" 是否立即生效 | G0b | 新文档立即，存量入 grandfather | **已裁决（B 基线+棘轮，P-019/P-020，2026-11-10）** |
 | Q4 | Embedding 后端（OpenAI / sentence-transformers / TF-IDF） | G5 | 默认本地，缺失即降级并标记 | 待确认 |
 | Q5 | R1 后端：纯文件 + supervisor vs SQLite WAL | G1 | **先纯文件**，压测后再评估 | **已裁决（A 纯文件，P-026；依据 P-025 五步法）** |
