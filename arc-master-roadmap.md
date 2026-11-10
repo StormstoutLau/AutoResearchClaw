@@ -1,14 +1,14 @@
 ---
 id: arc-master-roadmap
 type: design
-version: 1.2
+version: 1.3
 status: draft
 date: 2026-11-10
 depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-textbook, clawsgo-cleanroom-arc]
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.2）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.3）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -37,6 +37,8 @@ upstream: arb-v2-decisions
 > **修订**：v1.1（2026-11-10，P-027/P-029/P-031）**G1 收口**：A1 项 **11/12 完成**——G1a（A1-1/4/5/6 + Q9）与 G1b（A1-7/10/11/12 + A1-3 单测）已实施，A1-2 由 P-031 补齐；**A1-9 部分完成**（记录 `session_id`/`context_replayed`，backend 续接待 U-2）。遗留：U-1 真实 kill -9 集成、U-2 会话续接、U-3 SSE 前端联调。**106 计数不变**。依据：[P-027](spec/arc-g1a-event-core/IMPLEMENTATION.md)、[P-029](spec/arc-g1b-implementation/IMPLEMENTATION.md)、[P-031](spec/arc-g1c-event-protocol/IMPLEMENTATION.md)。
 >
 > **修订**：v1.2（2026-11-10，P-033）**G1 遗留收口**：真实子进程重启测试、Windows 安全探活（`os.kill(pid,0)` 会 TerminateProcess → 改 OpenProcess/GetExitCodeProcess）、会话续接白名单（当前无 backend → `context_replayed=true`）、SSE/WS 并发上限、atexit 释放租约。仅剩：**A1-9 的 backend 会话续接能力**与 **P-031 前端 EventSource 联调**（消费方）。**106 计数不变**。依据：[P-033 实施](spec/arc-g1-closeout/IMPLEMENTATION.md)。
+>
+> **修订**：v1.3（2026-11-10，P-038）**G1 正式收口（12/12）**：A1-9 由 P-037 接线——`SESSION_RESUME_BACKENDS` 登记 `claude_code`（主控站 / A 站 NEX / B 站 GTR-Pro 三端实测 `--session-id`+`--resume`），Stage 10/13 首跑固定会话、重试续接，会话不存在时**显式降级**（实测 exit 1 `No conversation found`，不会静默从零开始）；attempt 的 `session_id`/`context_replayed` 改读 stage 自写 CLI 日志真值。A1-2 消费方由 P-036 补齐（api.js SSE 客户端 + JSON 端点 `Last-Event-ID`）。残余观察项（均不阻塞 G2/G3）：浏览器 `EventSource` 自动重连人工验证（P-036 U-1）、「静默新建会话」的 provider 侧机械识别与 PIVOT 重跑语义（P-037 U-1/U-2）、C 站 seaviv 未测。**106 计数不变**。依据：[P-035 分析](spec/arc-g1-residual-analysis/RESEARCH.md)、[P-036 实施](spec/arc-g1c-frontend-closure/IMPLEMENTATION.md)、[P-037 实施](spec/arc-a1-9-session-resume/IMPLEMENTATION.md)。
 
 ---
 
@@ -132,7 +134,7 @@ flowchart LR
 | **G0a** | 最小治理引导 | **P0-急救** | 无 | R-03 §4 | 4 道激活钩子生效，急救改动可追溯 |
 | **G-1** | 可信性与安全急救 | **P0-急救** | G0a | 本次调研 | 不产出假结果；密钥不进子进程；路径不可逃逸 |
 | **G0b** | 完整治理基座 | P0 | G-1 | R-03 §4 | 6 必需钩子 + 3 守卫 + CI 全绿（已完成） |
-| **G1** | 运行时可恢复（事件 + 续跑） | P0 | G-1,G0b | R-05 R0/R1 | kill -9 后自动续跑，事件无缺口（已完成；A1-9 待 backend 会话续接） |
+| **G1** | 运行时可恢复（事件 + 续跑） | P0 | G-1,G0b | R-05 R0/R1 | kill -9 后自动续跑，事件无缺口（已完成 12/12） |
 | **G2** | 学术证据内核（ClaimRecord + AR） | P0 | G-1,G0b | R-03 §1–§3 | 8 条规则可机械判红，判定内核 3.11 可跑 |
 | **G3** | 生产脊柱 + 证据血缘 + 循环护栏 | **P0**（升级） | G1,G2 | R-03 M4 + 本次 AN/FC | 一条 claim 端到端可追溯；循环可停 |
 | **G4** | 工具注册表与沙箱边界 | P1 | G3 | R-05 R2 | 四类逃逸全拒，工具调用可审计 |
@@ -231,7 +233,7 @@ flowchart LR
 
 ---
 
-### G1｜运行时可恢复（P0，前置：G-1、G0b）——**已完成（G1a=P-027 / G1b=P-029 / A1-2=P-031 / 遗留收口=P-033）（11/12，A1-9 待 backend 能力）**
+### G1｜运行时可恢复（P0，前置：G-1、G0b）——**已完成（G1a=P-027 / G1b=P-029 / A1-2=P-031+P-036 / 遗留收口=P-033 / A1-9=P-037）（12/12）**
 
 **目标**：把"仪表盘广播"升级为"可回放控制面"，把"手动续跑"升级为"无人值守自愈"。
 
@@ -242,7 +244,7 @@ flowchart LR
 | 分期 | 范围 | 验收项 | 批次 |
 |---|---|---|---|
 | **G1a 事件内核** | `EventEnvelope v1` + `events.jsonl`（fsync/链哈希/滚动/配额/摘要/保留归档）+ 租约 fencing + 原子 heartbeat + 从事件重建 checkpoint | A1-1、A1-4、A1-5、A1-6（+ Q9 全部参数） | P-027 |
-| **G1b 自愈与协议面** | supervisor、worker 退出码分类、`StageAttempt` 会话续接、outbox、三层状态模型、`resume_note`、SSE/游标补拉、WS 首帧 subscribe | A1-2、A1-3、A1-7、A1-9、A1-10、A1-11、A1-12 | 待开 |
+| **G1b 自愈与协议面** | supervisor、worker 退出码分类、`StageAttempt` 会话续接、outbox、三层状态模型、`resume_note`、SSE/游标补拉、WS 首帧 subscribe | A1-2、A1-3、A1-7、A1-9、A1-10、A1-11、A1-12 | P-029 + P-037（A1-9 续接）+ P-036（A1-2 消费方） |
 
 **交付物**
 - **[G1a]** `EventEnvelope v1` + `<run>/events.jsonl`（append-only、fsync、链哈希）
