@@ -38,7 +38,7 @@ EVENT_TYPES = frozenset({
     "run.started", "run.completed", "run.failed", "run.paused",
     "stage.started", "stage.completed", "stage.failed", "stage.retried",
     "tool.call", "tool.result", "llm.call", "llm.result",
-    "approval.required", "effect.queued", "effect.done",
+    "approval.required", "effect.queued", "effect.started", "effect.done",
     "event_log_truncated", "event_log_rolled",
 })
 
@@ -322,18 +322,58 @@ class EventLog:
         return [e for e in self.read_all() if int(e.get("seq", 0)) > seq]
 
     def verify_chain(self) -> tuple[bool, str]:
-        """Recompute the hash chain. Returns (ok, message)."""
+        """Recompute the hash chain and payload digests. Returns (ok, message).
+
+        Three checks per line: seq continuity, the ``prev_sha256`` pointer, and
+        the ``payload_sha256`` digest. The digest check closes the tail-line
+        hole of pointer-only chains (nothing follows the last line). When
+        ``events_summary.json`` is current, its ``chain_tail`` must also match
+        the recomputed tail, which closes non-payload field tampering.
+
+        Note: after ``apply_retention`` deletes the oldest segment the chain is
+        only partially verifiable and this reports a seq gap; archive-level
+        verification is out of scope (see P-040 O-1).
+        """
         prev = ZERO_HASH
         expect_seq = 1
-        for e in self.read_all():
+        events = self.read_all()
+        for e in events:
             if int(e.get("seq", -1)) != expect_seq:
                 return False, "seq gap at %r (expected %d)" % (e.get("seq"), expect_seq)
             if e.get("prev_sha256") != prev:
                 return False, "prev_sha256 mismatch at seq %d" % expect_seq
-            body = {k: v for k, v in e.items()}
-            prev = _sha256(canonical_json(body))
+            payload_digest = _sha256(canonical_json(e.get("payload", {})))
+            if e.get("payload_sha256") != payload_digest:
+                return False, "payload_sha256 mismatch at seq %d" % expect_seq
+            prev = _sha256(canonical_json(e))
             expect_seq += 1
+        ok, msg = self._verify_summary_tail(events, prev)
+        if not ok:
+            return False, msg
         return True, "ok (%d events)" % (expect_seq - 1)
+
+    def _verify_summary_tail(self, events: list[dict], tail_hash: str) -> tuple[bool, str]:
+        """Compare the recomputed tail with the summary when it is current.
+
+        A summary whose ``last_seq`` predates the live log is stale (written by
+        an earlier run segment), so tail closure is not applied — otherwise a
+        live run would always look tampered.
+        """
+        p = self.run_dir / SUMMARY_NAME
+        if not p.is_file():
+            return True, ""
+        try:
+            summary = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False, "events_summary.json is unreadable"
+        if not isinstance(summary, dict):
+            return False, "events_summary.json is not an object"
+        live_last = int(events[-1].get("seq", 0)) if events else 0
+        if int(summary.get("last_seq", 0) or 0) != live_last:
+            return True, ""
+        if summary.get("chain_tail") != tail_hash:
+            return False, "chain_tail mismatch with events_summary.json"
+        return True, ""
 
     # ------------------------------------------------------------ lifecycle
 

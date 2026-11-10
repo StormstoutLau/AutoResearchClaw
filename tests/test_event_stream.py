@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 
-from researchclaw.runtime.event_log import EventLog
+from researchclaw.runtime.event_log import EVENT_TYPES, EventLog
 from researchclaw.runtime.event_stream import (
     MAX_LIMIT, gap_frame, heartbeat_frame, parse_cursor, read_page, sse_frame,
 )
@@ -83,3 +85,25 @@ def test_sse_and_gap_frames():
 def test_read_page_missing_log_is_empty(tmp_path):
     page = read_page(tmp_path, "nope")
     assert page["events"] == [] and page["oldest_seq"] == 0
+
+
+def test_outbox_started_type_is_registered(tmp_path):
+    """D-2（P-040）：outbox.mark_started 真实会写 effect.started，白名单必须含它。"""
+    from researchclaw.runtime import outbox
+
+    assert "effect.started" in EVENT_TYPES
+    log = EventLog(tmp_path, "run-o")
+    eff = outbox.enqueue(log, "sync", {"stage": 1})
+    outbox.mark_started(log, eff)
+    written = {e["type"] for e in log.read_all()}
+    assert written <= EVENT_TYPES
+
+
+def test_frontend_event_types_match_runtime():
+    """D-2：前端常量与 EVENT_TYPES 必须逐项对齐，避免新类型只在后端可写。"""
+    api_js = (Path(__file__).resolve().parents[1]
+              / "frontend-legacy/src/services/api.js").read_text(encoding="utf-8")
+    block = api_js.split("const EVENT_TYPES = [", 1)[1].split("];", 1)[0]
+    frontend = set(re.findall(r"'([a-z_.]+)'", block))
+    assert frontend == set(EVENT_TYPES)
+    assert "effect.started" in frontend

@@ -62,6 +62,32 @@ def test_missing_event_log_is_404(tmp_path, monkeypatch):
         "/api/runs/%s/events" % RUN_ID).status_code == 404
 
 
+def test_stream_missing_event_log_is_404_without_creating_a_dir(tmp_path, monkeypatch):
+    """D-3（P-040）：流端点必须先预检，不能靠 EventLog 的 mkdir 副作用。"""
+    missing = tmp_path / "does-not-exist"
+    monkeypatch.setattr(ev, "_run_dir", lambda run_id: missing)
+    app = FastAPI()
+    app.include_router(ev.router)
+    resp = TestClient(app).get("/api/runs/%s/events/stream" % RUN_ID)
+    assert resp.status_code == 404
+    assert not missing.exists()
+
+
+def test_ws_missing_event_log_closes_1008(tmp_path, monkeypatch):
+    from starlette.websockets import WebSocketDisconnect
+
+    missing = tmp_path / "does-not-exist"
+    monkeypatch.setattr(ev, "_run_dir", lambda run_id: missing)
+    app = FastAPI()
+    app.include_router(ev.router)
+    client = TestClient(app)
+    with client.websocket_connect("/api/runs/%s/events/ws" % RUN_ID) as ws:
+        with pytest.raises(WebSocketDisconnect) as exc:
+            ws.receive_text()
+    assert exc.value.code == 1008
+    assert not missing.exists()
+
+
 def test_gap_is_reported_over_http(tmp_path, monkeypatch):
     """A1-2 负向（HTTP 层）：游标早于保留窗口时必须显式报缺口。"""
     log = EventLog(tmp_path, RUN_ID)

@@ -87,7 +87,7 @@ const EVENT_TYPES = [
   'run.started', 'run.completed', 'run.failed', 'run.paused',
   'stage.started', 'stage.completed', 'stage.failed', 'stage.retried',
   'tool.call', 'tool.result', 'llm.call', 'llm.result',
-  'approval.required', 'effect.queued', 'effect.done',
+  'approval.required', 'effect.queued', 'effect.started', 'effect.done',
   'event_log_truncated', 'event_log_rolled',
 ];
 const TERMINAL_EVENTS = ['run.completed', 'run.failed', 'run.paused'];

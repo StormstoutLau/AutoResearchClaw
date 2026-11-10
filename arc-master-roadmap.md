@@ -1,14 +1,14 @@
 ---
 id: arc-master-roadmap
 type: design
-version: 1.3
+version: 1.3a
 status: draft
 date: 2026-11-10
 depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-textbook, clawsgo-cleanroom-arc]
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.3）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.3a）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -39,6 +39,8 @@ upstream: arb-v2-decisions
 > **修订**：v1.2（2026-11-10，P-033）**G1 遗留收口**：真实子进程重启测试、Windows 安全探活（`os.kill(pid,0)` 会 TerminateProcess → 改 OpenProcess/GetExitCodeProcess）、会话续接白名单（当前无 backend → `context_replayed=true`）、SSE/WS 并发上限、atexit 释放租约。仅剩：**A1-9 的 backend 会话续接能力**与 **P-031 前端 EventSource 联调**（消费方）。**106 计数不变**。依据：[P-033 实施](spec/arc-g1-closeout/IMPLEMENTATION.md)。
 >
 > **修订**：v1.3（2026-11-10，P-038）**G1 正式收口（12/12）**：A1-9 由 P-037 接线——`SESSION_RESUME_BACKENDS` 登记 `claude_code`（主控站 / A 站 NEX / B 站 GTR-Pro 三端实测 `--session-id`+`--resume`），Stage 10/13 首跑固定会话、重试续接，会话不存在时**显式降级**（实测 exit 1 `No conversation found`，不会静默从零开始）；attempt 的 `session_id`/`context_replayed` 改读 stage 自写 CLI 日志真值。A1-2 消费方由 P-036 补齐（api.js SSE 客户端 + JSON 端点 `Last-Event-ID`）。残余观察项（均不阻塞 G2/G3）：浏览器 `EventSource` 自动重连人工验证（P-036 U-1）、「静默新建会话」的 provider 侧机械识别与 PIVOT 重跑语义（P-037 U-1/U-2）、C 站 seaviv 未测。**106 计数不变**。依据：[P-035 分析](spec/arc-g1-residual-analysis/RESEARCH.md)、[P-036 实施](spec/arc-g1c-frontend-closure/IMPLEMENTATION.md)、[P-037 实施](spec/arc-a1-9-session-resume/IMPLEMENTATION.md)。
+>
+> **修订**：v1.3a（2026-11-10，P-040）**复审缺陷修复**：P-039 异基座复审登记的三缺陷全部关闭——D-1 `verify_chain` 增 `payload_sha256` 校验并补 summary `chain_tail` 尾闭合（末行 payload/元数据篡改均可检，summary 落后时跳过）；D-2 `effect.started` 登记进事件白名单与前端常量（18 类，补机械对齐用例）；D-3 SSE/WS 预检缺失日志（404 / close 1008）且不再经 `EventLog` mkdir 创建垃圾目录。A1-1 末行负向场景由此闭合，12/12 **无保留成立**。残余：`verify_chain` 未进 resume 热路径（归档删段会误报，U-1）、归档后仅能部分校验（O-1）。**106 计数不变**。依据：[P-039 复审](docs/arc-g1-cross-review-20261110.md)、[P-040 实施](spec/arc-g1-review-fixes/IMPLEMENTATION.md)。
 
 ---
 

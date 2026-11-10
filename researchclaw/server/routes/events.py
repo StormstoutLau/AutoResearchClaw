@@ -29,10 +29,22 @@ def _run_dir(run_id: str) -> Path:
     return _validated_run_dir(run_id)
 
 
-def _page(run_id: str, after: int | None, limit: int | None) -> dict:
+def _has_event_log(run_dir: Path) -> bool:
+    """The log may live only in rolled segments (active file absent)."""
+    return (run_dir / "events.jsonl").exists() or bool(
+        list(run_dir.glob("events.*.jsonl")))
+
+
+def _require_event_log(run_id: str) -> Path:
+    """404 before any read so ``EventLog`` never mkdirs a bogus run dir (D-3)."""
     run_dir = _run_dir(run_id)
-    if not (run_dir / "events.jsonl").exists() and not list(run_dir.glob("events.*.jsonl")):
+    if not _has_event_log(run_dir):
         raise HTTPException(status_code=404, detail=f"No event log for run {run_id}")
+    return run_dir
+
+
+def _page(run_id: str, after: int | None, limit: int | None) -> dict:
+    run_dir = _require_event_log(run_id)
     return read_page(run_dir, run_id, after=after, limit=limit)
 
 
@@ -47,6 +59,7 @@ async def list_events(run_id: str, request: Request, after: int | None = None,
 async def stream_events(run_id: str, request: Request, after: int | None = None,
                         limit: int | None = None):
     cursor = parse_cursor(request.headers.get("Last-Event-ID"), after)
+    run_dir = _require_event_log(run_id)
     if not _limiter.acquire(run_id):
         raise HTTPException(status_code=429,
                             detail=f"too many event streams for run {run_id}")
@@ -59,7 +72,9 @@ async def stream_events(run_id: str, request: Request, after: int | None = None,
             while True:
                 if await request.is_disconnected():
                     return
-                page = read_page(_run_dir(run_id), run_id, after=cursor, limit=limit)
+                if not _has_event_log(run_dir):
+                    return
+                page = read_page(run_dir, run_id, after=cursor, limit=limit)
                 if page["gap"]:
                     yield gap_frame(page["oldest_seq"])
                     cursor = page["oldest_seq"] - 1
@@ -85,6 +100,10 @@ async def stream_events(run_id: str, request: Request, after: int | None = None,
 @router.websocket("/runs/{run_id}/events/ws")
 async def ws_events(websocket: WebSocket, run_id: str) -> None:
     await websocket.accept()
+    run_dir = _run_dir(run_id)
+    if not _has_event_log(run_dir):
+        await websocket.close(code=1008, reason="no event log for run")
+        return
     if not _limiter.acquire(run_id):
         await websocket.close(code=1013)      # try again later
         return
@@ -95,7 +114,10 @@ async def ws_events(websocket: WebSocket, run_id: str) -> None:
             return
         cursor = parse_cursor(None, first.get("after"))
         while True:
-            page = read_page(_run_dir(run_id), run_id, after=cursor)
+            if not _has_event_log(run_dir):
+                await websocket.close(code=1008, reason="event log removed")
+                return
+            page = read_page(run_dir, run_id, after=cursor)
             if page["gap"]:
                 await websocket.send_text(json.dumps(
                     {"type": "stream.gap", "oldest_seq": page["oldest_seq"]}))

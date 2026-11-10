@@ -46,10 +46,48 @@ def test_tamper_breaks_chain(tmp_path):
     log.append("stage.completed", {"c": 3})
     p = tmp_path / "events.jsonl"
     lines = p.read_text(encoding="utf-8").splitlines()
-    lines[1] = lines[1].replace('"b":2', '"b":3')   # 中间行篡改 → 后继 prev_sha256 失配
+    lines[1] = lines[1].replace('"b":2', '"b":3')   # 中间行篡改
     p.write_text("\n".join(lines) + "\n", encoding="utf-8")
     ok, msg = EventLog(tmp_path, "run-1").verify_chain()
-    assert not ok and "prev_sha256" in msg
+    assert not ok
+    assert "payload_sha256" in msg or "prev_sha256" in msg
+
+
+def test_tail_payload_tamper_is_detected(tmp_path):
+    """D-1（P-040）：末行无后继，仅靠 prev 指针查不出；payload 摘要必须兜底。"""
+    log = _log(tmp_path)
+    log.append("run.started", {"a": 1})
+    log.append("stage.completed", {"metric": 0.9}, stage=1)
+    p = tmp_path / "events.jsonl"
+    lines = p.read_text(encoding="utf-8").splitlines()
+    lines[-1] = lines[-1].replace("0.9", "999.0")
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    ok, msg = EventLog(tmp_path, "run-1").verify_chain()
+    assert not ok and "payload_sha256" in msg
+
+
+def test_tail_metadata_tamper_is_detected_by_summary(tmp_path):
+    """末行非 payload 字段（type/ts/stage）由 summary 的 chain_tail 兜底。"""
+    log = _log(tmp_path)
+    log.append("run.started", {"a": 1})
+    log.append("stage.completed", {"stage": 1}, stage=1)
+    log.write_summary()
+    p = tmp_path / "events.jsonl"
+    lines = p.read_text(encoding="utf-8").splitlines()
+    lines[-1] = lines[-1].replace('"stage.completed"', '"stage.failed"')
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    ok, msg = EventLog(tmp_path, "run-1").verify_chain()
+    assert not ok and "chain_tail" in msg
+
+
+def test_stale_summary_does_not_block_verification(tmp_path):
+    """summary 落后于当前日志是合法中间态，不得误判为篡改。"""
+    log = _log(tmp_path)
+    log.append("run.started", {"a": 1})
+    log.write_summary()
+    log.append("stage.started", {"b": 2}, stage=1)
+    ok, msg = EventLog(tmp_path, "run-1").verify_chain()
+    assert ok, msg
 
 
 def test_torn_tail_is_dropped_and_appends_continue(tmp_path):
