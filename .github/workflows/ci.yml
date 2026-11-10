@@ -129,10 +129,38 @@ jobs:
           python-version: "3.11"
 
       - name: Acceptance coverage check (D-6)
-        run: python scripts/roadmap_coverage_check.py --check
+        run: python scripts/spec/roadmap_coverage_check.py --check
 
       - name: CLI code agent wiring guard
         run: python scripts/code_agent_wiring_check.py
 
       - name: Private endpoint / credential guard
         run: python scripts/private_config_check.py
+
+  spec-gates:
+    # A0-6：六必需钩子 + 三额外守卫全量运行；不依赖 tests 产物，与 3.11–3.13 矩阵并行。
+    name: Spec gates (pre-commit all-files)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install runtimes
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pre-commit pyyaml
+          python -m pip install -e ".[dev]"
+
+      - name: Gate selftests
+        run: |
+          python scripts/spec/grandfather_gate.py --selftest
+          python scripts/spec/m7_stats.py
+          python scripts/spec/repo_stats.py --check
+          python scripts/spec/blackbox_check.py
+
+      - name: Run all pre-commit gates
+        run: pre-commit run --all-files --show-diff-on-failure
+

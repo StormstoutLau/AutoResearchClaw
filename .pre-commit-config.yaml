@@ -1,20 +1,16 @@
-# Spec_Workflow 门禁（ARC 接入版）
-# 权威源：SPEC_PROCESS.md；设计：spec/arc-spec-workflow-install/DESIGN.md
+# Spec_Workflow 门禁（ARC 接入版，G0b 六必需 + 三额外守卫）
+# 权威源：spec/SPEC_PROCESS.md；设计：spec/arc-g0b-implementation/DESIGN.md
 # 安装：pre-commit install
 # 手动：pre-commit run --all-files
 # 说明：entry 统一走 python 前缀（Windows 无 /bin/sh）。
+#       治理脚本真身统一在 scripts/spec/；根 scripts/*.py 为 runpy 兼容壳（P-021 T-1）。
 repos:
   - repo: local
     hooks:
-      - id: private-config
-        name: Private endpoint / credential guard
-        entry: python scripts/private_config_check.py
-        language: system
-        files: \.(py|yaml|yml|md|json|jsonl|txt|env)$
-
+      # ---- 必需六道（A0-1） ----
       - id: dc-validator
-        name: DC contract validator (DC1-DC5 + R7)
-        entry: python scripts/dc_validator.py
+        name: DC contract validator (DC1-DC5 + R7, grandfather policy)
+        entry: python scripts/spec/grandfather_gate.py
         language: system
         # 作用域 = Spec 管理的工件：spec/** 四文档 + PROGRESS/CONSOLE。
         # 研究/调研报告（根级 arc-*.md、clawsgo-*.md、docs/*.md）不在 DC 契约内：
@@ -22,18 +18,46 @@ repos:
         # external/、researchclaw/skills/ 为第三方 front-matter，同样排除。
         files: ^(spec/.*\.md|docs/(PROGRESS|CONSOLE)\.md)$
 
+      - id: m7-stats
+        name: M7 evidence ledger structure guard
+        entry: python scripts/spec/m7_stats.py
+        language: system
+        pass_filenames: false
+        files: ^docs/M7_EVIDENCE_LOG\.md$
+
+      - id: repo-stats
+        name: Repo stats derived-view guard
+        entry: python scripts/spec/repo_stats.py --check
+        language: system
+        pass_filenames: false
+        files: ^(docs/(REPO_STATS|PROGRESS)\.md|researchclaw/.*\.py|tests/.*\.py)$
+
       - id: step-enforce
         name: Step decision-stream enforcement (PROGRESS + sessions)
-        entry: python scripts/step_enforce.py
+        entry: python scripts/spec/step_enforce.py
         language: system
         files: ^(spec/[a-z0-9-]+/(?:[A-Z0-9_]+_)?(?:RESEARCH|DESIGN|IMPLEMENTATION|CHECKLIST(?:_FUNC)?)\.md|tools/spec_runner/sessions/.*\.jsonl|docs/PROGRESS\.md)$
 
       - id: console-gen
         name: Project console generator (derived view)
-        entry: python scripts/console_gen.py --stage
+        entry: python scripts/spec/console_gen.py --stage
         language: system
         pass_filenames: false
         files: ^(docs/PROGRESS\.md|tools/spec_runner/sessions/.*\.jsonl|spec/.*(?:RESEARCH|DESIGN|IMPLEMENTATION|CHECKLIST)\.md)$
+
+      - id: blackbox-check
+        name: CLI blackbox smoke (python -m researchclaw --help)
+        entry: python scripts/spec/blackbox_check.py
+        language: system
+        pass_filenames: false
+        files: ^(researchclaw/.*\.py|pyproject\.toml)$
+
+      # ---- 额外守卫（不属 A0-1 六必需，但保留） ----
+      - id: private-config
+        name: Private endpoint / credential guard
+        entry: python scripts/private_config_check.py
+        language: system
+        files: \.(py|yaml|yml|md|json|jsonl|txt|env)$
 
       - id: code-agent-wiring
         name: CLI code agent wiring / transport guard
@@ -44,15 +68,12 @@ repos:
 
       - id: rework-graph
         name: Rework graph check
-        entry: python scripts/rework_graph_check.py
+        entry: python scripts/spec/rework_graph_check.py
         language: system
         pass_filenames: false
         files: ^docs/rework-graph\.json$
 
 # Deferred（登记不激活，依据 ADR-0010 懒加载）：
-#   - m7-stats        需要 docs/M7_EVIDENCE_LOG.md
-#   - repo-stats      需要 CODE_WIKI.md / 视图计数体系
-#   - blackbox-tests  ARC 使用 pytest + GitHub Actions
 #   - spec-runner-selftest  83 项中 4 项依赖 Spec_Workflow 自有 fixture
 #                     （spec/step-gate、ADR-0006、spec/independent-verify），
 #                     在 ARC 中会因 fixture 缺失而红；以 step-gate 代替 runner 健康检查。

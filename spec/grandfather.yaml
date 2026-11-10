@@ -1,0 +1,26 @@
+# Grandfather 基线清单（Q3 = B 基线 + 棘轮；权威源 arc-master-roadmap.md §4 G0b + P-019 DESIGN）
+#
+# 语义：
+#   - 新文档零豁免：第一次提交必须过 DC1-DC5。
+#   - 仅豁免 dc1 / dc2 / dc3；dc4（id 全仓唯一）/ dc5（版本引用）/ r7（计数自洽）
+#     是全仓扫描语义，按文件豁免不成立，登记即 exit 2。
+#   - 过期即红：expires 之后不再豁免。
+#   - expires_days = 90 是**内部政策参数（E3，可调）**，绑定未决项 U-1（豁免数量趋势复审）。
+#   - 续期 append-only：续期写入 renewals，不改原 expires；最多 1 次；
+#     总寿命上限 = cutoff + 2 * expires_days（即 cutoff + 180 天）。
+#   - 单条 expires 上限 = cutoff + 2 * expires_days。
+#
+# 条目模板（当前无存量违规，清单为空）：
+#   - path: spec/<feature>/RESEARCH.md   # 必须在 DC 作用域内（spec/**.md）
+#     check_ids: [dc1]
+#     reason: pre-DC2 legacy import
+#     owner: <name>
+#     expires: 2027-02-08
+#     renewals: []                      # 可选，≤1 次：{from, to, reason}
+#     approved_by: <name>               # 可选
+#     issue: <link or P-id>             # 可选
+
+version: 1
+cutoff: 2026-11-10
+expires_days: 90
+entries: []
