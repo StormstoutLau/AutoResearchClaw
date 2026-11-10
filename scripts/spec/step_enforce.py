@@ -384,7 +384,10 @@ def _resolve_declared(d: Decision, docs_features: set[str], rows: dict) -> None:
             d.errors.append(f"{pid} 不在 PROGRESS")
             continue
         if not row["features"]:
-            d.errors.append(f"{pid} 未声明任何 spec/<feature>/ 链接")
+            # P-024（R-5）：与 `batch-registration` 分支（L478）同谓词——绑定要求只在
+            # P-129 起生效，历史/轻批豁免；「变更 feature 是否被覆盖」另由下方 missing 检查兜底。
+            if _pid_num(pid) >= BATCH_BINDING_MIN_P:
+                d.errors.append(f"{pid} 未声明任何 spec/<feature>/ 链接")
             continue
         allowed.update(row["features"])
     if d.errors:
