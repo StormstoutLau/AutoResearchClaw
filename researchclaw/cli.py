@@ -469,7 +469,34 @@ def cmd_run(args: argparse.Namespace) -> int:
         )
     else:
         print(f"\nPipeline complete: {done}/{len(results)} stages done, {failed} failed")
-    return 0 if failed == 0 else 1
+    # A1-7（P-029）：0 ok / 65 data / 75 retryable / 77 revoked / 78 config / 85 paused
+    from researchclaw.runtime.exit_codes import classify_results
+    return classify_results(results)
+
+
+def cmd_supervisor(args: argparse.Namespace) -> int:
+    """Supervise a resumable run: restart only retryable exits (A1-3)."""
+    from pathlib import Path as _Path
+
+    from researchclaw.runtime.supervisor import Supervisor, default_worker_cmd
+
+    run_dir = _Path(cast(str, args.output))
+    if not (run_dir / "checkpoint.json").exists() and not (run_dir / "events.jsonl").exists():
+        print(f"Error: no resumable run at {run_dir}", file=sys.stderr)
+        return 65
+    supervisor = Supervisor(
+        run_id=run_dir.name,
+        run_dir=run_dir,
+        worker_cmd=default_worker_cmd(run_dir, cast(str | None, args.config)),
+        max_restarts=int(args.max_restarts),
+        max_wall_seconds=float(args.max_wall_seconds),
+    )
+    result = supervisor.run()
+    print(
+        f"[supervisor] exit={result.exit_code} restarts={result.restarts} "
+        f"elapsed={result.elapsed:.0f}s exhausted={result.exhausted}"
+    )
+    return result.exit_code
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
@@ -1355,6 +1382,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _ = rpt_p.add_argument("--output", "-o", help="Write report to file")
 
+    # G1b: supervisor（A1-3）
+    sup_p = sub.add_parser("supervisor", help="Supervise a run and restart retryable failures")
+    _ = sup_p.add_argument("--output", "-o", required=True,
+                           help="Run directory to supervise")
+    _ = sup_p.add_argument("--config", "-c", default=None, help="Config file path")
+    _ = sup_p.add_argument("--max-restarts", type=int, default=5)
+    _ = sup_p.add_argument("--max-wall-seconds", type=float, default=1800)
+
     # A: Web platform
     srv_p = sub.add_parser("serve", help="Start the web server")
     _ = srv_p.add_argument("--config", "-c", default="config.yaml", help="Config file path")
@@ -1570,6 +1605,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if command == "run":
         return cmd_run(args)
+    elif command == "supervisor":
+        return cmd_supervisor(args)
     elif command == "validate":
         return cmd_validate(args)
     elif command == "doctor":

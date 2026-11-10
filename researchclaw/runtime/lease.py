@@ -220,3 +220,47 @@ def release(run_dir: str | Path, lease: Lease) -> None:
 def check_fencing(lease: Lease, seen_max: int) -> bool:
     """Writers must reject tokens lower than the highest already observed."""
     return lease.fencing >= seen_max
+
+
+class LeaseKeeper:
+    """Background renewal thread (P-030 R-3).
+
+    Long stages can outlive the lease TTL; without renewal a second worker
+    may legally take over (fencing+1) and both would write. The keeper
+    renews every ``interval`` seconds (default TTL/3) and calls ``on_lost``
+    once if the lease is gone. It never writes events, so it cannot race the
+    writer's ``seq``.
+    """
+
+    def __init__(self, run_dir, lease: Lease, *, ttl: int = DEFAULT_TTL_SECONDS,
+                 interval: float | None = None, on_lost=None) -> None:
+        import threading
+        self.run_dir = Path(run_dir)
+        self.lease = lease
+        self.ttl = ttl
+        self.interval = interval or max(1.0, ttl / 3.0)
+        self.on_lost = on_lost
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._loop, daemon=True,
+                                        name="lease-keeper")
+
+    def start(self) -> "LeaseKeeper":
+        self._thread.start()
+        return self
+
+    def _loop(self) -> None:
+        while not self._stop.wait(self.interval):
+            try:
+                self.lease = renew(self.run_dir, self.lease, ttl=self.ttl)
+            except LeaseLost:
+                if self.on_lost is not None:
+                    try:
+                        self.on_lost()
+                    except Exception:  # noqa: BLE001 - callback must not kill the thread
+                        pass
+                return
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread.is_alive():
+            self._thread.join(timeout=2.0)

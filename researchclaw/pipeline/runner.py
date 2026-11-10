@@ -146,6 +146,8 @@ def _write_heartbeat(run_dir: Path, stage: Stage, run_id: str) -> None:
 # 事件日志与租约（P-027）。同一 run 的递归 PIVOT/REFINE 复用外层 log，
 # 不重复 run.started / 不提前释放租约。
 _ACTIVE_EVENT_LOGS: dict[str, object] = {}
+_ACTIVE_KEEPERS: dict[str, object] = {}
+_LEASE_LOST: set[str] = set()
 
 
 def _runtime_enabled() -> bool:
@@ -167,6 +169,15 @@ def _runtime_begin(run_dir: Path, run_id: str, payload: dict) -> tuple[object, o
     lease = acquire(run_dir, ttl=600)
     log = EventLog(run_dir, run_id, fencing=lease.fencing)
     _ACTIVE_EVENT_LOGS[run_id] = log
+    # R-3（P-030）：长 Stage 会超过租约 TTL，必须后台续期，否则可被第二写者接管。
+    try:
+        from researchclaw.runtime.lease import LeaseKeeper
+        _ACTIVE_KEEPERS[run_id] = LeaseKeeper(
+            run_dir, lease, ttl=600,
+            on_lost=lambda: _LEASE_LOST.add(run_id),
+        ).start()
+    except Exception:  # noqa: BLE001 - keeper is a safety net; log and continue
+        logger.warning("lease keeper failed to start", exc_info=True)
     log.append("run.started", payload)
     return log, lease, True
 
@@ -175,6 +186,12 @@ def _runtime_end(log, lease, owns: bool, status: str, payload: dict) -> None:
     if log is None or not owns:
         return
     from researchclaw.runtime.lease import release
+    keeper = _ACTIVE_KEEPERS.pop(getattr(log, "run_id", ""), None)
+    if keeper is not None:
+        try:
+            keeper.stop()
+        except Exception:  # noqa: BLE001
+            pass
     try:
         log.append(status, payload)
         log.write_summary()
@@ -182,12 +199,46 @@ def _runtime_end(log, lease, owns: bool, status: str, payload: dict) -> None:
         if lease is not None:
             release(getattr(log, "run_dir"), lease)
         _ACTIVE_EVENT_LOGS.pop(getattr(log, "run_id", ""), None)
+        _LEASE_LOST.discard(getattr(log, "run_id", ""))
+
+
+def _record_attempt(run_dir: Path, stage: Stage, result, started_at: str) -> None:
+    """A1-9/A1-11/A1-12：写 attempt 记录，但**不迁移 Stage 状态**。"""
+    try:
+        from researchclaw.runtime.attempt import (
+            AttemptRecord, build_resume_note, list_artifacts,
+            next_attempt_number, write_attempt,
+        )
+        from researchclaw.runtime.exit_codes import classify_results, class_name
+    except Exception:  # noqa: BLE001
+        return
+    try:
+        stage_num = int(stage)
+        attempt = next_attempt_number(run_dir, stage_num)
+        done = result.status == StageStatus.DONE
+        artifacts = list_artifacts(run_dir / ("stage-%02d" % stage_num))
+        code = classify_results([result])
+        note = "" if done else build_resume_note(
+            stage=stage_num, stage_name=stage.name, attempt=attempt,
+            last_error=result.error, artifacts=artifacts, exit_code=code)
+        write_attempt(run_dir, AttemptRecord(
+            stage=stage_num, stage_name=stage.name, attempt=attempt,
+            started_at=started_at, ended_at=_utcnow_iso(),
+            exit_class=class_name(code), exit_code=code,
+            session_id=None, context_replayed=True,
+            resume_note=note, artifacts=artifacts,
+        ))
+    except Exception:  # noqa: BLE001 - records are diagnostic, never fatal
+        logger.debug("attempt record skipped", exc_info=True)
 
 
 def _emit(log, event_type: str, payload: dict | None = None,
           *, stage: int | None = None, attempt: int | None = None) -> None:
     if log is None:
         return
+    if getattr(log, "run_id", "") in _LEASE_LOST:
+        raise RuntimeError("lease lost for run %s — refusing to write events"
+                           % getattr(log, "run_id", ""))
     log.append(event_type, payload or {}, stage=stage, attempt=attempt)
 
 
@@ -638,6 +689,7 @@ def execute_pipeline(
             _promote_best_stage14(run_dir, config)
 
         t0 = _time.monotonic()
+        _stage_started_at = _utcnow_iso()
 
         result = execute_stage(
             stage,
@@ -743,6 +795,7 @@ def execute_pipeline(
                   {"name": stage.name, "status": str(result.status),
                    "error": (result.error or "")[:500]},
                   stage=stage_num)
+        _record_attempt(run_dir, stage, result, _stage_started_at)
 
         # ── Stop after to_stage if specified ──
         if to_stage is not None and stage == to_stage:

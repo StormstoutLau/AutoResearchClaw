@@ -146,7 +146,9 @@ def test_cmd_run_reports_paused_pipeline(
     )
     code = rc_cli.cmd_run(args)
     captured = capsys.readouterr()
-    assert code == 0
+    # P-029 / R-1：暂停是正常终态，用专用码 85 表达（旧行为返回 0 会让
+    # supervisor 误判完成、审批后无人续跑）。
+    assert code == 85
     assert "Pipeline paused:" in captured.out
     assert "1 paused" in captured.out
 
