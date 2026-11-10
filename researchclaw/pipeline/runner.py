@@ -120,7 +120,7 @@ def _write_checkpoint(
 
 
 def _write_heartbeat(run_dir: Path, stage: Stage, run_id: str) -> None:
-    """Write heartbeat file for sentinel watchdog monitoring."""
+    """Write heartbeat file for sentinel watchdog monitoring (atomic, P-027)."""
     import os
 
     heartbeat = {
@@ -130,18 +130,88 @@ def _write_heartbeat(run_dir: Path, stage: Stage, run_id: str) -> None:
         "run_id": run_id,
         "timestamp": _utcnow_iso(),
     }
-    (run_dir / "heartbeat.json").write_text(
-        json.dumps(heartbeat, indent=2), encoding="utf-8"
-    )
+    target = run_dir / "heartbeat.json"
+    fd, tmp_path = tempfile.mkstemp(dir=run_dir, suffix=".tmp", prefix="heartbeat_")
+    os.close(fd)
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(heartbeat, indent=2))
+        Path(tmp_path).replace(target)
+    except BaseException:
+        Path(tmp_path).unlink(missing_ok=True)
+        raise
+
+
+# ---------------------------------------------------------------- runtime G1a
+# 事件日志与租约（P-027）。同一 run 的递归 PIVOT/REFINE 复用外层 log，
+# 不重复 run.started / 不提前释放租约。
+_ACTIVE_EVENT_LOGS: dict[str, object] = {}
+
+
+def _runtime_enabled() -> bool:
+    return os.environ.get("ARC_EVENTS_DISABLED", "") != "1"
+
+
+def _runtime_begin(run_dir: Path, run_id: str, payload: dict) -> tuple[object, object, bool]:
+    """返回 (event_log|None, lease|None, owns)。"""
+    if not _runtime_enabled():
+        return None, None, False
+    existing = _ACTIVE_EVENT_LOGS.get(run_id)
+    if existing is not None:
+        return existing, None, False
+    try:
+        from researchclaw.runtime.lease import acquire
+        from researchclaw.runtime.event_log import EventLog
+    except Exception:  # noqa: BLE001 - runtime layer missing is a hard error at import time
+        raise
+    lease = acquire(run_dir, ttl=600)
+    log = EventLog(run_dir, run_id, fencing=lease.fencing)
+    _ACTIVE_EVENT_LOGS[run_id] = log
+    log.append("run.started", payload)
+    return log, lease, True
+
+
+def _runtime_end(log, lease, owns: bool, status: str, payload: dict) -> None:
+    if log is None or not owns:
+        return
+    from researchclaw.runtime.lease import release
+    try:
+        log.append(status, payload)
+        log.write_summary()
+    finally:
+        if lease is not None:
+            release(getattr(log, "run_dir"), lease)
+        _ACTIVE_EVENT_LOGS.pop(getattr(log, "run_id", ""), None)
+
+
+def _emit(log, event_type: str, payload: dict | None = None,
+          *, stage: int | None = None, attempt: int | None = None) -> None:
+    if log is None:
+        return
+    log.append(event_type, payload or {}, stage=stage, attempt=attempt)
+
 
 
 def read_checkpoint(run_dir: Path) -> Stage | None:
-    """Read checkpoint and return the NEXT stage to execute, or None if no checkpoint."""
+    """Read checkpoint and return the NEXT stage to execute, or None if no checkpoint.
+
+    A1-5: when ``checkpoint.json`` is missing or corrupt, rebuild it from the
+    event log and persist the recovered payload (``recovered: true``).
+    """
     cp_path = run_dir / "checkpoint.json"
-    if not cp_path.exists():
-        return None
+    usable = False
+    data: dict[str, object] = {}
+    if cp_path.exists():
+        try:
+            data = json.loads(cp_path.read_text(encoding="utf-8"))
+            usable = data.get("last_completed_stage") is not None
+        except (json.JSONDecodeError, TypeError, ValueError, OSError):
+            usable = False
+    if not usable:
+        data = _recover_checkpoint_from_events(run_dir) or {}
+        if not data:
+            return None
     try:
-        data = json.loads(cp_path.read_text(encoding="utf-8"))
         last_num = data.get("last_completed_stage")
         if last_num is None:
             return None
@@ -151,8 +221,39 @@ def read_checkpoint(run_dir: Path) -> Stage | None:
                     return STAGE_SEQUENCE[i + 1]
                 return None
         return None
-    except (json.JSONDecodeError, TypeError, ValueError):
+    except (TypeError, ValueError):
         return None
+
+
+def _recover_checkpoint_from_events(run_dir: Path) -> dict | None:
+    """A1-5 recovery path: rebuild checkpoint from ``events.jsonl`` and persist it."""
+    events_path = run_dir / "events.jsonl"
+    if not events_path.exists():
+        return None
+    try:
+        from researchclaw.runtime.event_log import EventLog, rebuild_checkpoint
+        events = EventLog(run_dir, run_dir.name).read_all()
+        payload = rebuild_checkpoint(events)
+    except Exception:  # noqa: BLE001 - recovery is best effort; fall back to None
+        logger.warning("checkpoint recovery from events failed", exc_info=True)
+        return None
+    if not payload or not payload.get("last_completed_stage"):
+        return None
+    _write_recovered_checkpoint(run_dir, payload)
+    return payload
+
+
+def _write_recovered_checkpoint(run_dir: Path, payload: dict) -> None:
+    target = run_dir / "checkpoint.json"
+    fd, tmp_path = tempfile.mkstemp(dir=run_dir, suffix=".tmp", prefix="checkpoint_")
+    os.close(fd)
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, indent=2))
+        Path(tmp_path).replace(target)
+    except BaseException:
+        Path(tmp_path).unlink(missing_ok=True)
+        raise
 
 
 def resume_from_checkpoint(
@@ -459,6 +560,11 @@ def execute_pipeline(
     results: list[StageResult] = []
     started = False
     total_stages = len(STAGE_SEQUENCE)
+    _log, _lease, _owns = _runtime_begin(
+        run_dir, run_id,
+        {"from_stage": int(from_stage),
+         "to_stage": int(to_stage) if to_stage is not None else None},
+    )
 
     # Force the domain detector to honor a deployed profile (if any) so
     # every stage picks the same adapter.  Safe no-op when empty.
@@ -507,6 +613,7 @@ def execute_pipeline(
         stage_num = int(stage)
         prefix = f"[{run_id}] Stage {stage_num:02d}/{total_stages}"
         print(f"{prefix} {stage.name} — running...")
+        _emit(_log, "stage.started", {"name": stage.name}, stage=stage_num)
 
         # ── Cost budget check ──
         if cost_budget > 0 and tracker is not None:
@@ -628,6 +735,14 @@ def execute_pipeline(
 
         if result.status == StageStatus.DONE:
             _write_checkpoint(run_dir, stage, run_id, adapters=adapters)
+            _emit(_log, "stage.completed",
+                  {"name": stage.name, "artifacts": len(result.artifacts or ())},
+                  stage=stage_num)
+        else:
+            _emit(_log, "stage.failed",
+                  {"name": stage.name, "status": str(result.status),
+                   "error": (result.error or "")[:500]},
+                  stage=stage_num)
 
         # ── Stop after to_stage if specified ──
         if to_stage is not None and stage == to_stage:
@@ -822,6 +937,20 @@ def execute_pipeline(
         data_origin=_resolve_data_origin(run_dir, config),
     )
     _write_pipeline_summary(run_dir, summary)
+
+    # --- Runtime event closure (P-027): run.completed / run.failed ---
+    _final_status = "run.completed"
+    _final_reason = ""
+    if not results:
+        _final_status, _final_reason = "run.failed", "no_stages"
+    elif results[-1].status != StageStatus.DONE:
+        _final_status = "run.failed"
+        _final_reason = str(results[-1].status)
+    _runtime_end(_log, _lease, _owns, _final_status, {
+        "stages_run": len(results),
+        "last_stage": int(results[-1].stage) if results else 0,
+        "reason": _final_reason,
+    })
 
     # --- Evolution: extract and store lessons ---
     lessons: list[object] = []

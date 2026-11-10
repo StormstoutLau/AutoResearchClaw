@@ -1,14 +1,14 @@
 ---
 id: arc-master-roadmap
 type: design
-version: 0.9
+version: 1.0
 status: draft
 date: 2026-11-10
 depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-textbook, clawsgo-cleanroom-arc]
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v0.9）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.0）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -31,6 +31,8 @@ upstream: arb-v2-decisions
 > **修订**：v0.8（2026-11-10，Q3 裁决）Q3 正式裁决 = **B（基线 + 棘轮）**：新文档立即合规；`spec/grandfather.yaml` 空清单 + cutoff 2026-11-10；豁免 90 天过期（内部政策参数 E3）、最多续期一次；仅豁免 DC1-DC3，语义触碰必须迁移。G0b 实施批可开工，开工前须吸收 4 项实施前提。**106 计数不变**。依据：[P-019 调研](spec/arc-q3-grandfather-policy/RESEARCH.md) + [P-020 复核](docs/arc-q3-grandfather-review-20261110.md)。
 >
 > **修订**：v0.9（2026-11-10，P-021）**G0b 关闭**：治理脚本迁 `scripts/spec/` + 6 根兼容壳；`SPEC_PROCESS.md` 迁 `spec/` + 根指针；`spec/grandfather.yaml` 空清单（Q3 = B）；钩子扩为 6 必需 + 3 守卫；CI 增 `spec-gates`；A0-1..A0-6 全过（负向用例 11+3 例）。Q11 由实施确认。**106 计数不变**。依据：[P-021 实施](spec/arc-g0b-implementation/IMPLEMENTATION.md)。
+>
+> **修订**：v1.0（2026-11-10，P-026）**Q5/Q9 裁决 + G1 分期**：Q5 = **A（纯文件 + supervisor）**、Q9 = **A（热 30 天 / 归档 365 天 / 摘要永久）**，裁定依据改用 [P-025 五步非补偿程序](spec/arc-q5-decision-method/RESEARCH.md)（约束→支配→敏感点→可逆性→kill criteria），**不再引用 P-022 §3.4 加权总分**；G1 拆为 **G1a（事件内核 + 租约 + 保留，P-027）** 与 **G1b（supervisor / attempts / outbox / SSE）**，A1 项的归属见 §4 G1。**106 计数不变**。
 
 ---
 
@@ -225,28 +227,35 @@ flowchart LR
 
 ---
 
-### G1｜运行时可恢复（P0，前置：G-1、G0b）
+### G1｜运行时可恢复（P0，前置：G-1、G0b）——**进行中（G1a = P-027）**
 
 **目标**：把"仪表盘广播"升级为"可回放控制面"，把"手动续跑"升级为"无人值守自愈"。
 
 **来源映射**：R-05 R0（协议）+ R1（架构）。
 
+**分期（v1.0，P-026）**：G1 拆为两批实施，验收项总数不变。
+
+| 分期 | 范围 | 验收项 | 批次 |
+|---|---|---|---|
+| **G1a 事件内核** | `EventEnvelope v1` + `events.jsonl`（fsync/链哈希/滚动/配额/摘要/保留归档）+ 租约 fencing + 原子 heartbeat + 从事件重建 checkpoint | A1-1、A1-4、A1-5、A1-6（+ Q9 全部参数） | P-027 |
+| **G1b 自愈与协议面** | supervisor、worker 退出码分类、`StageAttempt` 会话续接、outbox、三层状态模型、`resume_note`、SSE/游标补拉、WS 首帧 subscribe | A1-2、A1-3、A1-7、A1-9、A1-10、A1-11、A1-12 | 待开 |
+
 **交付物**
-- `EventEnvelope v1` + `<run>/events.jsonl`（append-only、fsync、链哈希）
-- `GET /api/runs/{id}/events`（游标分页）
-- `GET /api/runs/{id}/events/stream`（SSE，支持 `Last-Event-ID`）
-- WS 首帧 `subscribe {run_id, after}`
-- `arc supervisor` / `arc worker --run-id`
-- `<run>/lease.json`（owner/pid/expires/fencing）
-- 原子 checkpoint（tmp + `os.replace` + `artifacts_digest`）
-- 幂等键 `stage_id + inputs_digest`
-- 事件日志滚动与单 run 体积上限（A1-6）
-- checkpoint 损坏时从事件日志重建（A1-5）
-- worker 退出码分类（A1-7）
-- `StageAttempt` 子进程 + `session_id` 续接（A1-9）
-- Transactional outbox/effect queue（A1-10）
-- Run / Stage / Attempt 三层状态模型（A1-11）
-- 恢复提示 `resume_note`（A1-12）
+- **[G1a]** `EventEnvelope v1` + `<run>/events.jsonl`（append-only、fsync、链哈希）
+- **[G1b]** `GET /api/runs/{id}/events`（游标分页）
+- **[G1b]** `GET /api/runs/{id}/events/stream`（SSE，支持 `Last-Event-ID`）
+- **[G1b]** WS 首帧 `subscribe {run_id, after}`
+- **[G1b]** `arc supervisor` / `arc worker --run-id`
+- **[G1a]** `<run>/lease.json`（owner/pid/expires/fencing）
+- **[G0a/既有]** 原子 checkpoint（tmp + `os.replace` + `artifacts_digest`）——已存在，G1a 补 `artifacts_digest`
+- **[G1b]** 幂等键 `stage_id + inputs_digest`
+- **[G1a]** 事件日志滚动与单 run 体积上限（A1-6）
+- **[G1a]** checkpoint 损坏时从事件日志重建（A1-5）
+- **[G1b]** worker 退出码分类（A1-7）
+- **[G1b]** `StageAttempt` 子进程 + `session_id` 续接（A1-9）
+- **[G1b]** Transactional outbox/effect queue（A1-10）
+- **[G1b]** Run / Stage / Attempt 三层状态模型（A1-11）
+- **[G1b]** 恢复提示 `resume_note`（A1-12）
 
 **验收目标**
 
@@ -635,11 +644,11 @@ G0a → G-1 → G0b ─┬→ G1 ─┐
 | Q2 | Lean 是否作为安装前置 | G2 | **否，可选 Tier-3** | 待确认 |
 | Q3 | Spec "touch = migrate" 是否立即生效 | G0b | 新文档立即，存量入 grandfather | **已裁决（B 基线+棘轮，P-019/P-020，2026-11-10）** |
 | Q4 | Embedding 后端（OpenAI / sentence-transformers / TF-IDF） | G5 | 默认本地，缺失即降级并标记 | 待确认 |
-| Q5 | R1 后端：纯文件 + supervisor vs SQLite WAL | G1 | **先纯文件**，压测后再评估 | 待确认 |
+| Q5 | R1 后端：纯文件 + supervisor vs SQLite WAL | G1 | **先纯文件**，压测后再评估 | **已裁决（A 纯文件，P-026；依据 P-025 五步法）** |
 | Q6 | KG 扩词表 vs 外包外部 KG 服务 | G5 | 先扩词表（6→14），外包留接口 | 待确认 |
 | Q7 | Paper 首批范围（全部 2,487 还是子集） | G5 | 先 500 条高置信度做闭环 | 待确认 |
 | Q8 | 沙箱默认档（local / docker / 托管） | G4 | 开发 local，生产 docker | 待确认 |
-| Q9 | 事件保留期（30 天 / 永久） | G1/G7 | 30 天 + 归档摘要永久 | 待确认 |
+| Q9 | 事件保留期（30 天 / 永久） | G1/G7 | 30 天 + 归档摘要永久 | **已裁决（热30/归档365/摘要永久，P-026）** |
 | Q10 | MCP 协议版本对齐（SDK 2.x vs 2026-07-28 规范） | G4 | 开工前做兼容矩阵 | 待确认 |
 | **Q11** | G0a/G0b 的切分边界（4 道激活钩子是否足够） | G0a/G0b | 4 道足够（dc/step/console/rework）；G0b 再补 m7/repo/blackbox | **已实施确认（P-021）**：G0a 4 道、G0b 6 必需 + 3 守卫 |
 | **Q12** | G6 降为 P2 是否可接受（固定模型 vs 分层路由） | G6 | 可接受；先用预算上限 | 待确认 |
