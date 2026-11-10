@@ -12,6 +12,37 @@ from pathlib import Path
 TERMINAL_EVENTS = ("run.completed", "run.failed", "run.paused")
 DEFAULT_LIMIT = 500
 MAX_LIMIT = 2000
+MAX_STREAMS_PER_RUN = 5
+
+
+class ConnectionLimiter:
+    """Per-run cap on live streams (U-2, P-031). Pure and thread-safe."""
+
+    def __init__(self, limit: int = MAX_STREAMS_PER_RUN) -> None:
+        import threading
+        self.limit = limit
+        self._lock = threading.Lock()
+        self._active: dict[str, int] = {}
+
+    def acquire(self, key: str) -> bool:
+        with self._lock:
+            current = self._active.get(key, 0)
+            if current >= self.limit:
+                return False
+            self._active[key] = current + 1
+            return True
+
+    def release(self, key: str) -> None:
+        with self._lock:
+            current = self._active.get(key, 0)
+            if current <= 1:
+                self._active.pop(key, None)
+            else:
+                self._active[key] = current - 1
+
+    def active(self, key: str) -> int:
+        with self._lock:
+            return self._active.get(key, 0)
 
 
 def parse_cursor(last_event_id: str | None, after: int | None) -> int | None:

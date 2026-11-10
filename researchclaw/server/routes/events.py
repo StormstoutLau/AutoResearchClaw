@@ -13,13 +13,15 @@ from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisco
 from fastapi.responses import StreamingResponse
 
 from researchclaw.runtime.event_stream import (
-    gap_frame, heartbeat_frame, parse_cursor, read_page, sse_frame,
+    MAX_STREAMS_PER_RUN, ConnectionLimiter, gap_frame, heartbeat_frame,
+    parse_cursor, read_page, sse_frame,
 )
 
 router = APIRouter(prefix="/api", tags=["events"])
 
 HEARTBEAT_SECONDS = 15.0
 POLL_SECONDS = 1.0
+_limiter = ConnectionLimiter(MAX_STREAMS_PER_RUN)
 
 
 def _run_dir(run_id: str) -> Path:
@@ -44,31 +46,37 @@ async def list_events(run_id: str, after: int | None = None,
 async def stream_events(run_id: str, request: Request, after: int | None = None,
                         limit: int | None = None):
     cursor = parse_cursor(request.headers.get("Last-Event-ID"), after)
+    if not _limiter.acquire(run_id):
+        raise HTTPException(status_code=429,
+                            detail=f"too many event streams for run {run_id}")
 
     async def gen():
         nonlocal cursor
-        yield "retry: 3000\n\n"
-        idle = 0.0
-        while True:
-            if await request.is_disconnected():
-                return
-            page = read_page(_run_dir(run_id), run_id, after=cursor, limit=limit)
-            if page["gap"]:
-                yield gap_frame(page["oldest_seq"])
-                cursor = page["oldest_seq"] - 1
-                continue
-            for event in page["events"]:
-                yield sse_frame(event)
-            if page["events"]:
-                cursor = page["next_after"]
-                idle = 0.0
-            if page["terminal"]:
-                return
-            idle += POLL_SECONDS
-            if idle >= HEARTBEAT_SECONDS:
-                yield heartbeat_frame()
-                idle = 0.0
-            await asyncio.sleep(POLL_SECONDS)
+        try:
+            yield "retry: 3000\n\n"
+            idle = 0.0
+            while True:
+                if await request.is_disconnected():
+                    return
+                page = read_page(_run_dir(run_id), run_id, after=cursor, limit=limit)
+                if page["gap"]:
+                    yield gap_frame(page["oldest_seq"])
+                    cursor = page["oldest_seq"] - 1
+                    continue
+                for event in page["events"]:
+                    yield sse_frame(event)
+                if page["events"]:
+                    cursor = page["next_after"]
+                    idle = 0.0
+                if page["terminal"]:
+                    return
+                idle += POLL_SECONDS
+                if idle >= HEARTBEAT_SECONDS:
+                    yield heartbeat_frame()
+                    idle = 0.0
+                await asyncio.sleep(POLL_SECONDS)
+        finally:
+            _limiter.release(run_id)
 
     return StreamingResponse(gen(), media_type="text/event-stream")
 
@@ -76,6 +84,9 @@ async def stream_events(run_id: str, request: Request, after: int | None = None,
 @router.websocket("/runs/{run_id}/events/ws")
 async def ws_events(websocket: WebSocket, run_id: str) -> None:
     await websocket.accept()
+    if not _limiter.acquire(run_id):
+        await websocket.close(code=1013)      # try again later
+        return
     try:
         first = json.loads(await websocket.receive_text())
         if first.get("type") != "subscribe":
@@ -101,3 +112,5 @@ async def ws_events(websocket: WebSocket, run_id: str) -> None:
         return
     except Exception:  # noqa: BLE001 - malformed frame closes the socket
         await websocket.close(code=1008)
+    finally:
+        _limiter.release(run_id)

@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from researchclaw.runtime.exit_codes import RETRYABLE, is_retryable
-from researchclaw.runtime.lease import is_expired, read_lease, release
+from researchclaw.runtime.lease import is_expired, is_pid_alive, read_lease, release
 
 DEFAULT_MAX_RESTARTS = 5
 DEFAULT_MAX_WALL_SECONDS = 1800
@@ -85,13 +85,18 @@ class Supervisor:
         self.history.append(record)
 
     def _clear_stale_lease(self) -> None:
-        """Release only leases that are already expired (never a live worker)."""
+        """Release only leases whose worker is provably gone (U-3).
+
+        Expired ⇒ reclaim; unexpired but pid dead ⇒ reclaim; otherwise leave it
+        alone (a live worker may still own it).
+        """
         lease = read_lease(self.run_dir)
         if lease is None or lease.released:
             return
-        if is_expired(lease):
+        if is_expired(lease) or not is_pid_alive(lease.pid):
             release(self.run_dir, lease)
-            self._log({"event": "stale_lease_released", "fencing": lease.fencing})
+            self._log({"event": "stale_lease_released", "fencing": lease.fencing,
+                       "pid": lease.pid})
 
     def _run_once(self) -> int:
         proc = self._spawn(self.worker_cmd, cwd=str(self.run_dir.parent)

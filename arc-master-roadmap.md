@@ -1,14 +1,14 @@
 ---
 id: arc-master-roadmap
 type: design
-version: 1.0
+version: 1.2
 status: draft
 date: 2026-11-10
 depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-textbook, clawsgo-cleanroom-arc]
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.0）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.2）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -33,6 +33,10 @@ upstream: arb-v2-decisions
 > **修订**：v0.9（2026-11-10，P-021）**G0b 关闭**：治理脚本迁 `scripts/spec/` + 6 根兼容壳；`SPEC_PROCESS.md` 迁 `spec/` + 根指针；`spec/grandfather.yaml` 空清单（Q3 = B）；钩子扩为 6 必需 + 3 守卫；CI 增 `spec-gates`；A0-1..A0-6 全过（负向用例 11+3 例）。Q11 由实施确认。**106 计数不变**。依据：[P-021 实施](spec/arc-g0b-implementation/IMPLEMENTATION.md)。
 >
 > **修订**：v1.0（2026-11-10，P-026）**Q5/Q9 裁决 + G1 分期**：Q5 = **A（纯文件 + supervisor）**、Q9 = **A（热 30 天 / 归档 365 天 / 摘要永久）**，裁定依据改用 [P-025 五步非补偿程序](spec/arc-q5-decision-method/RESEARCH.md)（约束→支配→敏感点→可逆性→kill criteria），**不再引用 P-022 §3.4 加权总分**；G1 拆为 **G1a（事件内核 + 租约 + 保留，P-027）** 与 **G1b（supervisor / attempts / outbox / SSE）**，A1 项的归属见 §4 G1。**106 计数不变**。
+>
+> **修订**：v1.1（2026-11-10，P-027/P-029/P-031）**G1 收口**：A1 项 **11/12 完成**——G1a（A1-1/4/5/6 + Q9）与 G1b（A1-7/10/11/12 + A1-3 单测）已实施，A1-2 由 P-031 补齐；**A1-9 部分完成**（记录 `session_id`/`context_replayed`，backend 续接待 U-2）。遗留：U-1 真实 kill -9 集成、U-2 会话续接、U-3 SSE 前端联调。**106 计数不变**。依据：[P-027](spec/arc-g1a-event-core/IMPLEMENTATION.md)、[P-029](spec/arc-g1b-implementation/IMPLEMENTATION.md)、[P-031](spec/arc-g1c-event-protocol/IMPLEMENTATION.md)。
+>
+> **修订**：v1.2（2026-11-10，P-033）**G1 遗留收口**：真实子进程重启测试、Windows 安全探活（`os.kill(pid,0)` 会 TerminateProcess → 改 OpenProcess/GetExitCodeProcess）、会话续接白名单（当前无 backend → `context_replayed=true`）、SSE/WS 并发上限、atexit 释放租约。仅剩：**A1-9 的 backend 会话续接能力**与 **P-031 前端 EventSource 联调**（消费方）。**106 计数不变**。依据：[P-033 实施](spec/arc-g1-closeout/IMPLEMENTATION.md)。
 
 ---
 
@@ -128,7 +132,7 @@ flowchart LR
 | **G0a** | 最小治理引导 | **P0-急救** | 无 | R-03 §4 | 4 道激活钩子生效，急救改动可追溯 |
 | **G-1** | 可信性与安全急救 | **P0-急救** | G0a | 本次调研 | 不产出假结果；密钥不进子进程；路径不可逃逸 |
 | **G0b** | 完整治理基座 | P0 | G-1 | R-03 §4 | 6 必需钩子 + 3 守卫 + CI 全绿（已完成） |
-| **G1** | 运行时可恢复（事件 + 续跑） | P0 | G-1,G0b | R-05 R0/R1 | kill -9 后自动续跑，事件无缺口 |
+| **G1** | 运行时可恢复（事件 + 续跑） | P0 | G-1,G0b | R-05 R0/R1 | kill -9 后自动续跑，事件无缺口（已完成；A1-9 待 backend 会话续接） |
 | **G2** | 学术证据内核（ClaimRecord + AR） | P0 | G-1,G0b | R-03 §1–§3 | 8 条规则可机械判红，判定内核 3.11 可跑 |
 | **G3** | 生产脊柱 + 证据血缘 + 循环护栏 | **P0**（升级） | G1,G2 | R-03 M4 + 本次 AN/FC | 一条 claim 端到端可追溯；循环可停 |
 | **G4** | 工具注册表与沙箱边界 | P1 | G3 | R-05 R2 | 四类逃逸全拒，工具调用可审计 |
@@ -227,7 +231,7 @@ flowchart LR
 
 ---
 
-### G1｜运行时可恢复（P0，前置：G-1、G0b）——**进行中（G1a = P-027）**
+### G1｜运行时可恢复（P0，前置：G-1、G0b）——**已完成（G1a=P-027 / G1b=P-029 / A1-2=P-031 / 遗留收口=P-033）（11/12，A1-9 待 backend 能力）**
 
 **目标**：把"仪表盘广播"升级为"可回放控制面"，把"手动续跑"升级为"无人值守自愈"。
 

@@ -222,6 +222,46 @@ def check_fencing(lease: Lease, seen_max: int) -> bool:
     return lease.fencing >= seen_max
 
 
+def is_pid_alive(pid: int) -> bool:
+    """Best-effort liveness check used to reclaim leases from dead workers.
+
+    Windows note: ``os.kill(pid, 0)`` is **not** a probe there — it calls
+    TerminateProcess. Use OpenProcess + GetExitCodeProcess instead.
+    """
+    if not pid or pid <= 0:
+        return False
+    if pid == os.getpid():
+        return True
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            STILL_ACTIVE = 259
+            handle = ctypes.windll.kernel32.OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not handle:
+                return False
+            try:
+                code = ctypes.c_ulong()
+                ok = ctypes.windll.kernel32.GetExitCodeProcess(
+                    handle, ctypes.byref(code))
+                return bool(ok) and code.value == STILL_ACTIVE
+            finally:
+                ctypes.windll.kernel32.CloseHandle(handle)
+        except Exception:  # noqa: BLE001 - never steal a live lease on doubt
+            return True
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True          # exists but owned by somebody else
+    except (OSError, AttributeError):
+        return True          # cannot tell → assume alive
+
+
 class LeaseKeeper:
     """Background renewal thread (P-030 R-3).
 

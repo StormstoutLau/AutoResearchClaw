@@ -15,6 +15,15 @@ from pathlib import Path
 
 MAX_NOTE_CHARS = 500
 
+#: 已知支持「会话续接」的 backend（U-2）。当前 CLI 代理均未暴露 resume 语义，
+#: 因此新 attempt 一律标记 ``context_replayed=True``；将来接入时在此登记即可。
+SESSION_RESUME_BACKENDS: frozenset[str] = frozenset()
+
+
+def session_resume_supported(backend: str | None) -> bool:
+    """Whether a retry may continue the prior provider session (A1-9 / U-2)."""
+    return (backend or "").strip().lower() in SESSION_RESUME_BACKENDS
+
 
 @dataclass(frozen=True)
 class AttemptRecord:

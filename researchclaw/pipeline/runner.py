@@ -179,7 +179,21 @@ def _runtime_begin(run_dir: Path, run_id: str, payload: dict) -> tuple[object, o
     except Exception:  # noqa: BLE001 - keeper is a safety net; log and continue
         logger.warning("lease keeper failed to start", exc_info=True)
     log.append("run.started", payload)
+    # U-1（P-027）：未捕获异常时也要释放租约，避免残留到 TTL。
+    try:
+        import atexit
+        atexit.register(_atexit_release, run_dir, lease)
+    except Exception:  # noqa: BLE001
+        pass
     return log, lease, True
+
+
+def _atexit_release(run_dir, lease) -> None:
+    try:
+        from researchclaw.runtime.lease import release
+        release(run_dir, lease)
+    except Exception:  # noqa: BLE001 - shutdown path must never raise
+        pass
 
 
 def _runtime_end(log, lease, owns: bool, status: str, payload: dict) -> None:
@@ -207,7 +221,7 @@ def _record_attempt(run_dir: Path, stage: Stage, result, started_at: str) -> Non
     try:
         from researchclaw.runtime.attempt import (
             AttemptRecord, build_resume_note, list_artifacts,
-            next_attempt_number, write_attempt,
+            next_attempt_number, session_resume_supported, write_attempt,
         )
         from researchclaw.runtime.exit_codes import classify_results, class_name
     except Exception:  # noqa: BLE001
@@ -218,6 +232,8 @@ def _record_attempt(run_dir: Path, stage: Stage, result, started_at: str) -> Non
         done = result.status == StageStatus.DONE
         artifacts = list_artifacts(run_dir / ("stage-%02d" % stage_num))
         code = classify_results([result])
+        # U-2：backend 未暴露会话续接时显式标记“上下文已重放”，不静默假装续接。
+        resume_ok = session_resume_supported(None)
         note = "" if done else build_resume_note(
             stage=stage_num, stage_name=stage.name, attempt=attempt,
             last_error=result.error, artifacts=artifacts, exit_code=code)
@@ -225,7 +241,7 @@ def _record_attempt(run_dir: Path, stage: Stage, result, started_at: str) -> Non
             stage=stage_num, stage_name=stage.name, attempt=attempt,
             started_at=started_at, ended_at=_utcnow_iso(),
             exit_class=class_name(code), exit_code=code,
-            session_id=None, context_replayed=True,
+            session_id=None, context_replayed=not resume_ok,
             resume_note=note, artifacts=artifacts,
         ))
     except Exception:  # noqa: BLE001 - records are diagnostic, never fatal
