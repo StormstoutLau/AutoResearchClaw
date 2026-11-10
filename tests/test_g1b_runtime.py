@@ -2,14 +2,24 @@
 from __future__ import annotations
 
 import json
+import uuid
 from types import SimpleNamespace
 
+from researchclaw.experiment.code_agent import ClaudeCodeAgent, create_code_agent
 from researchclaw.runtime import attempt, exit_codes, outbox
 from researchclaw.runtime.event_log import EventLog
 
 
 def _res(status, error=None):
     return SimpleNamespace(status=SimpleNamespace(value=status), error=error)
+
+
+def _fake_config(provider: str = "claude_code") -> SimpleNamespace:
+    agent_cfg = SimpleNamespace(
+        provider=provider, binary_path="claude", model="",
+        max_budget_usd=1.0, timeout_sec=60, extra_args=[], env_extra=[],
+    )
+    return SimpleNamespace(experiment=SimpleNamespace(cli_agent=agent_cfg))
 
 
 # ---------------------------------------------------------------- exit codes
@@ -134,3 +144,104 @@ def test_outbox_survives_missing_log(tmp_path):
             raise OSError("gone")
 
     assert outbox.pending(Broken()) == []
+
+
+# ---------------------------------------------------------------- A1-9 session
+
+def test_stage_session_id_is_a_stable_uuid(tmp_path):
+    sid = attempt.stage_session_id(tmp_path, 10)
+    assert sid == attempt.stage_session_id(tmp_path, 10)
+    assert sid != attempt.stage_session_id(tmp_path, 13)
+    uuid.UUID(sid)  # --session-id 只接受合法 UUID
+
+
+def test_session_telemetry_ignores_stale_stage_log(tmp_path):
+    stage = tmp_path / "stage-10"
+    stage.mkdir()
+    (stage / "cli_agent_log.json").write_text(json.dumps({
+        "generated": "2026-11-11T10:00:00+00:00",
+        "session": {"id": "sid-10", "resumed": True},
+    }), encoding="utf-8")
+    assert attempt.read_session_telemetry(stage) == ("sid-10", True)
+    # 上一次 attempt 的日志不能冒充本次记录
+    assert attempt.read_session_telemetry(
+        stage, since="2026-11-11T10:00:01+00:00") == (None, False)
+
+    (stage / "refinement_log.json").write_text(json.dumps({
+        "generated": "2026-11-11T10:00:05+00:00",
+        "cli_agent": {"session": {"id": "sid-13", "resumed": False}},
+    }), encoding="utf-8")
+    assert attempt.read_session_telemetry(
+        stage, since="2026-11-11T10:00:01+00:00") == ("sid-13", False)
+
+
+def test_claude_cmd_pins_then_resumes_session(tmp_path):
+    first = ClaudeCodeAgent("claude", session_id="sid-1")
+    cmd = first._build_cmd(tmp_path)
+    assert cmd[cmd.index("--session-id") + 1] == "sid-1"
+    assert "--resume" not in cmd
+
+    retry = ClaudeCodeAgent("claude", session_id="sid-1", resume_session=True)
+    cmd = retry._build_cmd(tmp_path)
+    assert cmd[cmd.index("--resume") + 1] == "sid-1"
+    assert "--session-id" not in cmd
+
+
+def test_factory_pins_first_attempt_and_resumes_the_second(tmp_path):
+    cfg = _fake_config()
+    first = create_code_agent(cfg, session_ctx=(tmp_path, 10))
+    assert first._session_id == attempt.stage_session_id(tmp_path, 10)
+    assert first._resume_session is False
+
+    attempt.write_attempt(tmp_path, attempt.AttemptRecord(
+        stage=10, stage_name="CODE_GENERATION", attempt=1,
+        started_at="t0", ended_at="t1", exit_class="retryable", exit_code=75))
+    second = create_code_agent(cfg, session_ctx=(tmp_path, 10))
+    assert second._session_id == first._session_id
+    assert second._resume_session is True
+
+    # 未登记续接的 backend 不拿到会话
+    codex = create_code_agent(_fake_config("codex"), session_ctx=(tmp_path, 10))
+    assert codex._session_id is None and codex._resume_session is False
+
+
+def test_missing_session_falls_back_to_a_fresh_one(tmp_path):
+    agent = ClaudeCodeAgent("claude", session_id="sid-x", resume_session=True)
+    seen: list[list[str]] = []
+
+    def fake_run(cmd, workdir, timeout, stdin_text=None):
+        seen.append(list(cmd))
+        if "--resume" in cmd:
+            return 1, "", "No conversation found with session ID: sid-x", 0.1, False
+        return 0, "ok", "", 0.2, False
+
+    agent._run_subprocess = fake_run  # type: ignore[method-assign]
+    rc, _out, _err, elapsed, timed_out = agent._invoke("prompt", tmp_path, 30)
+
+    assert (rc, timed_out) == (0, False)
+    assert abs(elapsed - 0.3) < 1e-9
+    assert len(seen) == 2
+    assert "--resume" in seen[0] and "--session-id" in seen[1]
+    assert agent.last_session == {
+        "id": "sid-x", "resumed": False, "resume_requested": True,
+    }
+
+
+def test_attempt_record_persists_the_real_provider_session(tmp_path):
+    from researchclaw.pipeline import runner
+    from researchclaw.pipeline.stages import Stage
+
+    stage_dir = tmp_path / "stage-10"
+    stage_dir.mkdir()
+    (stage_dir / "cli_agent_log.json").write_text(json.dumps({
+        "generated": "2026-11-11T10:00:02+00:00",
+        "session": {"id": "sid-run", "resumed": True},
+    }), encoding="utf-8")
+
+    result = _res("done")
+    runner._record_attempt(
+        tmp_path, Stage.CODE_GENERATION, result, "2026-11-11T10:00:00+00:00")
+
+    rec = attempt.read_attempt(tmp_path, 10, 1)
+    assert rec["session_id"] == "sid-run"
+    assert rec["context_replayed"] is False

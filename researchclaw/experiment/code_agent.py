@@ -45,6 +45,9 @@ class CodeAgentResult:
     elapsed_sec: float
     raw_output: str = ""
     error: str | None = None
+    #: A1-9：本次调用实际使用的 provider 会话（``id`` / ``resumed``），
+    #: 无会话能力时为 None。
+    session_info: dict[str, Any] | None = None
 
     @property
     def ok(self) -> bool:
@@ -396,6 +399,8 @@ class _CliAgentBase:
         timeout_sec: int = 600,
         extra_args: list[str] | None = None,
         env_extra: list[tuple[str, str]] | None = None,
+        session_id: str | None = None,
+        resume_session: bool = False,
     ) -> None:
         self._binary = binary_path
         self._model = model
@@ -403,6 +408,10 @@ class _CliAgentBase:
         self._default_timeout = timeout_sec
         self._extra_args = extra_args or []
         self._env_extra = dict(env_extra or [])
+        # A1-9：同一 (run, stage) 首跑固定 session id，重试 --resume 续接。
+        self._session_id = session_id
+        self._resume_session = bool(resume_session)
+        self.last_session: dict[str, Any] | None = None
 
     @property
     def name(self) -> str:
@@ -504,6 +513,7 @@ class _CliAgentBase:
             elapsed_sec=elapsed,
             raw_output=stdout[:3000],
             error=error,
+            session_info=self.last_session,
         )
 
     @staticmethod
@@ -614,8 +624,59 @@ class ClaudeCodeAgent(_CliAgentBase):
             cmd += ["--model", self._model]
         if self._max_budget_usd:
             cmd += ["--max-budget-usd", str(self._max_budget_usd)]
+        # A1-9：首跑固定会话 id，重试续接同一会话（不重放全部上下文）。
+        if self._session_id:
+            if self._resume_session:
+                cmd += ["--resume", self._session_id]
+            else:
+                cmd += ["--session-id", self._session_id]
         cmd.extend(self._extra_args)
         return cmd
+
+    #: 会话不存在时 CLI 的报错（本地实测：exit 1 + 该行 stderr）。
+    _SESSION_MISSING_MARKERS = ("no conversation found with session id",)
+
+    def _invoke(
+        self, prompt: str, workdir: Path, timeout_sec: int,
+    ) -> tuple[int, str, str, float, bool]:
+        """Run one invocation, degrading loudly when --resume has no session.
+
+        P-035 §6.3 的陷阱是「会话过期后静默从零开始」。实测该 CLI 在会话
+        不存在时 **hard fail**（exit 1），因此这里先续接、失败则显式新建会话
+        并在 ``last_session.resumed`` 记 False——attempt 记录不会假装续接。
+        """
+        resume_requested = bool(self._session_id and self._resume_session)
+        rc, out, err, elapsed, timed_out = self._run_subprocess(
+            self._build_cmd(workdir), workdir, timeout_sec, stdin_text=prompt,
+        )
+        resumed = resume_requested
+        if (
+            resume_requested
+            and not timed_out
+            and rc != 0
+            and any(m in err.lower() for m in self._SESSION_MISSING_MARKERS)
+        ):
+            logger.warning(
+                "Claude session %s not found; starting a new session "
+                "(context will be replayed)", self._session_id,
+            )
+            self._resume_session = False
+            try:
+                rc, out, err, extra_elapsed, timed_out = self._run_subprocess(
+                    self._build_cmd(workdir), workdir, timeout_sec,
+                    stdin_text=prompt,
+                )
+            finally:
+                self._resume_session = True
+            elapsed += extra_elapsed
+            resumed = False
+        if self._session_id:
+            self.last_session = {
+                "id": self._session_id,
+                "resumed": resumed,
+                "resume_requested": resume_requested,
+            }
+        return rc, out, err, elapsed, timed_out
 
     def generate(
         self,
@@ -632,10 +693,8 @@ class ClaudeCodeAgent(_CliAgentBase):
         prompt = self._generate_prompt(
             topic, exp_plan, metric_key, pkg_hint, compute_budget, extra_guidance,
         )
-        cmd = self._build_cmd(workdir)
-        rc, stdout, stderr, elapsed, to = self._run_subprocess(
-            cmd, workdir, timeout_sec or self._default_timeout,
-            stdin_text=prompt,
+        rc, stdout, stderr, elapsed, to = self._invoke(
+            prompt, workdir, timeout_sec or self._default_timeout,
         )
         return self._build_result(workdir, rc, stdout, stderr, elapsed, to)
 
@@ -656,10 +715,8 @@ class ClaudeCodeAgent(_CliAgentBase):
             current_files, run_summaries, metric_key, metric_direction,
             topic, extra_hints,
         )
-        cmd = self._build_cmd(workdir)
-        rc, stdout, stderr, elapsed, to = self._run_subprocess(
-            cmd, workdir, timeout_sec or self._default_timeout,
-            stdin_text=prompt,
+        rc, stdout, stderr, elapsed, to = self._invoke(
+            prompt, workdir, timeout_sec or self._default_timeout,
         )
         return self._build_result(workdir, rc, stdout, stderr, elapsed, to)
 
@@ -673,10 +730,8 @@ class ClaudeCodeAgent(_CliAgentBase):
     ) -> CodeAgentResult:
         _seed_workdir(workdir, files)
         prompt = self._repair_prompt(files, issues)
-        cmd = self._build_cmd(workdir)
-        rc, stdout, stderr, elapsed, to = self._run_subprocess(
-            cmd, workdir, timeout_sec or self._default_timeout,
-            stdin_text=prompt,
+        rc, stdout, stderr, elapsed, to = self._invoke(
+            prompt, workdir, timeout_sec or self._default_timeout,
         )
         return self._build_result(workdir, rc, stdout, stderr, elapsed, to)
 
@@ -777,8 +832,15 @@ def create_code_agent(
     config: RCConfig,
     llm: Any | None = None,
     prompts: Any | None = None,
+    *,
+    session_ctx: tuple[Path, int] | None = None,
 ) -> CodeAgentProvider:
-    """Create the appropriate code agent based on config.experiment.cli_agent."""
+    """Create the appropriate code agent based on config.experiment.cli_agent.
+
+    ``session_ctx=(run_dir, stage)`` enables A1-9 session continuation for
+    backends in ``SESSION_RESUME_BACKENDS``: the first attempt pins a
+    deterministic ``--session-id``, later attempts ``--resume`` it.
+    """
     agent_cfg = config.experiment.cli_agent
     provider = agent_cfg.provider
 
@@ -788,6 +850,18 @@ def create_code_agent(
         from researchclaw.prompts import PromptManager
 
         return LlmCodeAgent(llm, prompts or PromptManager(), config)  # type: ignore[return-value]
+
+    session_id: str | None = None
+    resume_session = False
+    if session_ctx is not None:
+        from researchclaw.runtime.attempt import (
+            next_attempt_number, session_resume_supported, stage_session_id,
+        )
+
+        run_dir, stage = session_ctx
+        if session_resume_supported(provider):
+            session_id = stage_session_id(run_dir, stage)
+            resume_session = next_attempt_number(run_dir, stage) > 1
 
     if provider == "claude_code":
         binary = agent_cfg.binary_path or shutil.which("claude")
@@ -803,6 +877,8 @@ def create_code_agent(
             timeout_sec=agent_cfg.timeout_sec,
             extra_args=list(agent_cfg.extra_args),
             env_extra=list(agent_cfg.env_extra),
+            session_id=session_id,
+            resume_session=resume_session,
         )
 
     if provider == "codex":

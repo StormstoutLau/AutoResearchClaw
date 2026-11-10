@@ -9,20 +9,80 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
 MAX_NOTE_CHARS = 500
 
-#: 已知支持「会话续接」的 backend（U-2）。当前 CLI 代理均未暴露 resume 语义，
-#: 因此新 attempt 一律标记 ``context_replayed=True``；将来接入时在此登记即可。
-SESSION_RESUME_BACKENDS: frozenset[str] = frozenset()
+#: 已知支持「会话续接」的 backend。
+#: 本批实测：主控站 / A 站 NEX / B 站 GTR-Pro 三端的 claude CLI 均通过
+#: `--session-id` + `--resume` 验证（同一会话文件行数增长且语义回忆正确）。
+#: C 站 seaviv 未测（按用户要求不动）。
+SESSION_RESUME_BACKENDS: frozenset[str] = frozenset({"claude_code"})
+
+_SESSION_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "https://researchclaw/session/v1")
 
 
 def session_resume_supported(backend: str | None) -> bool:
     """Whether a retry may continue the prior provider session (A1-9 / U-2)."""
     return (backend or "").strip().lower() in SESSION_RESUME_BACKENDS
+
+
+def session_scope(run_dir: str | Path) -> str:
+    """Canonical run identity for provider sessions.
+
+    The CLI session store is machine-local (P-035 §3), so the run directory —
+    not ``run_id`` — is the identity both the stage implementation and the
+    attempt recorder can agree on. A run copied to another path starts a new
+    session instead of silently resuming a foreign conversation.
+    """
+    return str(Path(run_dir).resolve())
+
+
+def stage_session_id(run_dir: str | Path, stage: int) -> str:
+    """Deterministic per-(run, stage) session id, stable across attempts."""
+    return str(uuid.uuid5(_SESSION_NAMESPACE,
+                          "%s:%d" % (session_scope(run_dir), int(stage))))
+
+
+def read_session_telemetry(
+    stage_dir: str | Path, since: str | None = None,
+) -> tuple[str | None, bool]:
+    """Read ``(session_id, resumed)`` from the stage's own CLI agent log.
+
+    Stage 10 writes ``cli_agent_log.json``; Stage 13 writes
+    ``refinement_log.json["cli_agent"]``. ``since`` (ISO-8601) rejects a log
+    left over from an earlier attempt, so an attempt never claims to have
+    resumed a session it did not use.
+    """
+    d = Path(stage_dir)
+    candidates = (
+        ("cli_agent_log.json", ("session",)),
+        ("refinement_log.json", ("cli_agent", "session")),
+    )
+    for name, path in candidates:
+        p = d / name
+        if not p.is_file():
+            continue
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        if since and str(data.get("generated") or "") < since:
+            continue
+        for key in path:
+            data = data.get(key) if isinstance(data, dict) else None
+            if not isinstance(data, dict):
+                break
+        if not isinstance(data, dict):
+            continue
+        sid = data.get("id")
+        return (str(sid) if sid else None), bool(data.get("resumed"))
+    return None, False
 
 
 @dataclass(frozen=True)

@@ -368,6 +368,7 @@ def _try_cli_code_agent(
     prompts: Any | None,
     *,
     stage_dir: Path,
+    run_dir: Path,
     topic: str,
     exp_plan: str,
     metric: str,
@@ -394,6 +395,9 @@ def _try_cli_code_agent(
         "files": [],
         "elapsed_sec": 0.0,
         "error": None,
+        "generated": _utcnow_iso(),
+        # A1-9：回填本次实际使用的 provider 会话（id / resumed）。
+        "session": None,
     }
 
     def _write_log() -> None:
@@ -402,7 +406,10 @@ def _try_cli_code_agent(
         )
 
     try:
-        agent = create_code_agent(config, llm=llm, prompts=prompts)
+        agent = create_code_agent(
+            config, llm=llm, prompts=prompts,
+            session_ctx=(run_dir, int(Stage.CODE_GENERATION)),
+        )
         result = agent.generate(
             exp_plan=exp_plan,
             topic=topic,
@@ -430,6 +437,7 @@ def _try_cli_code_agent(
             "elapsed_sec": round(result.elapsed_sec, 2),
             "error": result.error,
             "raw_output_tail": (result.raw_output or "")[-1000:],
+            "session": getattr(result, "session_info", None),
         }
     )
     _write_log()
@@ -738,6 +746,7 @@ def _execute_code_generation(
         llm,
         prompts,
         stage_dir=stage_dir,
+        run_dir=run_dir,
         topic=config.research.topic,
         exp_plan=exp_plan,
         metric=metric,

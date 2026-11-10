@@ -73,6 +73,7 @@ class TestStage10Helper:
             llm,
             None,
             stage_dir=tmp_path,
+            run_dir=tmp_path,
             topic="t",
             exp_plan="p",
             metric="accuracy",
@@ -139,7 +140,8 @@ class TestStage13Helpers:
             workdir=tmp_path,
             timeout_sec=30,
         )
-        assert files == {"main.py": "print(2)"}
+        assert files is not None
+        assert files.files == {"main.py": "print(2)"}
 
     def test_refine_helper_falls_back(self, tmp_path):
         from researchclaw.pipeline.stage_impls._execution import _try_agent_refine
@@ -173,7 +175,8 @@ class TestStage13Helpers:
             workdir=tmp_path,
             timeout_sec=30,
         )
-        assert files == {"main.py": "print(3)"}
+        assert files is not None
+        assert files.files == {"main.py": "print(3)"}
 
     def test_repair_helper_returns_none_without_agent(self, tmp_path):
         from researchclaw.pipeline.stage_impls._execution import _try_agent_repair

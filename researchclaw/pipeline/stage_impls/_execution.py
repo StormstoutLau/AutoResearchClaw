@@ -816,8 +816,12 @@ def _try_agent_refine(
     extra_hints: str,
     workdir: Path,
     timeout_sec: int,
-) -> dict[str, str] | None:
-    """Use the configured CLI agent for Stage 13 refinement, if available."""
+) -> Any | None:
+    """Use the configured CLI agent for Stage 13 refinement, if available.
+
+    Returns the full ``CodeAgentResult`` (not just files) so the caller can
+    record the provider session used by this attempt (A1-9).
+    """
     if agent is None:
         return None
     try:
@@ -840,7 +844,7 @@ def _try_agent_refine(
             result.error or "empty files",
         )
         return None
-    return dict(result.files)
+    return result
 
 
 def _try_agent_repair(
@@ -850,7 +854,7 @@ def _try_agent_repair(
     issues: str,
     workdir: Path,
     timeout_sec: int,
-) -> dict[str, str] | None:
+) -> Any | None:
     """Use the configured CLI agent to repair Stage 13 files, if available."""
     if agent is None:
         return None
@@ -870,7 +874,7 @@ def _try_agent_repair(
             result.error or "empty files",
         )
         return None
-    return dict(result.files)
+    return result
 
 
 def _execute_iterative_refine(
@@ -1336,7 +1340,10 @@ def _execute_iterative_refine(
         try:
             from researchclaw.experiment.code_agent import create_code_agent
 
-            _refine_agent = create_code_agent(config, llm=llm, prompts=_pm)
+            _refine_agent = create_code_agent(
+                config, llm=llm, prompts=_pm,
+                session_ctx=(run_dir, int(Stage.ITERATIVE_REFINE)),
+            )
         except Exception as exc:  # noqa: BLE001 - fall back to LLM refinement
             logger.warning(
                 "Stage 13: CLI code agent unavailable (%s); using LLM refinement",
@@ -1348,6 +1355,8 @@ def _execute_iterative_refine(
         "boundary": "repair_and_tune",
         "refine_calls": 0,
         "repair_calls": 0,
+        # A1-9：最近一次 CLI 调用实际使用的 provider 会话（id / resumed）。
+        "session": None,
     }
     _agent_timeout = int(
         getattr(_agent_cfg, "timeout_sec", 600) or 600
@@ -1469,7 +1478,7 @@ def _execute_iterative_refine(
             )
 
         extracted_files: dict[str, str] = {}
-        _agent_files = _try_agent_refine(
+        _agent_refine = _try_agent_refine(
             _refine_agent,
             current_files=best_files,
             run_summaries=run_summaries,
@@ -1487,9 +1496,10 @@ def _execute_iterative_refine(
             workdir=stage_dir / f"agent_refine_v{iteration}",
             timeout_sec=_agent_timeout,
         )
-        if _agent_files is not None:
+        if _agent_refine is not None:
             log["cli_agent"]["refine_calls"] += 1
-            extracted_files = _agent_files
+            log["cli_agent"]["session"] = getattr(_agent_refine, "session_info", None)
+            extracted_files = dict(_agent_refine.files)
         else:
             try:
                 response = _chat_with_prompt(
@@ -1568,9 +1578,10 @@ def _execute_iterative_refine(
                 workdir=stage_dir / f"agent_repair_v{iteration}",
                 timeout_sec=_agent_timeout,
             )
-            if _agent_repaired:
+            if _agent_repaired is not None:
                 log["cli_agent"]["repair_calls"] += 1
-                candidate_files.update(_agent_repaired)
+                log["cli_agent"]["session"] = getattr(_agent_repaired, "session_info", None)
+                candidate_files.update(_agent_repaired.files)
                 validation = validate_code(candidate_files.get("main.py", ""))
                 repaired = True
             else:
@@ -1707,9 +1718,11 @@ def _execute_iterative_refine(
                     workdir=stage_dir / f"agent_runtime_repair_v{iteration}",
                     timeout_sec=_agent_timeout,
                 )
-                if _agent_runtime_fix:
+                if _agent_runtime_fix is not None:
                     log["cli_agent"]["repair_calls"] += 1
-                    repaired_files = dict(_agent_runtime_fix)
+                    log["cli_agent"]["session"] = getattr(
+                        _agent_runtime_fix, "session_info", None)
+                    repaired_files = dict(_agent_runtime_fix.files)
                 else:
                     rrp = _pm.sub_prompt(
                         "iterative_repair",

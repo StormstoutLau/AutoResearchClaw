@@ -37,9 +37,10 @@ def _page(run_id: str, after: int | None, limit: int | None) -> dict:
 
 
 @router.get("/runs/{run_id}/events")
-async def list_events(run_id: str, after: int | None = None,
+async def list_events(run_id: str, request: Request, after: int | None = None,
                       limit: int | None = None) -> dict:
-    return _page(run_id, after, limit)
+    cursor = parse_cursor(request.headers.get("Last-Event-ID"), after)
+    return _page(run_id, cursor, limit)
 
 
 @router.get("/runs/{run_id}/events/stream")

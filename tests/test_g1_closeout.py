@@ -48,11 +48,12 @@ def test_is_pid_alive_current_and_bogus():
     assert lease.is_pid_alive(2 ** 22 + 12345) is False
 
 
-def test_session_resume_is_explicitly_unsupported():
-    """U-2（P-029）：当前没有 backend 暴露会话续接，必须显式降级。"""
+def test_session_resume_backend_whitelist():
+    """P-037：claude_code 已实测支持续接；未登记的 backend 必须显式降级。"""
+    assert attempt.session_resume_supported("claude_code") is True
     assert attempt.session_resume_supported(None) is False
     assert attempt.session_resume_supported("acp") is False
-    assert attempt.session_resume_supported("claude_cli") is False
+    assert attempt.session_resume_supported("codex") is False
 
 
 def test_connection_limiter_enforces_cap():

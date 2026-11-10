@@ -60,3 +60,21 @@ def test_missing_event_log_is_404(tmp_path, monkeypatch):
     app.include_router(ev.router)
     assert TestClient(app).get(
         "/api/runs/%s/events" % RUN_ID).status_code == 404
+
+
+def test_gap_is_reported_over_http(tmp_path, monkeypatch):
+    """A1-2 负向（HTTP 层）：游标早于保留窗口时必须显式报缺口。"""
+    log = EventLog(tmp_path, RUN_ID)
+    for i in range(3):
+        log.append("stage.started", {"i": i})
+    path = tmp_path / "events.jsonl"
+    path.write_text("\n".join(path.read_text(encoding="utf-8").splitlines()[1:]) + "\n",
+                    encoding="utf-8")
+    monkeypatch.setattr(ev, "_run_dir", lambda run_id: tmp_path)
+    app = FastAPI()
+    app.include_router(ev.router)
+    body = TestClient(app).get("/api/runs/%s/events" % RUN_ID,
+                               params={"after": 0}).json()
+    assert body["gap"] is True
+    assert body["oldest_seq"] == 2
+    assert [e["seq"] for e in body["events"]] == [2, 3]

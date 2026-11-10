@@ -221,7 +221,7 @@ def _record_attempt(run_dir: Path, stage: Stage, result, started_at: str) -> Non
     try:
         from researchclaw.runtime.attempt import (
             AttemptRecord, build_resume_note, list_artifacts,
-            next_attempt_number, session_resume_supported, write_attempt,
+            next_attempt_number, read_session_telemetry, write_attempt,
         )
         from researchclaw.runtime.exit_codes import classify_results, class_name
     except Exception:  # noqa: BLE001
@@ -232,8 +232,9 @@ def _record_attempt(run_dir: Path, stage: Stage, result, started_at: str) -> Non
         done = result.status == StageStatus.DONE
         artifacts = list_artifacts(run_dir / ("stage-%02d" % stage_num))
         code = classify_results([result])
-        # U-2：backend 未暴露会话续接时显式标记“上下文已重放”，不静默假装续接。
-        resume_ok = session_resume_supported(None)
+        # A1-9：会话真值取自本次 stage 自己写下的 CLI 日志，而不是策略推断。
+        session_id, resumed = read_session_telemetry(
+            run_dir / ("stage-%02d" % stage_num), since=started_at)
         note = "" if done else build_resume_note(
             stage=stage_num, stage_name=stage.name, attempt=attempt,
             last_error=result.error, artifacts=artifacts, exit_code=code)
@@ -241,7 +242,7 @@ def _record_attempt(run_dir: Path, stage: Stage, result, started_at: str) -> Non
             stage=stage_num, stage_name=stage.name, attempt=attempt,
             started_at=started_at, ended_at=_utcnow_iso(),
             exit_class=class_name(code), exit_code=code,
-            session_id=None, context_replayed=not resume_ok,
+            session_id=session_id, context_replayed=not resumed,
             resume_note=note, artifacts=artifacts,
         ))
     except Exception:  # noqa: BLE001 - records are diagnostic, never fatal
