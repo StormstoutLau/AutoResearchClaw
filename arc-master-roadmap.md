@@ -1,14 +1,14 @@
 ---
 id: arc-master-roadmap
 type: design
-version: 0.6
+version: 0.7
 status: draft
 date: 2026-11-10
 depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-textbook, clawsgo-cleanroom-arc]
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v0.5）
+# ARC 统一学术推理基座：调研总纲与实施路线（v0.7）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -25,6 +25,8 @@ upstream: arb-v2-decisions
 > **修订**：v0.5（2026-11-08，P-006）Q18/Q19/Q20 裁决 + H-1..H-8 落地：vendor/语料 L1 清单、API 回环默认 + 非回环强制 token、预算分层账本；H-1..H-8 代码与 8 个 pytest 文件已合入。依据：[G-1 开工前补充调研](docs/arc-g1-readiness-research-20261108.md)。
 >
 > **修订**：v0.6（2026-11-10，P-016）状态同步：G-1 标记完成、G0b 标记未就绪、Q17 裁决、P-011..P-015 依据挂载、G3 回退/传播候选增量；**106 计数不变**。依据：[P-016 实施记录](spec/arc-roadmap-v06/IMPLEMENTATION.md)。
+>
+> **修订**：v0.7（2026-11-10，P-018）纳入 G0b 调研结论：G0b 标“调研完成、实施未开始”；A0-1 明确六必需 + 两额外；Q3/Q11 写入 P-017 建议；§11 增 P-017 依据；**106 计数不变**。依据：[P-017 调研](spec/arc-g0b-governance-base/RESEARCH.md)。
 
 ---
 
@@ -186,34 +188,36 @@ flowchart LR
 
 ---
 
-### G0b｜完整治理基座（P0，前置：G-1）——**未就绪**
+### G0b｜完整治理基座（P0，前置：G-1）——**未就绪（调研完成，待实施）**
 
-> **状态（2026-11-10）**：G-1 前置已满足，但 G0b 自身交付物未齐——缺 `spec/SPEC_PROCESS.md`、`scripts/spec/{m7_stats,repo_stats}.py`（及 blackbox 钩子）、`spec/grandfather.yaml`、CI `spec-gates` job；当前六钩子组成与 A0-1 要求的 dc/m7/repo/step/console/blackbox 不一致。决策闸门 Q3 仍为“待确认”。
+> **状态（2026-11-10，P-017 调研完成）**：G-1 前置已满足；G0b **实施未开始**。调研实测：`pre-commit run --all-files` 当前 exit 0，但六钩子组成缺 `m7/repo/blackbox`；A0-2..A0-5 机制已存在，主要缺负向用例固化；A0-6 `spec-gates` 缺失。推荐 **S-1 + T-1 + H-1**：`SPEC_PROCESS.md` 迁 `spec/` + 根指针；治理脚本迁 `scripts/spec/` + 根兼容壳；六必需钩子 + `private-config`/`code-agent-wiring` 两个额外守卫。Q3 建议“新文档立即 + 空 grandfather + 90 天过期”，待裁决。
 
 **目标**：让"文档即契约"成立，后续所有改动都有准入与审计。
 
 **交付物**
-- `spec/SPEC_PROCESS.md`（标注来源版本）
+- `spec/SPEC_PROCESS.md`（标注来源版本）+ 根指针
 - `spec/templates/` 六模板
-- `scripts/spec/dc_validator.py`、`step_enforce.py`、`console_gen.py`、`rework_graph_check.py`、`m7_stats.py`、`repo_stats.py`
-- `.pre-commit-config.yaml` 六道钩子
+- `scripts/spec/{dc_validator,step_enforce,console_gen,rework_graph_check,roadmap_coverage_check,spec_map,m7_stats,repo_stats,blackbox_check}.py` + 根兼容壳
+- `.pre-commit-config.yaml` 六必需钩子 + 两个额外守卫
 - `.github/workflows/ci.yml` 增 `spec-gates` job
-- `spec/grandfather.yaml`（存量文档豁免清单）
+- `spec/grandfather.yaml`（空清单 + cutoff + 过期策略）
 
 **验收目标**
 
 | ID | 断言 | 负向用例 |
 |---|---|---|
-| A0-1 | `pre-commit run --all-files` 六钩子全绿（dc/m7/repo/step/console/blackbox） | 任一钩子返回非 0 即失败 |
+| A0-1 | `pre-commit run --all-files` 必需六钩子全绿（dc/m7/repo/step/console/blackbox；private-config/code-agent-wiring 为额外守卫） | 任一必需钩子返回非 0 即失败 |
 | A0-2 | 新建 `.md` 缺 DC1 七字段 → 提交被拒 | 删除 `status:` 后必须失败 |
 | A0-3 | `step_enforce` 在缺失 `verify` 事件时拒绝 `finalize` | 伪造事件 id 必须失败 |
 | A0-4 | 文档在 `verify` 之后再改正文 → digest 不匹配 → 拒绝 | 改 1 个字符即失败 |
 | A0-5 | 手改 `docs/CONSOLE.md` → `console_gen --check` 非 0 | 不重生成必须失败 |
 | A0-6 | `spec-gates` job 与既有 3.11–3.13 矩阵并行且全绿 | job 缺失即失败 |
 
-**决策闸门**：Q3「touch = migrate」是否立即生效；存量豁免范围。
+> A0-2..A0-5 的机制已在 `dc_validator` / `step_enforce` / `console_gen` 中实现；实施批只固化负向用例，不新增规则。
 
-**外锚**：pre-commit 官方 hook 机制；Spec_Workflow v1.7.1 原仓。
+**决策闸门**：Q3「touch = migrate」——P-017 建议“新文档立即 + 空 grandfather + 90 天过期”，待用户裁决后开工。
+
+**外锚**：pre-commit（staged 语义 / `--all-files`）；GitHub Spec Kit；OpenSpec；ISO/IEC/IEEE 29148 双向追溯；SonarQube Clean as You Code；Spec_Workflow v1.7.1 原仓。
 
 ---
 
@@ -625,7 +629,7 @@ G0a → G-1 → G0b ─┬→ G1 ─┐
 |---|---|---|---|---|
 | Q1 | Python 双轨（3.11 内核 + 3.12 子进程）还是统一 3.12 | G2 | **双轨 B** | 待确认 |
 | Q2 | Lean 是否作为安装前置 | G2 | **否，可选 Tier-3** | 待确认 |
-| Q3 | Spec "touch = migrate" 是否立即生效 | G0b | 新文档立即，存量入 grandfather | 待确认 |
+| Q3 | Spec "touch = migrate" 是否立即生效 | G0b | 新文档立即，存量入 grandfather | 待确认（P-017 建议：空 grandfather + 90 天过期） |
 | Q4 | Embedding 后端（OpenAI / sentence-transformers / TF-IDF） | G5 | 默认本地，缺失即降级并标记 | 待确认 |
 | Q5 | R1 后端：纯文件 + supervisor vs SQLite WAL | G1 | **先纯文件**，压测后再评估 | 待确认 |
 | Q6 | KG 扩词表 vs 外包外部 KG 服务 | G5 | 先扩词表（6→14），外包留接口 | 待确认 |
@@ -633,7 +637,7 @@ G0a → G-1 → G0b ─┬→ G1 ─┐
 | Q8 | 沙箱默认档（local / docker / 托管） | G4 | 开发 local，生产 docker | 待确认 |
 | Q9 | 事件保留期（30 天 / 永久） | G1/G7 | 30 天 + 归档摘要永久 | 待确认 |
 | Q10 | MCP 协议版本对齐（SDK 2.x vs 2026-07-28 规范） | G4 | 开工前做兼容矩阵 | 待确认 |
-| **Q11** | G0a/G0b 的切分边界（4 道激活钩子是否足够） | G0a/G0b | 4 道足够（dc/step/console/rework）；G0b 再补 m7/repo/blackbox | 待确认 |
+| **Q11** | G0a/G0b 的切分边界（4 道激活钩子是否足够） | G0a/G0b | 4 道足够（dc/step/console/rework）；G0b 再补 m7/repo/blackbox | 调研确认（P-017）：4 道 G0a 足够；G0b 补 m7/repo/blackbox + 两额外守卫；待裁决 |
 | **Q12** | G6 降为 P2 是否可接受（固定模型 vs 分层路由） | G6 | 可接受；先用预算上限 | 待确认 |
 | **Q13** | 漂移护栏阈值（`rq_cos=0.35/0.45`、`p_only=0.5`） | G7 | 经验值，需 ARC-Bench 校准 | 待确认 |
 | **Q14** | ArtifactNode 覆盖范围（全阶段 vs Stage 12-14/20/23） | G3 | 先覆盖实验与证据链相关阶段 | 待确认 |
@@ -740,6 +744,7 @@ G0a → G-1 → G0b ─┬→ G1 ─┐
 | [spec/arc-cli-agent-wiring/](../spec/arc-cli-agent-wiring/)（P-011..P-013） | CLI 代码代理接线断裂、R-3 统一接缝、U-3/U-5 收口 | **G-1/G1** |
 | [spec/arc-belief-revision-propagation/RESEARCH.md](../spec/arc-belief-revision-propagation/RESEARCH.md)（P-014） | 回退/回写、外部信息多步传播、Saga/backjump/HARKing 锚点 | **G3/G-1** |
 | [spec/arc-r3-engine-impact/RESEARCH.md](../spec/arc-r3-engine-impact/RESEARCH.md)（P-015） | R-3a/b/c 分层、Saga/Temporal/DAG/自动闭包影响面与触发条件 | **G1/G3/G7** |
+| [spec/arc-g0b-governance-base/RESEARCH.md](../spec/arc-g0b-governance-base/RESEARCH.md)（P-017） | G0b 六项验收缺口、路径迁移/钩子组成/Q3/统计/CI 方案 | **G0b** |
 
 **四个已核实的急救事实**（对应 H-1..H-4）：
 

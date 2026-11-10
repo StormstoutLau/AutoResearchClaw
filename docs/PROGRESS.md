@@ -23,3 +23,5 @@
 | P-014 | 信念修正与多步传播调研：回退链审计、7+5 缺口、13 项外部锚点、外部文档复用评估与 R-1..R-3 | [spec/arc-belief-revision-propagation/](../spec/arc-belief-revision-propagation/) | done | P1 | 场景 A/B 机制与 12 缺口可复现；锚点 13 项；复用边界明确；未改代码与总纲；step-gate 5/5 |
 | P-015 | R-3 重型方案补充分析：Saga/Temporal/DAG/自动闭包影响面与可控性；R-3a/b/c 分层 | [spec/arc-r3-engine-impact/](../spec/arc-r3-engine-impact/) | done | P1 | 8 维影响矩阵；可控性判定；5 项引擎触发；未改代码；step-gate 5/5 |
 | P-016 | 总纲 v0.6 状态同步：G-1 完成、G0b 未就绪、Q17 裁决、P-011..P-015 依据挂载、G3 候选增量 | [spec/arc-roadmap-v06/](../spec/arc-roadmap-v06/) | done | P0 | 106 计数不变；G-1/Q17/G0b 状态一致；覆盖率 missing=0；step-gate 5/5 |
+| P-017 | G0b 治理基座调研：A0-1..A0-6 缺口、路径迁移、钩子组成、Q3、统计/黑盒/CI 方案 | [spec/arc-g0b-governance-base/](../spec/arc-g0b-governance-base/) | done | P0 | 实测 6 钩子全绿但组成不符；三方案对比；推荐迁移+根壳+6+2 钩子；未改代码；step-gate 5/5 |
+| P-018 | 总纲 v0.7：纳入 G0b 调研结论（状态、交付物、A0-1 口径、Q3/Q11、§11） | [spec/arc-roadmap-v07/](../spec/arc-roadmap-v07/) | done | P0 | 106 计数不变；G0b 标调研完成待实施；Q3/Q11 写入 P-017 建议；step-gate 5/5 |
