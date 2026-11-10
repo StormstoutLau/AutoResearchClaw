@@ -1,0 +1,103 @@
+"""Event replay endpoints (G1c / A1-2): cursor page, SSE stream, WS subscribe.
+
+Thin adapters over :mod:`researchclaw.runtime.event_stream`; all semantics
+(pagination, gap, terminal detection) live in the transport-agnostic core.
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+from pathlib import Path
+
+from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
+
+from researchclaw.runtime.event_stream import (
+    gap_frame, heartbeat_frame, parse_cursor, read_page, sse_frame,
+)
+
+router = APIRouter(prefix="/api", tags=["events"])
+
+HEARTBEAT_SECONDS = 15.0
+POLL_SECONDS = 1.0
+
+
+def _run_dir(run_id: str) -> Path:
+    from researchclaw.server.routes.pipeline import _validated_run_dir
+    return _validated_run_dir(run_id)
+
+
+def _page(run_id: str, after: int | None, limit: int | None) -> dict:
+    run_dir = _run_dir(run_id)
+    if not (run_dir / "events.jsonl").exists() and not list(run_dir.glob("events.*.jsonl")):
+        raise HTTPException(status_code=404, detail=f"No event log for run {run_id}")
+    return read_page(run_dir, run_id, after=after, limit=limit)
+
+
+@router.get("/runs/{run_id}/events")
+async def list_events(run_id: str, after: int | None = None,
+                      limit: int | None = None) -> dict:
+    return _page(run_id, after, limit)
+
+
+@router.get("/runs/{run_id}/events/stream")
+async def stream_events(run_id: str, request: Request, after: int | None = None,
+                        limit: int | None = None):
+    cursor = parse_cursor(request.headers.get("Last-Event-ID"), after)
+
+    async def gen():
+        nonlocal cursor
+        yield "retry: 3000\n\n"
+        idle = 0.0
+        while True:
+            if await request.is_disconnected():
+                return
+            page = read_page(_run_dir(run_id), run_id, after=cursor, limit=limit)
+            if page["gap"]:
+                yield gap_frame(page["oldest_seq"])
+                cursor = page["oldest_seq"] - 1
+                continue
+            for event in page["events"]:
+                yield sse_frame(event)
+            if page["events"]:
+                cursor = page["next_after"]
+                idle = 0.0
+            if page["terminal"]:
+                return
+            idle += POLL_SECONDS
+            if idle >= HEARTBEAT_SECONDS:
+                yield heartbeat_frame()
+                idle = 0.0
+            await asyncio.sleep(POLL_SECONDS)
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@router.websocket("/runs/{run_id}/events/ws")
+async def ws_events(websocket: WebSocket, run_id: str) -> None:
+    await websocket.accept()
+    try:
+        first = json.loads(await websocket.receive_text())
+        if first.get("type") != "subscribe":
+            await websocket.close(code=1008)
+            return
+        cursor = parse_cursor(None, first.get("after"))
+        while True:
+            page = read_page(_run_dir(run_id), run_id, after=cursor)
+            if page["gap"]:
+                await websocket.send_text(json.dumps(
+                    {"type": "stream.gap", "oldest_seq": page["oldest_seq"]}))
+                cursor = page["oldest_seq"] - 1
+                continue
+            for event in page["events"]:
+                await websocket.send_text(json.dumps(event, ensure_ascii=False))
+            if page["events"]:
+                cursor = page["next_after"]
+            if page["terminal"]:
+                await websocket.close()
+                return
+            await asyncio.sleep(POLL_SECONDS)
+    except WebSocketDisconnect:
+        return
+    except Exception:  # noqa: BLE001 - malformed frame closes the socket
+        await websocket.close(code=1008)
