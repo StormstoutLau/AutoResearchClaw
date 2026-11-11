@@ -590,6 +590,16 @@ def _execute_experiment_design(
     except Exception:
         pass
 
+    _claim_artifacts: tuple[str, ...] = ()
+    try:
+        from researchclaw.evidence.stage_hooks import write_stage9_claims
+
+        _claim_artifacts = write_stage9_claims(
+            stage_dir, hypotheses, plan if isinstance(plan, dict) else None
+        )
+    except Exception:  # noqa: BLE001 - claim extraction must not break experiment design
+        logger.warning("Stage 9 claim records unavailable", exc_info=True)
+
     (stage_dir / "exp_plan.yaml").write_text(
         yaml.dump(plan, default_flow_style=False, allow_unicode=True),
         encoding="utf-8",
@@ -597,6 +607,7 @@ def _execute_experiment_design(
     return StageResult(
         stage=Stage.EXPERIMENT_DESIGN,
         status=StageStatus.DONE,
-        artifacts=("exp_plan.yaml",),
-        evidence_refs=("stage-09/exp_plan.yaml",),
+        artifacts=("exp_plan.yaml",) + _claim_artifacts,
+        evidence_refs=("stage-09/exp_plan.yaml",)
+        + tuple(f"stage-09/{name}" for name in _claim_artifacts),
     )

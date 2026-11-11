@@ -416,6 +416,37 @@ def _execute_quality_gate(
     revised = _read_prior_artifact(run_dir, "paper_revised.md") or ""
     _write_claim_verification(stage_dir, run_dir, revised)
 
+    # M4: ClaimRecord contract gate (A2-4..A2-6). Fail-closed on internal errors.
+    try:
+        from researchclaw.evidence.stage_hooks import run_stage20_gate
+
+        _claim_gate = run_stage20_gate(stage_dir, run_dir)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Stage 20 claim gate failed internally: %s", exc)
+        return StageResult(
+            stage=Stage.QUALITY_GATE,
+            status=StageStatus.FAILED,
+            artifacts=("claim_verification.json",),
+            evidence_refs=("stage-20/claim_verification.json",),
+            error=f"E20_CLAIM_CONTRACT_INTERNAL: {exc}",
+        )
+    if _claim_gate.get("blocked"):
+        logger.error(
+            "Stage 20 BLOCKED by claim contract: %s",
+            _claim_gate["payload"].get("blocked", [])[:5],
+        )
+        return StageResult(
+            stage=Stage.QUALITY_GATE,
+            status=StageStatus.FAILED,
+            artifacts=("claim_gate.json", "claims.jsonl", "claim_verification.json"),
+            evidence_refs=("stage-20/claim_gate.json",),
+            error=(
+                "E20_CLAIM_CONTRACT: claim cannot enter deliverables "
+                f"(blocked={len(_claim_gate['payload'].get('blocked', []))})"
+            ),
+        )
+    _claim_artifacts = ("claim_gate.json", "claims.jsonl")
+
     # D4: a paper built on simulated data may not pass the gate unless the
     # user explicitly opted in (`research.allow_simulated_paper: true`).
     _data_origin = detect_data_origin(run_dir, config)
@@ -434,7 +465,7 @@ def _execute_quality_gate(
         return StageResult(
             stage=Stage.QUALITY_GATE,
             status=StageStatus.FAILED,
-            artifacts=("quality_warning.txt",),
+            artifacts=("quality_warning.txt",) + _claim_artifacts,
             evidence_refs=("stage-20/quality_warning.txt",),
             error=(
                 "E20_SIMULATED_DATA: paper is based on simulated experiment "
@@ -646,7 +677,7 @@ def _execute_quality_gate(
         return StageResult(
             stage=Stage.QUALITY_GATE,
             status=StageStatus.FAILED,
-            artifacts=("quality_report.json", "fabrication_flags.json", "claim_verification.json"),
+            artifacts=("quality_report.json", "fabrication_flags.json", "claim_verification.json") + _claim_artifacts,
             evidence_refs=("stage-20/quality_report.json",),
             error=(
                 "Quality gate BLOCKED: VerifiedRegistry has zero real experiment "
@@ -679,7 +710,7 @@ def _execute_quality_gate(
             return StageResult(
                 stage=Stage.QUALITY_GATE,
                 status=StageStatus.DONE,
-                artifacts=("quality_report.json", "claim_verification.json"),
+                artifacts=("quality_report.json", "claim_verification.json") + _claim_artifacts,
                 evidence_refs=("stage-20/quality_report.json",),
                 decision="degraded",
             )
@@ -690,7 +721,7 @@ def _execute_quality_gate(
         return StageResult(
             stage=Stage.QUALITY_GATE,
             status=StageStatus.FAILED,
-            artifacts=("quality_report.json", "fabrication_flags.json", "claim_verification.json"),
+            artifacts=("quality_report.json", "fabrication_flags.json", "claim_verification.json") + _claim_artifacts,
             evidence_refs=("stage-20/quality_report.json",),
             error=f"Quality score {score:.1f}/10 below threshold {threshold:.1f}. "
                   f"Paper needs revision before export.",
@@ -703,7 +734,7 @@ def _execute_quality_gate(
     return StageResult(
         stage=Stage.QUALITY_GATE,
         status=StageStatus.DONE,
-        artifacts=("quality_report.json", "fabrication_flags.json"),
+        artifacts=("quality_report.json", "fabrication_flags.json") + _claim_artifacts,
         evidence_refs=("stage-20/quality_report.json",),
     )
 
@@ -2759,6 +2790,31 @@ def _execute_citation_verify(
     paper_text = _read_prior_artifact(run_dir, "paper_final.md") or ""
     _write_claim_verification(stage_dir, run_dir, paper_text)
 
+    # M4 dual-plane consistency: production gate decision vs pure audit entry.
+    try:
+        from researchclaw.evidence.stage_hooks import run_stage23_consistency
+
+        _claim_consistency = run_stage23_consistency(stage_dir, run_dir)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Stage 23 claim consistency failed internally: %s", exc)
+        return StageResult(
+            stage=Stage.CITATION_VERIFY,
+            status=StageStatus.FAILED,
+            artifacts=("claim_verification.json",),
+            evidence_refs=("stage-23/claim_verification.json",),
+            error=f"E23_CLAIM_DRIFT_INTERNAL: {exc}",
+        )
+    if not _claim_consistency.get("consistent", True):
+        diffs = _claim_consistency.get("payload", {}).get("diffs", [])
+        logger.error("Stage 23 BLOCKED by claim drift: %s", diffs[:5])
+        return StageResult(
+            stage=Stage.CITATION_VERIFY,
+            status=StageStatus.FAILED,
+            artifacts=("claim_consistency.json", "claim_verification.json"),
+            evidence_refs=("stage-23/claim_consistency.json",),
+            error=f"E23_CLAIM_DRIFT: {len(diffs)} claim(s) differ between production and audit",
+        )
+
     if not bib_text.strip():
         report_data = {
             "summary": {
@@ -2787,7 +2843,12 @@ def _execute_citation_verify(
         return StageResult(
             stage=Stage.CITATION_VERIFY,
             status=StageStatus.DONE,
-            artifacts=("verification_report.json", "references_verified.bib", "claim_verification.json"),
+            artifacts=(
+                "verification_report.json",
+                "references_verified.bib",
+                "claim_verification.json",
+                "claim_consistency.json",
+            ),
             evidence_refs=(
                 "stage-23/verification_report.json",
                 "stage-23/references_verified.bib",
@@ -2928,7 +2989,12 @@ def _execute_citation_verify(
 
     (stage_dir / "references_verified.bib").write_text(verified_bib, encoding="utf-8")
 
-    artifacts = ["verification_report.json", "references_verified.bib", "claim_verification.json"]
+    artifacts = [
+        "verification_report.json",
+        "references_verified.bib",
+        "claim_verification.json",
+        "claim_consistency.json",
+    ]
 
     if paper_text.strip():
         annotated = annotate_paper_hallucinations(paper_text, report)

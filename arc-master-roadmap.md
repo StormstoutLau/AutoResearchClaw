@@ -1,14 +1,14 @@
 ---
 id: arc-master-roadmap
 type: design
-version: 1.3d
+version: 1.3j
 status: draft
 date: 2026-11-11
 depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-textbook, clawsgo-cleanroom-arc]
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.3h）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.3j）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -54,6 +54,10 @@ upstream: arb-v2-decisions
 > **修订**：v1.3g（2026-11-11，P-049）**M2 交付（内核 vendor）**：AP `bd95f02` 的 **65 项测试依赖闭包 27 文件**迁入 `researchclaw/vendor/auto_prover/`（datatypes 9 + verdict 3 + sandbox 4 + semantic_verdict 1 + model_gateway 1 + kg 3 + stages 5 + verdict_recheck 1）；只 vendor 三包会 61/65，故 M2 的真实边界是闭包而非 16 文件。A2-3 在 3.11.15 按冻结 node ID **65 passed**，3.13.5 vendor 全量 99 passed；D173 启动器修复随行；V-1..V-6 合规落地（`LICENSE`/`NOTICE`/修改声明/`SOURCE.json` 逐文件 sha256），wheel 实测含两许可文件。G2 可进入 M3（sidecar + Lean 可选）。**106 计数不变**。依据：[P-049 实施](spec/arc-g2-m2-vendor/IMPLEMENTATION.md)。
 >
 > **修订**：v1.3h（2026-11-11，P-060）**M3 交付（sidecar + Lean 可选）**：AP 新增 `scripts/arb_verify.py`（JSON 文件契约、`mode=lean_check`、退出码 0/65/75/78、77 保留）并为 `CompileReport` 补 `timed_out`（超时不再伪装普通失败）；ARC 新增 `researchclaw/evidence/sidecar.py`（文件型请求/进程每请求/`taskkill /T` 兜底/窄校验）。判定映射经 9 组矩阵探针校准：编译失败→`FAILED/stage2`、sorry→`tree_partial`、axiom dirty→`partially`、合法性失败→`partially`、全清→`formally_verified/stage3`，满足 A2-7。实测：ARC 单元 10 passed、live 8 passed（Lean 4.20）、AP 30 passed/2 skipped、vendor 99 passed；根因 `PYTHONUTF8` 缺失已修并入白名单。G2 可进入 M4（Stage 接线 + 双平面）。**106 计数不变**。依据：[P-060 实施](spec/arc-g2-m3-implementation/IMPLEMENTATION.md)。
+>
+> **修订**：v1.3i（2026-11-11，P-061）**M4 交付（Stage 9/20/23 接线 + 双平面）**：`claim_policy.py` 收敛 A2-4/A2-5/A2-6 谓词与 `evaluate_claim`，`stage_hooks.py` 负责 Stage 9 写 C 类 claim、Stage 20 门禁（`E20_CLAIM_CONTRACT`）、Stage 23 双平面重算（`E23_CLAIM_DRIFT`）；生产与审计共用同一纯函数，篡改 `stage-20/claims.jsonl` 即触发漂移。实测：M4 测试 46 passed（3.13.5 与 3.11.15 双环境）、相关回归 105 passed、`test_rc_executor` 207 passed。G2 可进入 M5（双平面审计与交付）。**106 计数不变**。依据：[P-061 实施](spec/arc-g2-m4-wiring/IMPLEMENTATION.md)。
+>
+> **修订**：v1.3j（2026-11-11，P-063）**M4 复审缺陷关闭**：P-062 独立复审 D-1..D-3 全部修复——`load_claims` 改为非版本目录优先（PIVOT 后不再读 `stage-09_v{N}` 旧 claim）；坏行/损坏 gate JSON 改 `ClaimStreamError`，claims/gate/consistency 统一 `tmp + os.replace`；`evaluate_claim` 入口增加 C4 最小结构校验（`invalid_claim_record` + `problems`），畸形 claim 双平面同时阻断。实测：M4 套件 59 passed（+13，3.13.5 与 3.11.15）、相关回归 105 passed、原 46 项无回归。**106 计数不变**。依据：[P-063 修复](spec/arc-g2-m4-wiring-fixes/IMPLEMENTATION.md)。
 
 ---
 
@@ -333,7 +337,7 @@ flowchart LR
 | A2-6 | 谓词 `downgrade_missing_citation(claim)`：A/B 类缺引文 → 迁入 `assumptions`、状态降 `speculation`（**不阻断**），推导为纯函数 | 一律 fail 即违背原语义 |
 | A2-7 | 无 Lean / 编译失败 / 有 sorry → 上限 `PARTIALLY_FORMALIZED`，深度 `stage2` | 冒充 `FORMALLY_VERIFIED` 即失败 |
 
-**决策闸门**：**Q1 = B（双轨）**、**Q2 = B（最小 vendor + sidecar + Lean 可选 Tier-3）**——均已于 2026-11-10 由 P-042 裁决；Q2 的许可证闸门由 P-043 解除（AP = Apache-2.0），第三方审计闸门由 P-044 关闭（两项均自有），vendor 合规要求见 [P-042 调研](spec/arc-g2-decisions/RESEARCH.md) §4/§5/§8。**G2 前置已清零、M0–M3 已交付**：U-2 由 P-046 关闭（65 项冻结 + 双环境 65 passed）；M0 契约 v1 由 P-047 交付；M1 由 P-048 交付（AR-01..08 + 16 fixture + 8 变异）；M2 由 P-049 交付（27 文件内核闭包 + 许可四件套 + 3.11 65 passed）；M3 由 P-060 交付（`arb_verify` + sidecar 客户端 + 10 单元/8 live + A2-7 映射）。G2 可进入 M4（Stage 接线）。
+**决策闸门**：**Q1 = B（双轨）**、**Q2 = B（最小 vendor + sidecar + Lean 可选 Tier-3）**——均已于 2026-11-10 由 P-042 裁决；Q2 的许可证闸门由 P-043 解除（AP = Apache-2.0），第三方审计闸门由 P-044 关闭（两项均自有），vendor 合规要求见 [P-042 调研](spec/arc-g2-decisions/RESEARCH.md) §4/§5/§8。**G2 前置已清零、M0–M4 已交付**：U-2 由 P-046 关闭（65 项冻结 + 双环境 65 passed）；M0 契约 v1 由 P-047 交付；M1 由 P-048 交付（AR-01..08 + 16 fixture + 8 变异）；M2 由 P-049 交付（27 文件内核闭包 + 许可四件套 + 3.11 65 passed）；M3 由 P-060 交付（`arb_verify` + sidecar 客户端 + 10 单元/8 live + A2-7 映射）；M4 由 P-061 交付（Stage 9/20/23 接线 + A2-4/5/6 门禁 + 双平面漂移检测），P-063 已关闭 P-062 复审 D-1..D-3。G2 可进入 M5（双平面审计与交付）。
 
 **外锚**
 - W3C PROV-O：`Entity/Activity/Agent`、`used/generatedBy/wasDerivedFrom` → 映射到 `EvidenceRef`，保证跨系统可交换。
