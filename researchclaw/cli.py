@@ -1078,6 +1078,68 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+# ── G2 M5 (P-064): offline dual-plane claim audit ─────────────────
+
+
+def cmd_audit(args: argparse.Namespace) -> int:
+    """Audit a finished run's claim decisions without running the pipeline.
+
+    Exit codes: 0 consistent (or vacuously: no claims / no production gate),
+    1 drift or policy-version mismatch, 2 unusable input (missing run dir,
+    corrupt claim/gate artifacts, invalid --policy-version, unwritable output).
+    """
+    import json
+
+    from researchclaw.evidence.claim_policy import CURRENT_POLICY_VERSION
+    from researchclaw.evidence.offline_audit import run_offline_audit, write_audit_report
+    from researchclaw.evidence.stage_hooks import ClaimStreamError
+
+    run_dir = Path(cast(str, args.run_dir))
+    if not run_dir.is_dir():
+        print(f"audit: run directory does not exist: {run_dir}", file=sys.stderr)
+        return 2
+
+    expected = args.policy_version
+    if expected is None:
+        expected = CURRENT_POLICY_VERSION
+    elif expected < 1:
+        print("audit: --policy-version must be >= 1", file=sys.stderr)
+        return 2
+    try:
+        report = run_offline_audit(run_dir, expected_policy_version=expected)
+    except ClaimStreamError as exc:
+        print(f"audit: claim artifacts unreadable: {exc}", file=sys.stderr)
+        return 2
+
+    if args.output:
+        try:
+            out = write_audit_report(report, Path(cast(str, args.output)))
+        except OSError as exc:
+            print(f"audit: cannot write report: {exc}", file=sys.stderr)
+            return 2
+        print(f"audit: report written to {out}", file=sys.stderr)
+
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    else:
+        verdict = "CONSISTENT" if report["consistent"] else "DRIFT"
+        print(
+            f"audit: {verdict}  checked={report['checked']}  "
+            f"diffs={len(report['diffs'])}  expected_policy_version={report['expected_policy_version']}"
+        )
+        if report.get("skipped"):
+            print(f"audit: skipped={report['skipped']}")
+        for diff in report["diffs"][:10]:
+            print(
+                f"  - {diff['claim_id']}: {diff['reason']}"
+                f" production={diff.get('production')} audit={diff.get('audit')}"
+            )
+        if len(report["diffs"]) > 10:
+            print(f"  ... and {len(report['diffs']) - 10} more")
+
+    return 0 if report["consistent"] else 1
+
+
 # ── Research Enhancement commands (Agent D) ───────────────────────
 
 
@@ -1382,6 +1444,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _ = rpt_p.add_argument("--output", "-o", help="Write report to file")
 
+    # G2 M5 (P-064): offline dual-plane claim audit
+    audit_p = sub.add_parser(
+        "audit", help="Offline dual-plane claim audit for a finished run"
+    )
+    _ = audit_p.add_argument(
+        "--run-dir", required=True, help="Path to finished run artifacts directory"
+    )
+    _ = audit_p.add_argument(
+        "--json", action="store_true", help="Print the full audit report as JSON"
+    )
+    _ = audit_p.add_argument(
+        "--policy-version",
+        type=int,
+        default=None,
+        help=(
+            "Expected claim policy_version to audit against "
+            "(default: the kernel's current policy version)"
+        ),
+    )
+    _ = audit_p.add_argument(
+        "--output", "-o", help="Write the audit report JSON to this path"
+    )
+
     # G1b: supervisor（A1-3）
     sup_p = sub.add_parser("supervisor", help="Supervise a run and restart retryable failures")
     _ = sup_p.add_argument("--output", "-o", required=True,
@@ -1619,6 +1704,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_info(args)
     elif command == "report":
         return cmd_report(args)
+    elif command == "audit":
+        return cmd_audit(args)
     elif command == "serve":
         return cmd_serve(args)
     elif command == "dashboard":

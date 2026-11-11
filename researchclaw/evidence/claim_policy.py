@@ -20,6 +20,9 @@ STATUS_ORDER = {
 TERMINAL = {"failed", "falsified"}
 HIGH_STATUSES = {"formally_verified", "partially_formalized", "numerically_verified"}
 
+# M5 DoD: production and audit paths must run under the same policy version.
+CURRENT_POLICY_VERSION = 2
+
 # C4 v1 required keys (contracts/v1/c4_claim_record.schema.json).
 REQUIRED_CLAIM_FIELDS = (
     "claim_id",
@@ -214,6 +217,6 @@ def build_claim_records(hypotheses_text: str, plan: Mapping[str, Any] | None = N
             "falsifier": {"condition": "", "test_ref": ""},
             "verification_depth": "stage1",
             "status": "speculation",
-            "policy_version": 2,
+            "policy_version": CURRENT_POLICY_VERSION,
         })
     return records

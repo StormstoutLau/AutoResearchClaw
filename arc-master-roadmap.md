@@ -1,14 +1,14 @@
 ---
 id: arc-master-roadmap
 type: design
-version: 1.3j
+version: 1.3l
 status: draft
 date: 2026-11-11
 depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-textbook, clawsgo-cleanroom-arc]
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.3j）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.3l）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -58,6 +58,10 @@ upstream: arb-v2-decisions
 > **修订**：v1.3i（2026-11-11，P-061）**M4 交付（Stage 9/20/23 接线 + 双平面）**：`claim_policy.py` 收敛 A2-4/A2-5/A2-6 谓词与 `evaluate_claim`，`stage_hooks.py` 负责 Stage 9 写 C 类 claim、Stage 20 门禁（`E20_CLAIM_CONTRACT`）、Stage 23 双平面重算（`E23_CLAIM_DRIFT`）；生产与审计共用同一纯函数，篡改 `stage-20/claims.jsonl` 即触发漂移。实测：M4 测试 46 passed（3.13.5 与 3.11.15 双环境）、相关回归 105 passed、`test_rc_executor` 207 passed。G2 可进入 M5（双平面审计与交付）。**106 计数不变**。依据：[P-061 实施](spec/arc-g2-m4-wiring/IMPLEMENTATION.md)。
 >
 > **修订**：v1.3j（2026-11-11，P-063）**M4 复审缺陷关闭**：P-062 独立复审 D-1..D-3 全部修复——`load_claims` 改为非版本目录优先（PIVOT 后不再读 `stage-09_v{N}` 旧 claim）；坏行/损坏 gate JSON 改 `ClaimStreamError`，claims/gate/consistency 统一 `tmp + os.replace`；`evaluate_claim` 入口增加 C4 最小结构校验（`invalid_claim_record` + `problems`），畸形 claim 双平面同时阻断。实测：M4 套件 59 passed（+13，3.13.5 与 3.11.15）、相关回归 105 passed、原 46 项无回归。**106 计数不变**。依据：[P-063 修复](spec/arc-g2-m4-wiring-fixes/IMPLEMENTATION.md)。
+>
+> **修订**：v1.3k（2026-11-11，P-064）**M5 交付 + G2 收口**：审查平面按 R-03 §5.1 落为离线批次模式——`compare_claims` 抽为 Stage 23 与离线审计的**唯一比对实现**（规则不可能分歧）；新增只读 `run_offline_audit` 与 `researchclaw audit --run-dir` CLI（退出码 0/1/2），版本锚点取 claims 自带 `policy_version` 逐条核验（`policy_version_mismatch`）。M5 DoD 机检：7 状态矩阵两平面同 status、只读快照断言、确定性、失败封闭；M5 套件 29 passed、M4+M5 88 passed（3.13.5 与 3.11.15）、相关回归 108 passed、M4 59 项零回归。**G2 全部里程碑（M0–M5）交付，G3 可开工**；O-1/O-2（annotation 供给与封顶渲染语义）移交 G3 输入。**106 计数不变**。依据：[P-064 实施](spec/arc-g2-m5-offline-audit/IMPLEMENTATION.md)。
+>
+> **修订**：v1.3l（2026-11-11，P-068）**M5 复审缺陷关闭**：P-065..P-067 的 D-1..D-5 全部修复——`compare_claims` 增双向集合检查（`orphan_production_decision`/`duplicate_claim_id`），gate 对重复 `claim_id` 直接 block（`duplicate_claim_ids`），`--policy-version <1` 与 `--output` 失败 → exit 2，诊断统一 stderr，`no_claims` 收紧为无 claims 且无 production。P-067 D-5 集成约束（集合检查无条件、逐条循环保留守卫）已落地。实测：M5 36 passed、M4+M5 95 passed（3.13.5 与 3.11.15）、相关回归 108 passed、既有 29 项零回归。**106 计数不变**。依据：[P-068 修复](spec/arc-g2-m5-offline-audit-fixes/IMPLEMENTATION.md)。
 
 ---
 
@@ -337,7 +341,7 @@ flowchart LR
 | A2-6 | 谓词 `downgrade_missing_citation(claim)`：A/B 类缺引文 → 迁入 `assumptions`、状态降 `speculation`（**不阻断**），推导为纯函数 | 一律 fail 即违背原语义 |
 | A2-7 | 无 Lean / 编译失败 / 有 sorry → 上限 `PARTIALLY_FORMALIZED`，深度 `stage2` | 冒充 `FORMALLY_VERIFIED` 即失败 |
 
-**决策闸门**：**Q1 = B（双轨）**、**Q2 = B（最小 vendor + sidecar + Lean 可选 Tier-3）**——均已于 2026-11-10 由 P-042 裁决；Q2 的许可证闸门由 P-043 解除（AP = Apache-2.0），第三方审计闸门由 P-044 关闭（两项均自有），vendor 合规要求见 [P-042 调研](spec/arc-g2-decisions/RESEARCH.md) §4/§5/§8。**G2 前置已清零、M0–M4 已交付**：U-2 由 P-046 关闭（65 项冻结 + 双环境 65 passed）；M0 契约 v1 由 P-047 交付；M1 由 P-048 交付（AR-01..08 + 16 fixture + 8 变异）；M2 由 P-049 交付（27 文件内核闭包 + 许可四件套 + 3.11 65 passed）；M3 由 P-060 交付（`arb_verify` + sidecar 客户端 + 10 单元/8 live + A2-7 映射）；M4 由 P-061 交付（Stage 9/20/23 接线 + A2-4/5/6 门禁 + 双平面漂移检测），P-063 已关闭 P-062 复审 D-1..D-3。G2 可进入 M5（双平面审计与交付）。
+**决策闸门**：**Q1 = B（双轨）**、**Q2 = B（最小 vendor + sidecar + Lean 可选 Tier-3）**——均已于 2026-11-10 由 P-042 裁决；Q2 的许可证闸门由 P-043 解除（AP = Apache-2.0），第三方审计闸门由 P-044 关闭（两项均自有），vendor 合规要求见 [P-042 调研](spec/arc-g2-decisions/RESEARCH.md) §4/§5/§8。**G2 已正式收口（M0–M5 全部交付）**：U-2 由 P-046 关闭（65 项冻结 + 双环境 65 passed）；M0 契约 v1 由 P-047 交付；M1 由 P-048 交付（AR-01..08 + 16 fixture + 8 变异）；M2 由 P-049 交付（27 文件内核闭包 + 许可四件套 + 3.11 65 passed）；M3 由 P-060 交付（`arb_verify` + sidecar 客户端 + 10 单元/8 live + A2-7 映射）；M4 由 P-061 交付（Stage 9/20/23 接线 + A2-4/5/6 门禁 + 双平面漂移检测），P-063 关闭复审 D-1..D-3；M5 由 P-064 交付（离线审查模式 + 一致性套件，7 状态矩阵机检），P-068 已关闭 P-065..P-067 复审 D-1..D-5。遗留 O-1/O-2（annotation 供给与封顶渲染语义）移交 G3 输入。
 
 **外锚**
 - W3C PROV-O：`Entity/Activity/Agent`、`used/generatedBy/wasDerivedFrom` → 映射到 `EvidenceRef`，保证跨系统可交换。

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from collections import Counter
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -132,8 +133,12 @@ def run_stage20_gate(stage_dir: Path, run_dir: Path) -> dict:
     blocked: list[dict] = []
     missing_annotation: list[str] = []
     downgraded = False
+    claim_keys = [_claim_key(claim, index) for index, claim in enumerate(claims)]
+    duplicate_keys = sorted(
+        key for key, count in Counter(claim_keys).items() if count > 1
+    )
     for index, claim in enumerate(claims):
-        claim_key = _claim_key(claim, index)
+        claim_key = claim_keys[index]
         decision = evaluate_claim(claim, annotations.get(claim_key))
         updated.append(decision.claim)
         decisions[claim_key] = decision.as_dict()
@@ -147,6 +152,15 @@ def run_stage20_gate(stage_dir: Path, run_dir: Path) -> dict:
                 "reasons": list(decision.blocked_reasons),
                 "problems": list(decision.problems),
             })
+    # P-065 D-4: duplicate claim ids collapse the decisions mapping; block the
+    # whole gate instead of letting one decision stand in for several claims.
+    for claim_key in duplicate_keys:
+        blocked.append({
+            "claim_id": claim_key,
+            "status": None,
+            "reasons": ["duplicate_claim_id"],
+            "problems": ["duplicate_claim_id"],
+        })
     _write_claims(stage_dir / "claims.jsonl", updated)
     if blocked:
         verdict = "block"
@@ -159,32 +173,39 @@ def run_stage20_gate(stage_dir: Path, run_dir: Path) -> dict:
         "total": len(claims),
         "blocked": blocked,
         "missing_annotation": missing_annotation,
+        "duplicate_claim_ids": duplicate_keys,
         "decisions": decisions,
     }
     _write_json(stage_dir / "claim_gate.json", payload)
     return {"blocked": bool(blocked), "verdict": verdict, "payload": payload}
 
 
-def run_stage23_consistency(stage_dir: Path, run_dir: Path) -> dict:
-    stage_dir = Path(stage_dir)
-    run_dir = Path(run_dir)
-    claims = load_claims(run_dir, stage_prefix="stage-20")
-    if not claims:
-        claims = load_claims(run_dir)
-    gate_path = Path(run_dir) / "stage-20" / "claim_gate.json"
-    gate = _read_json(gate_path, {})
-    if not isinstance(gate, dict):
-        raise ClaimStreamError(f"{gate_path}: gate payload is not an object")
-    production = gate.get("decisions", {})
-    if not isinstance(production, dict):
-        raise ClaimStreamError(f"{gate_path}: decisions is not an object")
-    annotations = _annotations(run_dir)
+def compare_claims(
+    claims: list[dict],
+    production: Mapping[str, Any],
+    annotations: Mapping[str, str],
+) -> dict:
+    """Shared dual-plane comparison (Stage 23 + offline audit, M5).
+
+    Re-evaluates every claim with the production kernel (``audit_claim``) and
+    compares against the recorded production decisions. Diff reasons:
+    ``missing_production_decision`` | ``status_mismatch`` |
+    ``deliverable_mismatch`` | ``duplicate_claim_id`` |
+    ``orphan_production_decision``.
+
+    Claims without any production decision (resumed runs that started after
+    Stage 20) are skipped, mirroring the in-pipeline semantics. Duplicate and
+    orphan checks are collection-level integrity checks and always run, even
+    when the per-claim loop is skipped (P-067 D-5).
+    """
     diffs: list[dict] = []
     audit: dict[str, dict] = {}
     skipped = ""
+    keys = [_claim_key(claim, index) for index, claim in enumerate(claims)]
+    counts = Counter(keys)
+    for key in sorted(key for key, count in counts.items() if count > 1):
+        diffs.append({"claim_id": key, "reason": "duplicate_claim_id"})
     if claims and not production:
-        # Resumed runs may start after Stage 20; without a production decision
-        # there is nothing to compare, so record the skip instead of blocking.
         skipped = "no_production_gate"
     else:
         for index, claim in enumerate(claims):
@@ -212,14 +233,47 @@ def run_stage23_consistency(stage_dir: Path, run_dir: Path) -> dict:
                     "production": prod.get("deliverable"),
                     "audit": audit[claim_key]["deliverable"],
                 })
+    # Symmetric check (P-065 D-1): a production decision without a claim is an
+    # orphan and must be visible instead of silently ignored.
+    for key in sorted(set(production) - set(keys)):
+        prod = production[key]
+        diffs.append({
+            "claim_id": key,
+            "reason": "orphan_production_decision",
+            "production": prod.get("status") if isinstance(prod, dict) else None,
+        })
+    return {"diffs": diffs, "audit": audit, "skipped": skipped}
+
+
+def _load_production_gate(run_dir: Path) -> dict:
+    """Read stage-20/claim_gate.json; missing -> {}, corrupt -> fail closed."""
+    gate_path = Path(run_dir) / "stage-20" / "claim_gate.json"
+    gate = _read_json(gate_path, {})
+    if not isinstance(gate, dict):
+        raise ClaimStreamError(f"{gate_path}: gate payload is not an object")
+    production = gate.get("decisions", {})
+    if not isinstance(production, dict):
+        raise ClaimStreamError(f"{gate_path}: decisions is not an object")
+    return production
+
+
+def run_stage23_consistency(stage_dir: Path, run_dir: Path) -> dict:
+    stage_dir = Path(stage_dir)
+    run_dir = Path(run_dir)
+    claims = load_claims(run_dir, stage_prefix="stage-20")
+    if not claims:
+        claims = load_claims(run_dir)
+    production = _load_production_gate(run_dir)
+    annotations = _annotations(run_dir)
+    result = compare_claims(claims, production, annotations)
     payload = {
-        "consistent": not diffs,
+        "consistent": not result["diffs"],
         "checked": len(claims),
-        "diffs": diffs,
+        "diffs": result["diffs"],
         "production": production,
-        "audit": audit,
+        "audit": result["audit"],
     }
-    if skipped:
-        payload["skipped"] = skipped
+    if result["skipped"]:
+        payload["skipped"] = result["skipped"]
     _write_json(stage_dir / "claim_consistency.json", payload)
-    return {"consistent": not diffs, "payload": payload}
+    return {"consistent": not result["diffs"], "payload": payload}
