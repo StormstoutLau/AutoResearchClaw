@@ -10,7 +10,7 @@ upstream: arc-g2-m3-implementation-IMPLEMENTATION
 
 # 验收清单：G2 M3 sidecar（待执行）
 
-> 状态 **pending**：本清单对应 P-054 设计包的施工验收；P-056 已完成 [P-055 复审](../../docs/arc-g2-m3-impl-review-20261111.md) 的 D-A/D-B/D-C 修正，执行批（**P-057**）完成后逐项勾选并回填读数。
+> 状态 **pending**：本清单对应 P-054 设计包的施工验收；P-056 已完成 D-A/D-B/D-C 修正并通过 [P-057 复审](../../docs/arc-g2-m3-fixes-review-20261111.md)（零缺陷），执行批（**P-058**）落实 O-A..O-D 后逐项勾选并回填读数。
 
 ## 0. 设计修复前置（P-056，已完成）
 
