@@ -1,0 +1,73 @@
+# ARC P-045 / P-046 frozen acceptance set for G2 A2-3 (Python 3.11)
+# generated: 2026-11-11  source: F:\Auto_Prover @ bd95f02
+# interpreter: Python 3.11.15 (uv-managed base, venv redirector bypassed by D173)
+# deps: pytest 9.2.0, numpy 2.4.6
+# command: pytest --collect-only -q tests/test_d110_verdict_policy.py tests/test_d110_verdict_recheck.py tests/test_semantic_verdict.py
+# count: 65
+#
+# node IDs (one per line; do not edit by hand - regenerate with collect-only)
+tests/test_d110_verdict_policy.py::TestPolicyVersion::test_version_is_two
+tests/test_d110_verdict_policy.py::TestPolicyVersion::test_assertion_verdict_defaults_to_current_version
+tests/test_d110_verdict_policy.py::TestRootGate::test_root_blocked_with_all_subgoals_proven_is_not_formally_verified
+tests/test_d110_verdict_policy.py::TestRootGate::test_partial_proof_with_blocked_rest_is_not_formally_verified
+tests/test_d110_verdict_policy.py::TestRootGate::test_root_blocked_falls_back_to_numerical
+tests/test_d110_verdict_policy.py::TestRootGate::test_root_blocked_falls_back_to_latex
+tests/test_d110_verdict_policy.py::TestFormalGates::test_all_gates_pass_yields_formally_verified
+tests/test_d110_verdict_policy.py::TestFormalGates::test_synthesis_verified_substitutes_root_status
+tests/test_d110_verdict_policy.py::TestFormalGates::test_compile_failed_downgrades_to_numerical
+tests/test_d110_verdict_policy.py::TestFormalGates::test_compile_failed_without_numerical_falls_to_latex
+tests/test_d110_verdict_policy.py::TestFormalGates::test_success_with_sorry_is_partially_formalized
+tests/test_d110_verdict_policy.py::TestFormalGates::test_file_level_sorry_warning_is_partially_formalized
+tests/test_d110_verdict_policy.py::TestFormalGates::test_custom_axiom_is_partially_formalized
+tests/test_d110_verdict_policy.py::TestFormalGates::test_axiom_check_skipped_is_partially_formalized
+tests/test_d110_verdict_policy.py::TestFormalGates::test_legacy_evidence_incomplete_is_partially_formalized
+tests/test_d110_verdict_policy.py::TestFormalGates::test_tree_sorry_is_partially_formalized
+tests/test_d110_verdict_policy.py::TestFormalGates::test_tree_blocked_with_proven_root_is_partially_formalized
+tests/test_d110_verdict_policy.py::TestFormalGates::test_legality_not_checked_is_partially_formalized
+tests/test_d110_verdict_policy.py::TestFormalGates::test_legality_failed_is_partially_formalized
+tests/test_d110_verdict_policy.py::TestUpstreamPrecedence::test_numerical_failure_is_falsified
+tests/test_d110_verdict_policy.py::TestUpstreamPrecedence::test_latex_failure_is_failed
+tests/test_d110_verdict_policy.py::TestDownstreamReadyGate::test_legacy_formal_labels_blocked_but_numeric_allowed
+tests/test_d110_verdict_policy.py::TestWriterEvidence::test_writer_records_policy_and_evidence
+tests/test_d110_verdict_recheck.py::TestVerdictRecheck::test_scan_classifies_and_does_not_modify_source
+tests/test_d110_verdict_recheck.py::TestVerdictRecheck::test_main_writes_report_without_touching_source
+tests/test_d110_verdict_recheck.py::TestVerdictRecheck::test_malformed_line_is_reported_not_crashed
+tests/test_semantic_verdict.py::TestTier1FalsifiabilityProbe::test_deterministic_expr_is_constant
+tests/test_semantic_verdict.py::TestTier1FalsifiabilityProbe::test_seed_dependent_expr_is_varying
+tests/test_semantic_verdict.py::TestTier1FalsifiabilityProbe::test_repeat_detects_variability_without_seed_key
+tests/test_semantic_verdict.py::TestTier1FalsifiabilityProbe::test_seed_key_present_but_unused_is_constant
+tests/test_semantic_verdict.py::TestTier1FalsifiabilityProbe::test_missing_computed_expr_is_unknown
+tests/test_semantic_verdict.py::TestTier1FalsifiabilityProbe::test_eval_error_is_unknown
+tests/test_semantic_verdict.py::TestTier1FalsifiabilityProbe::test_random_source_keys_constant_present
+tests/test_semantic_verdict.py::TestTier2Matrix::test_free_kinds[Falsifiability.CONSTANT-AssertionKind.DETERMINISTIC_IDENTITY]
+tests/test_semantic_verdict.py::TestTier2Matrix::test_free_kinds[Falsifiability.CONSTANT-AssertionKind.COMBINATORIAL]
+tests/test_semantic_verdict.py::TestTier2Matrix::test_free_kinds[Falsifiability.VARYING-AssertionKind.DETERMINISTIC_IDENTITY]
+tests/test_semantic_verdict.py::TestTier2Matrix::test_free_kinds[Falsifiability.VARYING-AssertionKind.COMBINATORIAL]
+tests/test_semantic_verdict.py::TestTier2Matrix::test_free_kinds[Falsifiability.UNKNOWN-AssertionKind.DETERMINISTIC_IDENTITY]
+tests/test_semantic_verdict.py::TestTier2Matrix::test_free_kinds[Falsifiability.UNKNOWN-AssertionKind.COMBINATORIAL]
+tests/test_semantic_verdict.py::TestTier2Matrix::test_required_kinds[Falsifiability.CONSTANT-AssertionKind.EXPECTATION]
+tests/test_semantic_verdict.py::TestTier2Matrix::test_required_kinds[Falsifiability.CONSTANT-AssertionKind.VARIANCE]
+tests/test_semantic_verdict.py::TestTier2Matrix::test_required_kinds[Falsifiability.CONSTANT-AssertionKind.MOMENT]
+tests/test_semantic_verdict.py::TestTier2Matrix::test_required_kinds[Falsifiability.CONSTANT-AssertionKind.DISTRIBUTIONAL]
+tests/test_semantic_verdict.py::TestTier2Matrix::test_required_kinds[Falsifiability.CONSTANT-AssertionKind.ASYMPTOTIC]
+tests/test_semantic_verdict.py::TestTier2Matrix::test_required_kinds[Falsifiability.VARYING-AssertionKind.EXPECTATION]
+tests/test_semantic_verdict.py::TestTier2Matrix::test_required_kinds[Falsifiability.VARYING-AssertionKind.VARIANCE]
+tests/test_semantic_verdict.py::TestTier2Matrix::test_required_kinds[Falsifiability.VARYING-AssertionKind.MOMENT]
+tests/test_semantic_verdict.py::TestTier2Matrix::test_required_kinds[Falsifiability.VARYING-AssertionKind.DISTRIBUTIONAL]
+tests/test_semantic_verdict.py::TestTier2Matrix::test_required_kinds[Falsifiability.VARYING-AssertionKind.ASYMPTOTIC]
+tests/test_semantic_verdict.py::TestTier2Matrix::test_required_kinds[Falsifiability.UNKNOWN-AssertionKind.EXPECTATION]
+tests/test_semantic_verdict.py::TestTier2Matrix::test_required_kinds[Falsifiability.UNKNOWN-AssertionKind.VARIANCE]
+tests/test_semantic_verdict.py::TestTier2Matrix::test_required_kinds[Falsifiability.UNKNOWN-AssertionKind.MOMENT]
+tests/test_semantic_verdict.py::TestTier2Matrix::test_required_kinds[Falsifiability.UNKNOWN-AssertionKind.DISTRIBUTIONAL]
+tests/test_semantic_verdict.py::TestTier2Matrix::test_required_kinds[Falsifiability.UNKNOWN-AssertionKind.ASYMPTOTIC]
+tests/test_semantic_verdict.py::TestTier2Matrix::test_circular_is_the_核心_定案
+tests/test_semantic_verdict.py::TestTier2Matrix::test_free_kind_constant_is_valid
+tests/test_semantic_verdict.py::TestDegradation::test_bad_kind_degrades_to_unknown[None]
+tests/test_semantic_verdict.py::TestDegradation::test_bad_kind_degrades_to_unknown[]
+tests/test_semantic_verdict.py::TestDegradation::test_bad_kind_degrades_to_unknown[bogus]
+tests/test_semantic_verdict.py::TestDegradation::test_bad_kind_degrades_to_unknown[EXPECTATION]
+tests/test_semantic_verdict.py::TestJudgeTestCase::test_combines_probe_and_matrix
+tests/test_semantic_verdict.py::TestJudgeTestCase::test_no_kind_degrades
+tests/test_semantic_verdict.py::TestJudgeTestCase::test_varying_statistical_is_not_positive
+tests/test_semantic_verdict.py::TestVisibilityOnlyNoVerdictChange::test_run_test_cases_backfills_and_keeps_passed
+tests/test_semantic_verdict.py::TestVisibilityOnlyNoVerdictChange::test_verify_aggregates_n_circular_without_changing_verdict
