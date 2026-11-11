@@ -1,7 +1,7 @@
 ---
 id: arc-g2-m3-sidecar-RESEARCH
 type: design
-version: 1.1
+version: 1.2
 status: verified
 date: 2026-11-11
 depends: [arc-g2-decisions, arc-g2-py311-env, arc-g2-m2-vendor]
@@ -12,8 +12,9 @@ upstream: arc-g2-m2-vendor
 
 > **Feature**：P-050，G2 里程碑 M3 的开工调研。
 > **Spec 步骤**：T3 轻批（Layer-0：本文件 + session + PROGRESS 行；零生产代码/零门禁）。
-> **结论先行**：主控站已有 **6 个 elan 工具链**（4.18.0 / 4.20.0 默认 / 4.30.0 / 4.31.0 / 4.31.0-rc1 / 4.32.0-rc1），本地 mathlib 工程 `D:\Textbook\lean_src` 固定 **4.20.0** 且依赖全部为 path、Mathlib 已有 **6443 个 olean** 预热；实测 per-run 工程 `lake build Main` **53.3s 成功**。M3 建议：**Lean 版本以工程 `lean-toolchain` 为唯一真值源**（elan 自动选择），sidecar 用 **3.12.11 + numpy** 即可 import 完整 AP 管线；传输用**文件型 JSON**，`arb verify` 采用「预置 Lean 语句的确定性检查」作为 M3 验收面，完整 NL→Lean 管线留 M4。
+> **结论先行**：主控站已有 **6 个 elan 工具链**（4.18.0 / 4.20.0 默认 / 4.30.0 / 4.31.0 / 4.31.0-rc1 / 4.32.0-rc1），本地 mathlib 工程 `D:\Textbook\lean_src` 固定 **4.20.0** 且依赖全部为 path、Mathlib 已有 **6443 个 olean** 预热；实测 per-run 工程 `lake build Main` **53.3s 成功**。M3 建议：**Lean 版本以工程 `lean-toolchain` 为唯一真值源**（elan 自动选择），sidecar 用 **3.12.11 + numpy + scipy** 即可 import 完整 AP 管线并保留解析矩 oracle；传输用**文件型 JSON**，`arb verify` 采用「预置 Lean 语句的确定性检查」作为 M3 验收面，完整 NL→Lean 管线留 M4。
 > **修订**：v1.1（2026-11-11，P-051）**补充外部社区案例与学术锚点**——新增 Mathlib4 依赖工程实践、lean-action CI、Azure/Kubernetes sidecar 模式、Lean 4 与 Mathlib 论文、`lean4checker` 验证指南、`os.replace` 原子替换等 9 条来源（S-6..S-14）与 7 个工程先例（C-1..C-7）；据此新增 U-5（是否把 `lean4checker` 作为独立深度）与 §6.1 信任边界。决策与 F 事实不变。
+> **修订**：v1.2（2026-11-11，P-052）**U-1..U-5 全部关闭**——补充 MCP/LSP 传输实践、LeanDojo/miniCTX/autoformalization 学术资料、Lean meta 版本敏感性与 oracle 问题综述；新增 S-15..S-24 与 §11 逐项方案对比。结论：文件型 + 每请求独立进程（U-1）、M3 仅 `lean_check`（U-2）、工程 pin + meta 显式 ≥4.30（U-3）、sidecar 安装 scipy（U-4）、M3 不做独立 kernel 深度（U-5，4.20 无 `leanchecker`）。
 
 ## 1. 问题与 M3 DoD
 
@@ -63,7 +64,7 @@ R-03 §5.2 的 M3 为「完整 AP 子进程 + JSON 契约 + Lean 可选」，DoD
 | F-21 | AP 声明 `requires-python >=3.12`，依赖 `numpy/scipy/scikit-learn/aiohttp/mcp>=1,<2`；M3 检查路径不需要 mcp | `F:\Auto_Prover\pyproject.toml` |
 | F-22 | 3.11 内核已在 ARC 进程内（P-049）；sidecar 必须是独立的 3.12 进程，二者不共享解释器 | P-049 |
 
-**建议**：sidecar venv = `uv venv --python 3.12` + `numpy`；以 `PYTHONPATH=F:\Auto_Prover` 或 `pip install -e F:\Auto_Prover --no-deps` 引入 AP。`scipy` 作为可选增强（数值 oracle），缺失时按 AP 既有语义降级。
+**建议**：sidecar venv = `uv venv --python 3.12` + `numpy + scipy`；以 `PYTHONPATH=F:\Auto_Prover` 或 `pip install -e F:\Auto_Prover --no-deps` 引入 AP。scipy 缺失时仍按 AP 既有语义降级，但 M3 默认安装（§11.4）。
 
 ## 5. 外部锚点（S）
 
@@ -83,6 +84,16 @@ R-03 §5.2 的 M3 为「完整 AP 子进程 + JSON 契约 + Lean 可选」，DoD
 | S-12 | [The Lean Mathematical Library（CPP 2020）](https://arxiv.org/abs/1910.09336) | 社区大型数学库；依赖类型基础 + 大规模自动化；库与工具链强耦合 | T1 学术论文 |
 | S-13 | [Python `os.replace`](https://docs.python.org/3/library/os.html#os.replace) | 同文件系统内替换为原子操作（POSIX 要求）；Windows 上目标为文件时静默替换 | T1 官方文档 |
 | S-14 | [Lean Reference · Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/) | 用 `#print axioms` 查公理；可用 `lean4checker` 重放 kernel；`comparator`/外部检查器为金标准 | T1 官方文档 |
+| S-15 | [MCP · Transports](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports) | 两种标准传输：**stdio（本地子进程）**与 **Streamable HTTP（远程独立进程）** | T1 官方规范 |
+| S-16 | [LSP 3.17 规范 · Base Protocol](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#baseProtocol-inline) | 传输可为 stdio / socket / named pipe / node ipc；stdio 是默认 | T1 官方规范 |
+| S-17 | [LeanDojo（NeurIPS 2023）](https://arxiv.org/abs/2306.15626) | 开源 Lean 交互环境；支持 whole-proof 生成与 proof search；98,734 条定理基准；需与证明环境交互 | T1 学术论文 |
+| S-18 | [miniCTX（2024）](https://arxiv.org/abs/2408.03350) | 真实 Lean 项目/教材定理依赖数万 token 上下文；上下文能力是独立维度 | T1 学术论文 |
+| S-19 | [Autoformalization in the Era of LLMs: A Survey](https://arxiv.org/abs/2505.23486) | NL→形式化的端到端流程（预处理/模型/评估）；可验证性是核心价值 | T1 学术综述 |
+| S-20 | [lean4checker（已并入 Lean）](https://github.com/leanprover/lean4checker) | 仓库已弃用；`leanchecker` 自 **4.28.0** 随工具链分发；用 Lean **同一 kernel** 重放，检测 environment hacking，非外部验证器 | T1 官方仓库 |
+| S-21 | [Lean4Lean（CPP 2026 投稿）](https://arxiv.org/abs/2403.14064) | 独立类型检查器；比参考实现慢 **20%–50%**，可验证全部 mathlib；研究级 | T1 学术论文 |
+| S-22 | [The Oracle Problem in Software Testing: A Survey](http://www0.cs.ucl.ac.uk/staff/mharman/tse-oracle.pdf) | 测试 oracle 问题综述；独立 oracle 是自动化验证的关键瓶颈 | T1 学术综述 |
+| S-23 | [SciPy · `scipy.stats`](https://docs.scipy.org/doc/scipy/reference/stats.html) | 提供分布、矩与统计检验；AP 的解析矩 oracle 依赖该模块 | T1 官方文档 |
+| S-24 | [Lean 4 Metaprogramming Book](https://leanprover-community.github.io/lean4-metaprogramming-book/main/04_metam.html) | `MetaM`/环境 API 与版本强相关；声明图提取依赖具体 toolchain 的元编程接口 | T1 社区官方教材 |
 
 ### 5.1 社区案例与工程先例
 
@@ -118,14 +129,14 @@ R-03 §5.2 的 M3 为「完整 AP 子进程 + JSON 契约 + Lean 可选」，DoD
 | 入口 | 复用 `e2e_stage3.py` | ⚠️ | ⚠️ | ✅ | ❌ 需 LLM | 淘汰 |
 | 验证范围 | **预置 Lean 语句的 `lean_check`（M3 验收）** | ✅ | ✅ | ✅ | ✅ | **采纳** |
 | 验证范围 | 完整 NL→Lean 管线 | ⚠️ | ✅ | ✅ | ❌ 需 LLM | 留 M4 |
-| sidecar 依赖 | **3.12 + numpy（+ scipy 可选）** | ✅ | ✅ | ✅ | ✅ | **采纳** |
+| sidecar 依赖 | **3.12 + numpy + scipy** | ✅ | ✅ | ✅ | ✅ | **采纳**（P-052 定案） |
 | sidecar 依赖 | 完整 AP 安装（含 mcp） | ✅ | ✅ | ✅ | ✅ | 过重；仅 CI 全量时用 |
 
 ### 6.1 信任边界（S-11/S-14）
 
 - **可信锚**：`lake build` 返回 0 且产出 `Main.olean`，再由 `#print axioms` 给出公理集；证明由 Lean kernel 检查，不由 LLM 自报。
 - **不采信**：模型输出中的「已证明」「无 sorry」文本；状态只来自 `decide_citation_label`。
-- **可选加强**：`lean4checker` 重放 kernel、`comparator` 外部检查（U-5），M3 不默认启用，避免把 4.20 工程拖入额外工具链依赖。
+- **可选加强**：`leanchecker`（4.28+）重放 kernel、`comparator` 外部检查（U-5，P-052 结论：M3 不做；4.20 无 `leanchecker`）。
 
 ## 7. 接口草案
 
@@ -223,17 +234,126 @@ R-03 §5.2 的 M3 为「完整 AP 子进程 + JSON 契约 + Lean 可选」，DoD
 
 A/D 用本地 4.20 工程；B/C/E/F 不需要真实 Lean 或只需极短运行。全部不调用 LLM。
 
-## 10. 未决（四元块）
+## 10. 未决（四元块，P-052 已全部关闭）
 
-| # | 判据 | 触发条件 | 当前倾向 | 证据等级 |
+> v1.1 的四元块见 git 历史；§11 给出补充调研与裁定。
+
+| # | 判据 | 结论（P-052） | 证据等级 |
+|---|---|---|---|
+| U-1 | sidecar 传输是否长期保持文件型 | **文件型 + 每请求独立进程**；仅当需要单进程长驻会话时改 stdio JSON-RPC；本机不采用 HTTP | E1/E2（S-15/S-16） |
+| U-2 | `arb verify` 是否必须支持完整 NL→Lean | **M3 仅 `lean_check`**；完整 `verify` 留 M4（需 LLM + 环境交互） | E1（S-17..S-19） |
+| U-3 | 4.30+ 工程是否作为 meta 默认 | **始终工程 pin**；`lean_meta` 显式请求且仅 ≥4.30；4.20 降级 | E1/E2（S-7/S-24） |
+| U-4 | sidecar 是否安装 scipy | **安装**（AP 声明依赖；3.12 venv 实测 1.2s）；ARC 3.11 环境不装 | E1（S-22/S-23 + 本机） |
+| U-5 | 是否把 `lean4checker` 作为独立深度 | **M3 不做**；4.20 工具链无 `leanchecker`；4.28+ 项目可选，Lean4Lean 暂不引入 | E1（S-20/S-21 + 本机） |
+
+## 11. 未决项补充调研与裁定（P-052）
+
+### 11.1 U-1：传输形态
+
+**外部证据**
+
+- MCP 的两种标准传输：stdio（客户端拉起本地子进程）与 Streamable HTTP（独立进程、多客户端、远程）——本地工具默认 stdio（S-15）。
+- LSP 的传输可为 stdio / socket / named pipe / node ipc，stdio 为默认；语言服务器本身是独立进程（S-16）。
+- Azure/Kubernetes 的 sidecar 模式强调「独立进程 + 与主应用同生命周期 + 故障隔离」，不规定具体 IPC（S-9/S-10）。
+
+**方案对比**
+
+| 方案 | 并发模型 | 审计/可重放 | Windows 实现 | 失败隔离 | 结论 |
+|---|---|---|---|---|---|
+| **文件型 per request** | 进程池：每请求一个 sidecar 进程 | 请求/响应文件天然留档 | 临时文件 + `os.replace`（S-13） | 进程级 | **采纳** |
+| stdio JSON-RPC | 单进程多路复用 | 需额外日志/分帧 | pipe | 进程级（协议层需自担） | 备选：单会话长驻 |
+| 本地 HTTP | 多客户端 | 需额外访问日志 | 端口/防火墙 | 服务级 | 淘汰 |
+
+**结论**：M3/M4 默认**文件型 + 每请求独立进程**。它同时满足审计、失败隔离与并发（进程池），且不需要自定义多路复用协议；只有出现「单进程长驻会话 + 低延迟」需求时才升级为 stdio JSON-RPC。M3 落地：`runs/<id>/sidecar/{request,response}.json`，`os.replace` 原子写，超时后终止进程树并清理临时 Lean 工程。
+
+### 11.2 U-2：`lean_check` 与完整 `arb verify`
+
+**外部证据**
+
+- LeanDojo：开源 Lean 交互环境，whole-proof 生成与 proof search 都依赖与证明环境交互；基准含 98,734 条定理（S-17）。
+- miniCTX：真实 Lean 项目的定理依赖数万 token 的上下文，上下文能力是独立维度（S-18）。
+- Autoformalization 综述：NL→形式化是端到端流程（数据、模型、评估），可验证性是其核心价值（S-19）。
+
+**方案对比**
+
+| 方案 | 确定性 | 依赖 | M3 范围 | 结论 |
 |---|---|---|---|---|
-| U-1 | sidecar 传输是否长期保持文件型 | M4 需要长驻/并发调用时 | 先文件；并发 >5 或延迟敏感时评 stdio/HTTP | E2（本批） |
-| U-2 | `arb verify` 是否必须支持完整 NL→Lean（LLM） | M4 接线 Stage 9/20 时 | M3 只做 `lean_check`；完整模式 M4 用 ARC 既有 provider | E3（设计判断） |
-| U-3 | 4.30+ 工程是否作为 meta 提取的默认 | 出现需要 `lean_meta` 的 claim | 按工程 pin；meta 功能显式请求，<4.30 直接降级 | E2（F-10） |
-| U-4 | sidecar 是否安装 scipy | 数值 oracle 在真实 claim 上被使用 | 先不装；缺失按 AP 既有 `OracleInvalid` 降级，M4 再评估 | E2（F-16） |
-| U-5 | 是否把 `lean4checker` 作为独立验证深度（stage3_5） | 首个需要「独立 kernel 重放」的 A/B 类 claim | 先输出 axioms；`lean4checker` 需与工程 toolchain 匹配，M4 评估 | E3（S-14） |
+| **仅 `lean_check`（预置 Lean 语句）** | 完全确定 | 仅 Lean 工程 | 可验收 | **M3 采纳** |
+| 完整 `verify`（NL→LaTeX→Lean→证明） | 依赖模型与上下文 | LLM + 检索 + Lean | 超出 M3 | M4 |
+| 两者同时做 | 部分不确定 | 全量 | 范围膨胀 | 淘汰 |
 
-## 11. 引用
+**结论**：M3 的 `arb verify` 只承诺 `lean_check`；完整 NL→Lean 是 M4 的 `verify` 模式，复用同一 JSON 契约，但需要 ARC 既有 provider 与上下文检索。M3 验收全程零 LLM。
+
+### 11.3 U-3：`lean_meta` 与 4.30 门槛
+
+**外部证据**
+
+- Mathlib4 下游工程必须与 mathlib4 使用**同一** `lean-toolchain`；升级按 tagged release 逐步进行（S-7）。
+- Lean 的 `MetaM`/环境 API 与具体 toolchain 强相关，声明图提取依赖这些接口（S-24）。
+- 本机 `lean_src` 固定 4.20.0，而 AP `lean_meta.read_toolchain` 要求 ≥4.30（F-10）。
+
+**方案对比**
+
+| 方案 | 可复现 | meta 可用 | mathlib 兼容 | 复杂度 | 结论 |
+|---|---|---|---|---|---|
+| **工程 pin + meta 显式请求** | ✅ | 仅 ≥4.30 | ✅ | 低 | **采纳** |
+| 默认 4.30 工程 | ✅ | ✅ | ❌ 需 4.30 mathlib | 中 | 淘汰 |
+| 独立 meta 服务 | ✅ | ✅ | ✅ | 高 | 暂不需要 |
+
+**结论**：始终以工程 `lean-toolchain` 为准；`lean_meta` 是**显式可选能力**，只在工程 ≥4.30 时启用；4.20 工程请求 meta 时直接降级并给出 `lean_meta_requires_4_30`，绝不混用 4.30 工具链与 4.20 mathlib。M3 不调用 `lean_meta`。
+
+### 11.4 U-4：sidecar 是否安装 scipy
+
+**外部证据**
+
+- 测试 oracle 综述：独立 oracle 是自动化验证的关键瓶颈，缺失会显著降低验证覆盖（S-22）。
+- `scipy.stats` 提供分布、矩与统计检验；AP 的解析矩 oracle 依赖它（S-23）。
+- 本机 3.12.11 venv 实测：`scipy==1.18.1` 安装 **1.2s**，与 `numpy 2.5.4` 共存，`stats.norm.mean(loc=1.0, scale=2.0)` 返回 `1.0`。
+
+**方案对比**
+
+| 方案 | oracle 覆盖 | 依赖成本 | 与 AP 语义 | 维护 | 结论 |
+|---|---|---|---|---|---|
+| **安装 scipy** | 完整解析矩 | 1 个 wheel（1.2s） | 一致 | 低 | **采纳** |
+| 不装 scipy | 降为 `OracleInvalid` / `unrecognized` | 0 | 一致但覆盖下降 | 低 | 仅最小镜像 |
+| 自实现统计矩 | 有限 | 0 | 分叉风险 | 高 | 淘汰 |
+
+**结论**：sidecar venv 安装 `numpy + scipy`；ARC 3.11 进程内不装。scipy 缺失时仍按 AP 既有语义 fail-safe 降级，不改变判定。
+
+### 11.5 U-5：`lean4checker` 是否作为独立深度
+
+**外部证据**
+
+- `lean4checker` 仓库已弃用：`leanchecker` 自 **4.28.0** 随工具链分发；它用 Lean **同一 kernel** 重放环境，用于检测 environment hacking，**不是外部验证器**（S-20）。
+- Lean4Lean 是独立类型检查器，比参考实现慢 **20%–50%**，可验证全部 mathlib，属研究级外部检查（S-21）。
+- Lean 官方验证指南把 `#print axioms`、`leanchecker`、`comparator` 分为不同强度层次（S-14）。
+
+**本机复查**
+
+- `leanchecker --version` → `toolchain 'leanprover/lean4:v4.20.0' does not have the binary ...\bin\leanchecker.exe`。
+- `lake env leanchecker --help` 在 `lean_src`（4.20）同样不可用。
+
+**方案对比**
+
+| 方案 | 4.20 可用 | 保证强度 | 成本 | 适用 | 结论 |
+|---|---|---|---|---|---|
+| **仅 axioms + sorry 证据** | ✅ | kernel 已检查 + 公理可见 | 0 | M3 | **采纳** |
+| 内置 `leanchecker` | ❌（需 ≥4.28） | 同 kernel 重放，查环境攻击 | 低 | M4+ 高保障 | 备选 |
+| Lean4Lean 外部检查 | ❌（需匹配构建） | 独立类型检查器 | 高（慢 20–50%） | 研究级 | 暂不引入 |
+
+**结论**：M3 只输出 `#print axioms` 与 sorry 证据，不新增深度；若 M4 出现高保障需求且工程升级到 ≥4.28，可把 `lake env leanchecker` 作为可选 `stage3_5`；Lean4Lean 不作为产品依赖。
+
+### 11.6 汇总
+
+| U | 结论 | M3 动作 | M4 触发 |
+|---|---|---|---|
+| U-1 | 文件型 + 每请求进程 | request/response 文件、原子写、超时清理 | 单会话长驻 → stdio |
+| U-2 | 仅 `lean_check` | 零 LLM 验收 A..F | 完整 `verify` 接线 |
+| U-3 | 工程 pin；meta 显式 ≥4.30 | 不调用 `lean_meta` | 需要声明图时 |
+| U-4 | 安装 scipy | venv = numpy + scipy | 真实数值 claim |
+| U-5 | 不做独立深度 | 输出 axioms/sorry | 工程 ≥4.28 且需高保障 |
+
+## 12. 引用
 
 1. 仓内：[R-03 §2.3/§5.2](../../arb-v2-decisions-research-design.md)、[总纲 G2](../../arc-master-roadmap.md)、[P-042 §8](../arc-g2-decisions/RESEARCH.md)、[P-045](../arc-g2-py311-env/RESEARCH.md)、[P-049](../arc-g2-m2-vendor/IMPLEMENTATION.md)、`F:\Auto_Prover\proof_pipeline\{config,lean4_project,model_gateway}.py`、`stages/proving_runtime.py`、`lean_meta/extract.py`。
-2. 外部：S-1..S-14（§5 表，URL 已逐条解析）；工程先例 C-1..C-7（§5.1）。
+2. 外部：S-1..S-24（§5 表，URL 已逐条解析）；工程先例 C-1..C-7（§5.1）。
