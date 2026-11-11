@@ -1,3 +1,4 @@
+# Modified by AutoResearchClaw on 2026-11-11: added CompileReport.timed_out for M3 timeout evidence.
 """数据类型 — 流水线配置与编译报告"""
 
 from __future__ import annotations
@@ -216,6 +217,9 @@ class CompileReport:
     evidence_complete: bool = True
     returncode: Optional[int] = None
     artifact_present: bool = False
+    # M3 (ARC P-060): 超时证据。`failed` 无法区分超时与普通编译失败，
+    # sidecar 需要据此返回可重试的 75，而不是业务失败 0。
+    timed_out: bool = False
 
     @property
     def formally_clean(self) -> bool:

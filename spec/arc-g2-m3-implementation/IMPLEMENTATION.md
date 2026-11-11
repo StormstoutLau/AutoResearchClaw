@@ -1,19 +1,19 @@
 ---
 id: arc-g2-m3-implementation-IMPLEMENTATION
 type: design
-version: 1.0
-status: in-review
+version: 1.1
+status: verified
 date: 2026-11-11
 depends: [arc-g2-m3-implementation-DESIGN]
 upstream: arc-g2-m3-implementation-DESIGN
 ---
 
-# 实施规格：G2 M3 sidecar（代码未落地）
+# 实施记录：G2 M3 sidecar
 
-> **状态**：本文件是**实施规格**，对应 P-054 设计包；截至 2026-11-11 **尚未写生产代码**，因此不含实际测试读数。P-056/P-058 已落实两轮复审的全部修正，P-059 一致性审查零缺陷（O-1..O-7 随施工落实）；执行批（**P-060**）按本规格施工后，回填 §6 的实测读数并把 CHECKLIST 勾选。
+> **状态**：P-060 已施工完成（AP + ARC + 测试 + vendor 同步），本文件记录**实际改动与读数**；CHECKLIST 已 accepted。O-2..O-7 全部落实。
 > **依据**：[DESIGN.md](DESIGN.md) §3（D-1）、§4（D-2）、§5（契约）、§6（生命周期）。
 
-## 1. 改动清单（计划）
+## 1. 改动清单
 
 | # | 文件 | 类型 | 内容 |
 |---|---|---|---|
@@ -26,6 +26,8 @@ upstream: arc-g2-m3-implementation-DESIGN
 | 7 | `tests/test_evidence_sidecar_live.py` | 新增 | 8 项 live（`ARB_LEAN_PROJECT` 门控） |
 | 8 | `.github/workflows/ci.yml` | 修改 | 单元测试加入固定清单；live 测试在 CI skip |
 | 9 | `docs/PROGRESS.md` | 修改 | P-060 执行行与读数 |
+| 10 | `researchclaw/vendor/auto_prover/datatypes/config.py` | 修改 | re-vendor：`timed_out` + 修改声明；`SOURCE.json` 重算 sha256（O-5） |
+| 11 | `F:\Auto_Prover\tests\test_arc_m3_timeout_evidence.py` | 新增（AP） | 超时证据单测 |
 
 **不改**：M0 契约 schema；ARC 3.11 内核；AP 其余 `proof_pipeline/` 模块。
 
@@ -62,7 +64,7 @@ def main() -> int
 4. `use_per_run_project=true` → `create_per_run_project(source, run_root=ARB_LEAN_RUN_ROOT or temp, run_id=request_id)`；失败 → 78。
 5. `LeanSimRuntime(lake_path=lake, project_dir=project).compile_report(code, theorem_name, timeout_s)`。
 6. **超时**：`report.timed_out` 为真 → 写响应 `exit 75` + `lean_timeout`，跳过判定（不提升状态）。
-7. 按 DESIGN §3：`report.success` → 最小树（`tree.sorry=len(report.sorry_warnings)`）+ `LegalityChecker` + `legality_checked=True`；否则 `tree=None`、`latex_ok=False`。
+7. 按 DESIGN §3：`report.success` → 最小树（`tree.sorry=len(report.sorry_warnings)`）+ `LegalityChecker` + `legality_checked=True`；否则 `tree=None`、`latex_ok=False`。若 `report.diagnostics.startswith("rejected:")` → `rejected_dangerous_construct`（P-059 O-7）。
 8. `decide_citation_label` → `status`；映射 `verification_depth`；更新 C4 的 `status`/`verification_depth`/`policy_version`。
 9. `finally`：写响应（原子）、`remove_per_run_project`；保留 request/response。
 
@@ -195,16 +197,18 @@ pre-commit run --all-files
 python scripts/spec/roadmap_coverage_check.py
 ```
 
-| 项 | 预期 | 实测（执行批回填） |
+| 项 | 预期 | 实测（P-060） |
 |---|---|---|
-| 单元 | 8 passed | — |
-| live | 8 passed | — |
-| L-A 构建 | rc=0，warm 8–60s | — |
-| L-D sorry | `partially_formalized` | — |
-| L-F axiom | `legality_failed` | — |
-| L-G 超时 | 75 / `timed_out=True` | — |
-| L-H 危险构造 | `rejected_dangerous_construct` | — |
-| wheel/包 | 无新增依赖 | — |
+| 单元 | 8 passed | **10 passed**（8 项 + 退出码参数化 3） |
+| live | 8 passed | **8 passed**（11.65s，本机 Lean 4.20） |
+| L-A 构建 | rc=0，warm 8–60s | **`formally_verified` / stage3 / legality pass** |
+| L-D sorry | `partially_formalized` | **`partially_formalized` / `lean_sorry_present`** |
+| L-F axiom | `legality_failed` | **`axioms_not_clean`**（policy 先于 legality；L-F 用例允许两者） |
+| L-G 超时 | 75 / `timed_out=True` | **75 / `lean_timeout`** |
+| L-H 危险构造 | `rejected_dangerous_construct` | **`failed` / `rejected_dangerous_construct`** |
+| AP 测试 | 基线 29 passed/2 skipped | **30 passed / 2 skipped**（新增超时单测） |
+| vendor | 99 passed | **99 passed**（config.py re-vendor 后） |
+| wheel/包 | 无新增依赖 | **无新增 ARC 运行时依赖** |
 
 ## 7. 回退点
 

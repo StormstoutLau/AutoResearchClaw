@@ -1,7 +1,7 @@
 ---
 id: arc-g2-m3-implementation-DESIGN
 type: design
-version: 1.0
+version: 1.1
 status: verified
 date: 2026-11-11
 depends: [arc-g2-m3-implementation-RESEARCH]
@@ -144,6 +144,7 @@ label, reason = decide_citation_label(evidence)
 
 - `claim` 必须是**完整 C4**（14 必填）；sidecar 只改 `status`/`verification_depth`/`policy_version`，不动其他字段。
 - `lean_statement` ≤ 200,000 字符；`theorem_name` 限 `^[A-Za-z_][A-Za-z0-9_'.]*$`；`timeout_s` 钳制 5..1800。
+- **`request_id` 限 `[A-Za-z0-9._-]+`**（P-059 O-4）；用于 sidecar 目录名与 AP per-run `run_id`。
 - `source_project` 为空时读 `ARB_LEAN_PROJECT`；仍为空 → 按 §4 处理。
 - **P-055 O-3**：`request_id` 会经 AP `_sanitize_run_id` 改写为 per-run `run_id`；响应中的 `lean.project` 是实际路径，ARC 不得假设目录名与 `request_id` 相同。
 - **P-055 O-5**：ARC 硬超时 = 请求 `timeout_s` + 30s（进程启动/响应落盘缓冲）；契约两侧只认请求里的 `timeout_s`，客户端不另配业务超时。
@@ -211,7 +212,9 @@ label, reason = decide_citation_label(evidence)
 
 ### 6.2 环境白名单
 
-只传 `PATH`、`SYSTEMROOT`、`TEMP`、`TMP`、`PYTHONPATH`（AP 根）、`ARB_LEAN_PROJECT`、`ARB_LEAN_RUN_ROOT`、`ARB_LEAN_LAKE`。**不透传** ARC 的 provider key、endpoint、token。
+只传 `PATH`、`SYSTEMROOT`、`TEMP`、`TMP`、`USERPROFILE`、`PYTHONUTF8`、`PYTHONIOENCODING`、`PYTHONPATH`（AP 根）、`ARB_LEAN_PROJECT`、`ARB_LEAN_RUN_ROOT`、`ARB_LEAN_LAKE`。**不透传** ARC 的 provider key、endpoint、token。
+
+> **P-060 实测**：`PYTHONUTF8` 不可省——缺它时 sidecar 以系统代码页解码 Lean 的 UTF-8 诊断，`#print axioms`/sorry 行丢失，判定退化为 `axiom_check_skipped`（Live L-A 曾因此失败）。`USERPROFILE` 为 P-059 O-6 的保险项（本机 elan 4.2.0 无它也工作）。
 
 ### 6.3 AP 脚本
 
@@ -231,11 +234,11 @@ label, reason = decide_citation_label(evidence)
 
 | 条件 | `require_lean` | exit | status 上限 | depth | `degraded_reason` |
 |---|---|---|---|---|---|
-| lake 缺失 | true | 78 | ≤ `latex_verified`/`numerically_verified` | stage2 | `lean_unavailable` |
-| lake 缺失 | false | 0 | 同上 | stage2 | `lean_unavailable` |
+| lake 缺失 | true | 78 | 不提升（封顶 `latex_verified`） | stage2 | `lean_unavailable` |
+| lake 缺失 | false | 0 | 不提升（封顶 `latex_verified`） | stage2 | `lean_unavailable` |
 | 工程/`lean-toolchain` 缺失 | true | 78 | 不提升 | stage2 | `lean_project_missing` |
 | 工程/`lean-toolchain` 缺失 | false | 0 | 不提升 | stage2 | `lean_project_missing` |
-| 编译失败 | 任意 | 0 | `_fallback`（无树 → ≤ latex） | stage2 | `lean_compile_failed` |
+| 编译失败 | 任意 | 0 | `FAILED`（`latex_ok=False`） | stage2 | `lean_compile_failed` |
 | 含 sorry | 任意 | 0 | `partially_formalized` | stage2 | `lean_sorry_present` |
 | axiom 不干净/未检 | 任意 | 0 | `partially_formalized` | stage2 | `axioms_not_clean` |
 | 合法性失败 | 任意 | 0 | `partially_formalized` | stage2 | `legality_failed` |

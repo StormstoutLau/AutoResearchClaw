@@ -22,8 +22,8 @@
     {
       "path": "datatypes/config.py",
       "source": "proof_pipeline/datatypes/config.py",
-      "bytes": 12527,
-      "sha256": "8e64f3ef937a35113bf7b0195ebe399ce0c50ff2aedda72312c81650747ba4b8"
+      "bytes": 12825,
+      "sha256": "f7d126c06856fedd890084839aa30cc53e63c318aad65fb258ce487254f275f2"
     },
     {
       "path": "datatypes/core.py",
@@ -213,6 +213,10 @@
     {
       "path": "stages/__init__.py",
       "reason": "avoid importing Lean/ATLAS/sidecar stages"
+    },
+    {
+      "path": "datatypes/config.py",
+      "reason": "added CompileReport.timed_out for M3 timeout evidence"
     }
   ],
   "excluded": [

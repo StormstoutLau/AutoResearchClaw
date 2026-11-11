@@ -119,6 +119,8 @@ jobs:
             tests/test_vendor_d110_verdict_policy.py \
             tests/test_vendor_d110_verdict_recheck.py \
             tests/test_vendor_semantic_verdict.py \
+            tests/test_evidence_sidecar.py \
+            tests/test_evidence_sidecar_live.py \
             tests/test_retrieval_degraded.py \
             tests/test_forged_execution_guards.py \
             tests/test_env_allowlist.py \

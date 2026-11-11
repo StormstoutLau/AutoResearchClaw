@@ -141,6 +141,8 @@ R-03 §5.2 的 M3 为「完整 AP 子进程 + JSON 契约 + Lean 可选」，DoD
 
 ## 7. 接口草案
 
+> **P-059 O-2**：本节为 P-050 的早期草案（claim 投影、`toolchain` 字段、扁平 `lean_available`）；**字段与退出码以 [P-054 DESIGN](../arc-g2-m3-implementation/DESIGN.md) §4/§5 为准**，本节仅保留决策轨迹。
+
 ### 7.1 请求（ARC → sidecar）
 
 ```json
