@@ -1,14 +1,14 @@
 ---
 id: arc-master-roadmap
 type: design
-version: 1.3l
+version: 1.3o
 status: draft
 date: 2026-11-11
 depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-textbook, clawsgo-cleanroom-arc]
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.3l）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.3o）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -62,6 +62,12 @@ upstream: arb-v2-decisions
 > **修订**：v1.3k（2026-11-11，P-064）**M5 交付 + G2 收口**：审查平面按 R-03 §5.1 落为离线批次模式——`compare_claims` 抽为 Stage 23 与离线审计的**唯一比对实现**（规则不可能分歧）；新增只读 `run_offline_audit` 与 `researchclaw audit --run-dir` CLI（退出码 0/1/2），版本锚点取 claims 自带 `policy_version` 逐条核验（`policy_version_mismatch`）。M5 DoD 机检：7 状态矩阵两平面同 status、只读快照断言、确定性、失败封闭；M5 套件 29 passed、M4+M5 88 passed（3.13.5 与 3.11.15）、相关回归 108 passed、M4 59 项零回归。**G2 全部里程碑（M0–M5）交付，G3 可开工**；O-1/O-2（annotation 供给与封顶渲染语义）移交 G3 输入。**106 计数不变**。依据：[P-064 实施](spec/arc-g2-m5-offline-audit/IMPLEMENTATION.md)。
 >
 > **修订**：v1.3l（2026-11-11，P-068）**M5 复审缺陷关闭**：P-065..P-067 的 D-1..D-5 全部修复——`compare_claims` 增双向集合检查（`orphan_production_decision`/`duplicate_claim_id`），gate 对重复 `claim_id` 直接 block（`duplicate_claim_ids`），`--policy-version <1` 与 `--output` 失败 → exit 2，诊断统一 stderr，`no_claims` 收紧为无 claims 且无 production。P-067 D-5 集成约束（集合检查无条件、逐条循环保留守卫）已落地。实测：M5 36 passed、M4+M5 95 passed（3.13.5 与 3.11.15）、相关回归 108 passed、既有 29 项零回归。**106 计数不变**。依据：[P-068 修复](spec/arc-g2-m5-offline-audit-fixes/IMPLEMENTATION.md)。
+>
+> **修订**：v1.3m（2026-11-11，P-070）**G3 M0 决策采纳**：G3 readiness 的 Q-1..Q-9 由「建议」升为「已采纳决策」——Stage 20 允许 `PARTIALLY_FORMALIZED` 但强制 `formalization_gap` 标注；ArtifactNode 大文件只存指针；annotation 跟随封顶后状态并由 Stage 14 生产；`pipeline_summary` 采用 JCS + SHA-256 侧车 + `stage_events` 哈希链；循环检测采用签名+零新增+网络豁免；RunMandate 启动即不可变；K5 未解析即阻断；敏感产物只存指针。G3 M0 顺延 **P-071**。**106 计数不变**。依据：[G3 readiness v1.2](spec/arc-g3-readiness/RESEARCH.md)。
+>
+> **修订**：v1.3n（2026-11-11，P-074）**G3 M0 设计冻结**：六组接口定稿——ArtifactNode v1（12 字段/哈希/指针边界）、pipeline_summary（JCS+侧车+M2 事件链）、stage_events/循环（3 次同签名+零新增+网络豁免）、claim 脊柱（vendor CitationLabel 复用、claim_annotations、`[c-xxxxxxxx]`、claim_export、cap_reasons）、治理（RunMandate/StageHandback/prompt_version）、K5/retrieval。20 个验收 ID 映射到 **M1=P-075、M2=P-076、M3=P-077、M4=P-078、M5=P-079**；本批零代码/零测试。**106 计数不变**。依据：[G3 M0 设计包](spec/arc-g3-m0-design/DESIGN.md)。
+>
+> **修订**：v1.3o（2026-11-11，P-075）**G3 M1 交付（ArtifactNode + summary 侧车）**：新增 `evidence/artifact_node.py`（12 字段、content_hash/inputs_digest、blob/指针、`register_stage_artifacts`、`verify_tree`、`project_to_evidence`）与 `evidence/summary_check.py`（canonical compact JSON + `.sha256` 侧车 + 可选事件锚定）；runner DONE 阶段注册节点、summary 改原子写 + 侧车。实测：M1 21 passed（3.13.5 与 3.11.15）、M1+runner 67 passed、runner/checkpoint/kb/report 92 passed；AN-1/2/3 与 A3-2 侧车达标。事件链三向留 M2，AN-4/5/6 导出侧全量留 M3。**106 计数不变**。依据：[P-075 实施](spec/arc-g3-m1-artifacts/IMPLEMENTATION.md)。
 
 ---
 
@@ -393,7 +399,7 @@ flowchart LR
 | A3-7 | 每次 LLM 请求记录 `prompt_version`；claim 可追溯到生成它的版本 | 版本变更导致历史 claim 不可复现即失败 |
 | A3-8 | 越界子任务走 `StageHandback {reason, evidence}` 交回路由，不静默扩 scope | 静默扩写或丢弃即失败 |
 
-**决策闸门**：Stage 20 是否允许 `PARTIALLY_FORMALIZED` 通过（建议允许）；ArtifactNode 是否覆盖 Stage 12 大文件（建议只存指针）。
+**决策闸门（P-070 已裁决，P-074 已冻结接口，M1 已交付）**：Stage 20 **允许** `PARTIALLY_FORMALIZED` 通过，但强制 `formalization_gap` 标注，仅阻断 `FALSIFIED/FAILED`；**ArtifactNode 对 Stage 12 大文件只存指针**（`content_hash + locator`）。其余 Q-3..Q-9 与六组接口见 [G3 M0 设计包](spec/arc-g3-m0-design/DESIGN.md) §2..§8。
 
 ---
 

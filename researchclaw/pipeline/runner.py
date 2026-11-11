@@ -81,10 +81,9 @@ def _build_pipeline_summary(
 
 
 def _write_pipeline_summary(run_dir: Path, summary: dict[str, object]) -> None:
-    (run_dir / "pipeline_summary.json").write_text(
-        json.dumps(summary, indent=2),
-        encoding="utf-8",
-    )
+    from researchclaw.evidence.summary_check import write_summary
+
+    write_summary(run_dir, summary)
 
 
 def _write_checkpoint(
@@ -803,6 +802,20 @@ def execute_pipeline(
                 pass
 
         if result.status == StageStatus.DONE:
+            try:
+                from researchclaw.evidence.artifact_node import register_stage_artifacts
+
+                register_stage_artifacts(
+                    run_dir,
+                    int(stage),
+                    stage.name,
+                    result.artifacts,
+                    attempt=1,
+                )
+            except Exception:  # noqa: BLE001 - registration must not break the run
+                logger.warning(
+                    "ArtifactNode registration failed for %s", stage.name, exc_info=True
+                )
             _write_checkpoint(run_dir, stage, run_id, adapters=adapters)
             _emit(_log, "stage.completed",
                   {"name": stage.name, "artifacts": len(result.artifacts or ())},

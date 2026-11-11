@@ -124,6 +124,8 @@ jobs:
             tests/test_claim_policy.py \
             tests/test_stage_claim_hooks.py \
             tests/test_offline_audit.py \
+            tests/test_artifact_node.py \
+            tests/test_pipeline_summary_check.py \
             tests/test_retrieval_degraded.py \
             tests/test_forged_execution_guards.py \
             tests/test_env_allowlist.py \
