@@ -1,0 +1,3 @@
+# Byte-exact vendored code: never apply EOL conversion, so SOURCE.json sha256
+# stays valid across Windows/Linux checkouts.
+researchclaw/vendor/auto_prover/** -text

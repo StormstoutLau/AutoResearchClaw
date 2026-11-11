@@ -1,0 +1,236 @@
+{
+  "upstream": {
+    "name": "Auto_Prover",
+    "url": "https://github.com/StormstoutLau/Auto_Prover",
+    "version": "3.7.0",
+    "commit": "bd95f02",
+    "commit_subject": "fix(w15): 兼容 venv redirector 与 Job Object 进程上限（D173）",
+    "license": "Apache-2.0",
+    "copyright": "Copyright 2026 Aiming Lab"
+  },
+  "vendored_at": "2026-11-11",
+  "batch": "P-049 / G2 M2",
+  "root": "researchclaw/vendor/auto_prover",
+  "file_count": 27,
+  "files": [
+    {
+      "path": "datatypes/__init__.py",
+      "source": "proof_pipeline/datatypes/__init__.py",
+      "bytes": 2680,
+      "sha256": "d9c8709216c3ab72cb779d7a673d9dee6e346f8ea703cb7c53da801abe60a2af"
+    },
+    {
+      "path": "datatypes/config.py",
+      "source": "proof_pipeline/datatypes/config.py",
+      "bytes": 12527,
+      "sha256": "8e64f3ef937a35113bf7b0195ebe399ce0c50ff2aedda72312c81650747ba4b8"
+    },
+    {
+      "path": "datatypes/core.py",
+      "source": "proof_pipeline/datatypes/core.py",
+      "bytes": 5362,
+      "sha256": "5713b73db69958ae7d54c1acd89e53d992677df36534fdf6c376168c3b1a5d05"
+    },
+    {
+      "path": "datatypes/hypothesis.py",
+      "source": "proof_pipeline/datatypes/hypothesis.py",
+      "bytes": 3796,
+      "sha256": "0673c4ee79f1c57f42e01511c13f480e4c19c1ea9dc258c1fa6905b40deb65cf"
+    },
+    {
+      "path": "datatypes/numerical.py",
+      "source": "proof_pipeline/datatypes/numerical.py",
+      "bytes": 12269,
+      "sha256": "62f0d25289afa408e829cdaccffcff317384701c7d955988d140213783f80d74"
+    },
+    {
+      "path": "datatypes/proof.py",
+      "source": "proof_pipeline/datatypes/proof.py",
+      "bytes": 4167,
+      "sha256": "77d1c620c57dd993f6d23131ff0baf798c3acf2a6eaf7d96c7c060467ca0f722"
+    },
+    {
+      "path": "datatypes/result.py",
+      "source": "proof_pipeline/datatypes/result.py",
+      "bytes": 8722,
+      "sha256": "0094ecab1ba1af22da3b106ea6ed55d374483aef15cbf1b268f14410a1ccfcce"
+    },
+    {
+      "path": "datatypes/retrieval.py",
+      "source": "proof_pipeline/datatypes/retrieval.py",
+      "bytes": 4459,
+      "sha256": "3ae73bcd84241262e609a5305a98753984ce19771dad380fd16463668e285d11"
+    },
+    {
+      "path": "datatypes/translation.py",
+      "source": "proof_pipeline/datatypes/translation.py",
+      "bytes": 2843,
+      "sha256": "f94116f2ef986e8291e14ee43ac54e23aed8b1319b289c420bb7985a70ff05b5"
+    },
+    {
+      "path": "kg/i2_extractor.py",
+      "source": "proof_pipeline/kg/i2_extractor.py",
+      "bytes": 6041,
+      "sha256": "a9e3163f4a0a795956090baafe9300fef9f5a9bdf1241934aeec45aacef5386b"
+    },
+    {
+      "path": "kg/unified_cases.py",
+      "source": "proof_pipeline/kg/unified_cases.py",
+      "bytes": 18017,
+      "sha256": "b4aa10b7676e5cfc07f893380dac31e14bad7230fd53012469f72dbb110a3927"
+    },
+    {
+      "path": "kg/verdict_writer.py",
+      "source": "proof_pipeline/kg/verdict_writer.py",
+      "bytes": 2910,
+      "sha256": "a132ba4260e8008787117b4efcff06a1eb5df93ffd1a9ca09987975a0bfe6d50"
+    },
+    {
+      "path": "model_gateway.py",
+      "source": "proof_pipeline/model_gateway.py",
+      "bytes": 18414,
+      "sha256": "579e1ff03b02c53cdb6c49b7bc0af4892a8e7b1aa386d7197c516938026b27a6"
+    },
+    {
+      "path": "sandbox/__init__.py",
+      "source": "proof_pipeline/sandbox/__init__.py",
+      "bytes": 1035,
+      "sha256": "58c894fd3110ef378c99e6c1da90bcf4a65edde04ab413e452275ac5a14fd4eb"
+    },
+    {
+      "path": "sandbox/evaluator.py",
+      "source": "proof_pipeline/sandbox/evaluator.py",
+      "bytes": 17545,
+      "sha256": "fb88328ab88dc36210d40bff1b3f744d12f3ec8833d001e2bc0f5db155f873ed"
+    },
+    {
+      "path": "sandbox/lean_filter.py",
+      "source": "proof_pipeline/sandbox/lean_filter.py",
+      "bytes": 3014,
+      "sha256": "d94f2dbf8ab8e1d43581d3c9e203d5acf853c1b7bac95a43cd5769e786ea0018"
+    },
+    {
+      "path": "sandbox/limits.py",
+      "source": "proof_pipeline/sandbox/limits.py",
+      "bytes": 8022,
+      "sha256": "fcb1bfbbff0a2137d13ab94f722e16210b9e75fe8935e957ce118fd752e47138"
+    },
+    {
+      "path": "scripts/verdict_recheck.py",
+      "source": "scripts/verdict_recheck.py",
+      "bytes": 3871,
+      "sha256": "049b361e2bfdd480a89177e350613221fc86e89439282ba9788eced2973da59a"
+    },
+    {
+      "path": "semantic_verdict.py",
+      "source": "proof_pipeline/semantic_verdict.py",
+      "bytes": 4720,
+      "sha256": "2f6d8475467c6212eacaa2b355a0dc397d5a0671ceca5d7f4830c3a1d0f3bd0b"
+    },
+    {
+      "path": "stages/counterexample_search.py",
+      "source": "proof_pipeline/stages/counterexample_search.py",
+      "bytes": 24675,
+      "sha256": "f27fb153bf1f5a4ef9dc27685627a000a233fde5d97eaec822ad103aa2529937"
+    },
+    {
+      "path": "stages/numerical_calibration.py",
+      "source": "proof_pipeline/stages/numerical_calibration.py",
+      "bytes": 28570,
+      "sha256": "a2a5125faf6f386a71d8810815fa896f939137eb5072bb288f7881a098aea3a1"
+    },
+    {
+      "path": "stages/numerical_core.py",
+      "source": "proof_pipeline/stages/numerical_core.py",
+      "bytes": 6074,
+      "sha256": "19346995a2b16d907d485c6f66afe60c08ab2bebc8919ea2c3a264a41dffc8c8"
+    },
+    {
+      "path": "stages/numerical_oracle.py",
+      "source": "proof_pipeline/stages/numerical_oracle.py",
+      "bytes": 15531,
+      "sha256": "403c3aeb78a0c278c4f1cf10f6d595ecff20512ad8c3566a6d32446b25b30ef1"
+    },
+    {
+      "path": "stages/stage2_numerical.py",
+      "source": "proof_pipeline/stages/stage2_numerical.py",
+      "bytes": 27944,
+      "sha256": "90b1945a17425aa8dfde86a8b31f1e896e34df5a836843e2e9c85efcee23e74d"
+    },
+    {
+      "path": "verdict/__init__.py",
+      "source": "proof_pipeline/verdict/__init__.py",
+      "bytes": 185,
+      "sha256": "ecc798ddfbbb70a575d99df81a1372f06612a647c151ded849db3316251c8f63"
+    },
+    {
+      "path": "verdict/evidence.py",
+      "source": "proof_pipeline/verdict/evidence.py",
+      "bytes": 1705,
+      "sha256": "6f9fae10586fa7a6cbbe96c23c293118417d34a76ce3108b1163d39f3b8a17ba"
+    },
+    {
+      "path": "verdict/policy.py",
+      "source": "proof_pipeline/verdict/policy.py",
+      "bytes": 3228,
+      "sha256": "681c0891f6a44b485d3553797ce585c46bd60cab29f100796d4881269c10592d"
+    }
+  ],
+  "license_files": [
+    {
+      "path": "LICENSE",
+      "source": "LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "NOTICE",
+      "source": "NOTICE",
+      "sha256": "6c9fe96cf23ad5af9615ad6760a382f6527aad8565e314af5ab6b6e1f90988a9"
+    }
+  ],
+  "added": [
+    {
+      "path": "__init__.py",
+      "license": "Apache-2.0",
+      "note": "package marker"
+    },
+    {
+      "path": "kg/__init__.py",
+      "license": "Apache-2.0",
+      "note": "minimal replacement of upstream __init__"
+    },
+    {
+      "path": "stages/__init__.py",
+      "license": "Apache-2.0",
+      "note": "minimal replacement of upstream __init__"
+    }
+  ],
+  "modifications": [
+    {
+      "path": "kg/__init__.py",
+      "reason": "avoid importing kg_importer/kg_writeback (sidecar boundary)"
+    },
+    {
+      "path": "stages/__init__.py",
+      "reason": "avoid importing Lean/ATLAS/sidecar stages"
+    }
+  ],
+  "excluded": [
+    "atlas_bridge/vendor/atlas_*.py",
+    "atlas_bridge/vendor/data/lean4_cases/",
+    "proof_pipeline/kg/kg_importer.py",
+    "proof_pipeline/kg/kg_writeback.py",
+    "proof_pipeline/kg/verdict_store.py",
+    "proof_pipeline/mcp_servers/",
+    "proof_pipeline/stages/stage0_retrieval.py",
+    "proof_pipeline/stages/stage1_*",
+    "proof_pipeline/stages/stage3_*",
+    "proof_pipeline/stages/stage3_5_legality.py",
+    "spec/",
+    "docs/"
+  ],
+  "verification": {
+    "tests": 65,
+    "command": "python -m pytest tests/test_vendor_d110_verdict_policy.py tests/test_vendor_d110_verdict_recheck.py tests/test_vendor_semantic_verdict.py -q"
+  }
+}

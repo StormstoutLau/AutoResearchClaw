@@ -40,6 +40,8 @@ jobs:
           required = [
               "researchclaw/templates/styles/iclr_2025/iclr2025_conference.sty",
               "researchclaw/templates/styles/iclr_2025/iclr2025_conference.bst",
+              "researchclaw/vendor/auto_prover/LICENSE",
+              "researchclaw/vendor/auto_prover/NOTICE",
           ]
           for path in required:
               assert path in names, f"missing wheel asset: {path}"
@@ -113,6 +115,10 @@ jobs:
             tests/test_claim_verifier_wiring.py \
             tests/test_contracts_v1.py \
             tests/test_g2_ar_checks.py \
+            tests/test_vendor_auto_prover.py \
+            tests/test_vendor_d110_verdict_policy.py \
+            tests/test_vendor_d110_verdict_recheck.py \
+            tests/test_vendor_semantic_verdict.py \
             tests/test_retrieval_degraded.py \
             tests/test_forged_execution_guards.py \
             tests/test_env_allowlist.py \
