@@ -1,0 +1,27 @@
+{
+  "claim_id": "c-1a2b3c4d",
+  "claim_type": "confirmatory",
+  "statement": "Scaling the learning rate by 1/sqrt(d) keeps the loss curve within 2% of the baseline.",
+  "formal_statement": null,
+  "formality": {
+    "status": "debt",
+    "reason": "Lean development is not enabled for this claim."
+  },
+  "assumptions": [],
+  "evidence": [],
+  "reasoning_chain": [],
+  "stats_protocol": {
+    "estimator": "mean loss",
+    "sample": "n=5 seeds",
+    "missing_policy": "drop failed runs",
+    "alpha": 0.05,
+    "section_index": 3
+  },
+  "falsifier": {
+    "condition": "max deviation > 2% on any seed",
+    "test_ref": "e-001"
+  },
+  "verification_depth": "stage2",
+  "status": "numerically_verified",
+  "policy_version": 2
+}

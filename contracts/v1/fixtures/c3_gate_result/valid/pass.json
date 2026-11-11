@@ -1,0 +1,7 @@
+{
+  "status": "pass",
+  "code": "AR-01",
+  "evidence_refs": ["e-001"],
+  "coverage": 1.0,
+  "pre_red_fixture": "tests/fixtures/ar01_missing_evidence.json"
+}

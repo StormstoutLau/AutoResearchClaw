@@ -1,0 +1,12 @@
+{
+  "evidence_id": "e-001",
+  "source_layer": "T1",
+  "tier": "E1",
+  "kind": "pointer",
+  "source_id": "arXiv:1706.03762",
+  "locator": "§5.3, Table 3",
+  "quote": "We used the Adam optimizer with beta1 = 0.9.",
+  "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "independent": true,
+  "replay_cmd": null
+}

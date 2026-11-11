@@ -1,0 +1,12 @@
+{
+  "task_id": "t-20261111-02",
+  "task_desc": "Empty acceptance list must be rejected.",
+  "accept": [],
+  "golden": {
+    "ref": "fixtures/golden/theorem2.json",
+    "checksum": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "evidence_budget": 1,
+  "sensitivity": "public",
+  "readonly": true
+}

@@ -40,6 +40,7 @@ dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
     "httpx>=0.24",
+    "jsonschema>=4.20",
     "build>=1.2,<2",
     "hatchling>=1.30,<2",
 ]

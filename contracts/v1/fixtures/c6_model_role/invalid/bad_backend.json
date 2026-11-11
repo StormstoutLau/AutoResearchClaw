@@ -1,0 +1,10 @@
+{
+  "role": "reasoner",
+  "backend": "local-only",
+  "sensitivity": "private",
+  "model_id": "local/qwen3-32b",
+  "budget": {
+    "max_tokens": 8000,
+    "max_usd": 0.0
+  }
+}

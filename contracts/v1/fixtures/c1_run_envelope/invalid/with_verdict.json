@@ -1,0 +1,9 @@
+{
+  "run_id": "run-20261111-0002",
+  "attempt": 1,
+  "inputs_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "exit_code": 0,
+  "status": "succeeded",
+  "usage": {},
+  "verdict": "pass"
+}

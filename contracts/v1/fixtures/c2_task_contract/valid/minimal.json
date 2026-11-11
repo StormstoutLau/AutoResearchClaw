@@ -1,0 +1,17 @@
+{
+  "task_id": "t-20261111-01",
+  "task_desc": "Verify Theorem 2 numerically against the reference implementation.",
+  "accept": [
+    {
+      "criteria": "max abs error <= 1e-9 on the golden fixture",
+      "criteria_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  ],
+  "golden": {
+    "ref": "fixtures/golden/theorem2.json",
+    "checksum": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "evidence_budget": 8,
+  "sensitivity": "internal",
+  "readonly": true
+}

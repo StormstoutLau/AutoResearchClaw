@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:arc:contracts:v1:run_envelope",
+  "title": "RunEnvelope v1",
+  "description": "Execution-plane envelope. Producers never self-assess: a `verdict` field is forbidden.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "attempt", "inputs_digest", "exit_code", "status", "usage"],
+  "properties": {
+    "run_id": {"type": "string", "minLength": 1},
+    "attempt": {"type": "integer", "minimum": 1},
+    "inputs_digest": {"$ref": "#/$defs/digest"},
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["digest", "size"],
+      "properties": {
+        "digest": {"$ref": "#/$defs/digest"},
+        "size": {"type": "integer", "minimum": 0}
+      }
+    },
+    "exit_code": {"type": "integer"},
+    "status": {"enum": ["running", "succeeded", "failed", "timeout", "cancelled"]},
+    "usage": {
+      "type": "object",
+      "additionalProperties": {"type": "number", "minimum": 0}
+    }
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}

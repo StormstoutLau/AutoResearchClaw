@@ -1,0 +1,5 @@
+{
+  "source_of_truth": ["docs/PROGRESS.md", "tools/spec_runner/sessions/"],
+  "generated_by": "scripts/spec/console_gen.py",
+  "check_cmd": "python scripts/spec/console_gen.py --check"
+}

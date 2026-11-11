@@ -1,0 +1,11 @@
+{
+  "evidence_id": "e-002",
+  "source_layer": "T2",
+  "tier": "E2",
+  "kind": "snapshot",
+  "source_id": "local:notes/benchmark-2026-11-11.txt",
+  "locator": "lines 10-12",
+  "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "independent": false,
+  "readonly": false
+}

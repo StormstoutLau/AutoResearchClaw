@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:arc:contracts:v1:gate_result",
+  "title": "GateResult v1",
+  "description": "Result of one gate. Every gate must ship a pre-red fixture that can turn it red.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "code", "evidence_refs", "coverage", "pre_red_fixture"],
+  "properties": {
+    "status": {"enum": ["pass", "fail", "warn", "skip"]},
+    "code": {"type": "string", "minLength": 1},
+    "evidence_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "coverage": {"type": "number", "minimum": 0, "maximum": 1},
+    "pre_red_fixture": {"type": "string", "minLength": 1}
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:arc:contracts:v1:evidence_ref",
+  "title": "EvidenceRef v1",
+  "description": "One evidence pointer or snapshot. Missing locator/digest never counts as verified.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["evidence_id", "source_layer", "tier", "kind", "source_id", "locator", "digest", "independent"],
+  "properties": {
+    "evidence_id": {"type": "string", "minLength": 1},
+    "source_layer": {"enum": ["T1", "T2", "T3", "T4"]},
+    "tier": {"enum": ["E1", "E2", "E3", "E4", "E5"]},
+    "kind": {"enum": ["pointer", "snapshot"]},
+    "source_id": {"type": "string", "minLength": 1},
+    "locator": {"type": "string", "minLength": 1},
+    "quote": {"type": "string"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "independent": {"type": "boolean"},
+    "readonly": {"type": "boolean"},
+    "replay_cmd": {"type": ["string", "null"]}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"kind": {"const": "snapshot"}}, "required": ["kind"]},
+      "then": {
+        "required": ["readonly"],
+        "properties": {"readonly": {"const": true}}
+      }
+    }
+  ]
+}

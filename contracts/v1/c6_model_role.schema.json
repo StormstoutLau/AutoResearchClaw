@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:arc:contracts:v1:model_role",
+  "title": "ModelRole v1",
+  "description": "Role/back-end routing record. `local` must hard-reject egress at runtime (M3), which is not expressible in schema.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["role", "backend", "sensitivity", "model_id", "budget"],
+  "properties": {
+    "role": {"enum": ["orchestrator", "reasoner", "tactician", "aux"]},
+    "backend": {"enum": ["local", "egress"]},
+    "sensitivity": {"enum": ["public", "internal", "private"]},
+    "model_id": {"type": "string", "minLength": 1},
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_tokens", "max_usd"],
+      "properties": {
+        "max_tokens": {"type": "integer", "minimum": 0},
+        "max_usd": {"type": "number", "minimum": 0}
+      }
+    }
+  }
+}

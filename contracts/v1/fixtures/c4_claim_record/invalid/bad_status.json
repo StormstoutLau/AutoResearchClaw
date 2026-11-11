@@ -1,0 +1,22 @@
+{
+  "claim_id": "c-1a2b3c4d",
+  "claim_class": "A",
+  "claim_type": "exploratory",
+  "statement": "Scaling the learning rate by 1/sqrt(d) keeps the loss curve within 2% of the baseline.",
+  "formal_statement": null,
+  "formality": {
+    "status": "formal",
+    "reason": null
+  },
+  "assumptions": [],
+  "evidence": [],
+  "reasoning_chain": [],
+  "stats_protocol": null,
+  "falsifier": {
+    "condition": "",
+    "test_ref": ""
+  },
+  "verification_depth": "stage1",
+  "status": "VERIFIED",
+  "policy_version": 2
+}

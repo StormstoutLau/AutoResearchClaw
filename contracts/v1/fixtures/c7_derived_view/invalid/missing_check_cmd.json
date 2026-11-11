@@ -1,0 +1,4 @@
+{
+  "source_of_truth": ["docs/PROGRESS.md"],
+  "generated_by": "scripts/spec/console_gen.py"
+}

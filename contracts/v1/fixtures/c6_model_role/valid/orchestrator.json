@@ -1,0 +1,10 @@
+{
+  "role": "orchestrator",
+  "backend": "local",
+  "sensitivity": "private",
+  "model_id": "local/qwen3-32b",
+  "budget": {
+    "max_tokens": 32000,
+    "max_usd": 0.0
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "run_id": "run-20261111-0001",
+  "attempt": 1,
+  "inputs_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "artifact": {
+    "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "size": 1024
+  },
+  "exit_code": 0,
+  "status": "succeeded",
+  "usage": {
+    "tokens_in": 1200,
+    "tokens_out": 800,
+    "cost_usd": 0.12
+  }
+}
