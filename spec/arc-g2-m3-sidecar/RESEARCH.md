@@ -1,7 +1,7 @@
 ---
 id: arc-g2-m3-sidecar-RESEARCH
 type: design
-version: 1.2
+version: 1.3
 status: verified
 date: 2026-11-11
 depends: [arc-g2-decisions, arc-g2-py311-env, arc-g2-m2-vendor]
@@ -15,6 +15,7 @@ upstream: arc-g2-m2-vendor
 > **结论先行**：主控站已有 **6 个 elan 工具链**（4.18.0 / 4.20.0 默认 / 4.30.0 / 4.31.0 / 4.31.0-rc1 / 4.32.0-rc1），本地 mathlib 工程 `D:\Textbook\lean_src` 固定 **4.20.0** 且依赖全部为 path、Mathlib 已有 **6443 个 olean** 预热；实测 per-run 工程 `lake build Main` **53.3s 成功**。M3 建议：**Lean 版本以工程 `lean-toolchain` 为唯一真值源**（elan 自动选择），sidecar 用 **3.12.11 + numpy + scipy** 即可 import 完整 AP 管线并保留解析矩 oracle；传输用**文件型 JSON**，`arb verify` 采用「预置 Lean 语句的确定性检查」作为 M3 验收面，完整 NL→Lean 管线留 M4。
 > **修订**：v1.1（2026-11-11，P-051）**补充外部社区案例与学术锚点**——新增 Mathlib4 依赖工程实践、lean-action CI、Azure/Kubernetes sidecar 模式、Lean 4 与 Mathlib 论文、`lean4checker` 验证指南、`os.replace` 原子替换等 9 条来源（S-6..S-14）与 7 个工程先例（C-1..C-7）；据此新增 U-5（是否把 `lean4checker` 作为独立深度）与 §6.1 信任边界。决策与 F 事实不变。
 > **修订**：v1.2（2026-11-11，P-052）**U-1..U-5 全部关闭**——补充 MCP/LSP 传输实践、LeanDojo/miniCTX/autoformalization 学术资料、Lean meta 版本敏感性与 oracle 问题综述；新增 S-15..S-24 与 §11 逐项方案对比。结论：文件型 + 每请求独立进程（U-1）、M3 仅 `lean_check`（U-2）、工程 pin + meta 显式 ≥4.30（U-3）、sidecar 安装 scipy（U-4）、M3 不做独立 kernel 深度（U-5，4.20 无 `leanchecker`）。
+> **修订**：v1.3（2026-11-11，P-054）**D-2 退出码更正**——77 保留给 ARC G1b 的 REVOKED/NOPERM；Lean 为必需能力（`require_lean=true`）且缺失时用 **78**，Lean 可选时走 **exit 0 + degraded**。以 [P-054 DESIGN](../arc-g2-m3-implementation/DESIGN.md) §4 为准；§7.3/§9 同步订正。
 
 ## 1. 问题与 M3 DoD
 
@@ -205,7 +206,7 @@ R-03 §5.2 的 M3 为「完整 AP 子进程 + JSON 契约 + Lean 可选」，DoD
 | 0 | 正常完成（含业务失败状态） | 编译/验证完成，`claim_record.status` 可为 `failed`/`falsified` |
 | 65 | 数据错误 | 请求 JSON 非法、字段缺失 |
 | 75 | 暂时性失败 | 编译/验证超时（可重试） |
-| 77 | 能力不可用 | Lean 不可用（降级路径） |
+| 77 | ~~能力不可用~~ | **P-054 更正：77 = REVOKED，sidecar 不使用** |
 | 78 | 配置错误 | `source_project` 不存在 / `lean-toolchain` 缺失 |
 
 ## 8. 降级矩阵
@@ -227,7 +228,7 @@ R-03 §5.2 的 M3 为「完整 AP 子进程 + JSON 契约 + Lean 可选」，DoD
 |---|---|---|
 | A | 3.12.11 venv + `lean_check` 一条可证明定理（4.20 工程） | exit 0；`status=formally_verified`；`depth=stage3`；`lean_version=4.20.0` |
 | B | `source_project` 指向不存在目录 | exit 78；`degraded_reason=lean_project_missing`；不产出正式标签 |
-| C | `lake` 指向不存在可执行文件 | exit 77；`depth=stage2`；`lean_unavailable_reason` 非空 |
+| C | `lake` 指向不存在可执行文件 | exit 78（`require_lean=true`）或 0 + degraded（`false`）；`depth=stage2`；`lean_unavailable_reason` 非空 |
 | D | 注入 `sorry` 的定理 | `status=partially_formalized`；`depth=stage2`；`degraded_reason=lean_sorry_present` |
 | E | 编译错误（语法/未定义） | 不提升状态；`degraded_reason=lean_compile_failed` |
 | F | 超过 `timeout_s` | exit 75；可重试；不产生 `formally_verified` |
