@@ -10,7 +10,7 @@ upstream: arc-g2-m3-implementation-IMPLEMENTATION
 
 # 验收清单：G2 M3 sidecar（待执行）
 
-> 状态 **pending**：本清单对应 P-054 设计包的施工验收；P-056 已完成 D-A/D-B/D-C 修正并通过 [P-057 复审](../../docs/arc-g2-m3-fixes-review-20261111.md)（零缺陷），执行批（**P-058**）落实 O-A..O-D 后逐项勾选并回填读数。
+> 状态 **pending**：本清单对应 P-054 设计包的施工验收；P-056 已修正 D-A/D-B/D-C，P-057 复审零缺陷，P-058 已落实 O-A..O-D；执行批（**P-059**）完成后逐项勾选并回填读数。
 
 ## 0. 设计修复前置（P-056，已完成）
 
@@ -22,6 +22,13 @@ upstream: arc-g2-m3-implementation-IMPLEMENTATION
 - [x] **O-3**：`request_id` 经 `_sanitize_run_id` 改名，`lean.project` 为准
 - [x] **O-4**：§7 补「危险构造被拒」行 + L-H
 - [x] **O-5**：ARC 硬超时 = 请求 `timeout_s` + 30s 写入契约
+
+## 0.1 施工注意项（P-058，已完成）
+
+- [x] **O-A**：删除 §3.1 的 `evidence_complete` 建树条件（交由 policy `evidence_incomplete`）
+- [x] **O-B**：§7 补判定优先级（tree_partial > file_sorry > evidence_incomplete > axiom > legality）
+- [x] **O-C**：`rejected_dangerous_construct` 以 `diagnostics.startswith("rejected:")` 判定
+- [x] **O-D**：AP 基线 `test_b27_compile_check.py` + `test_w2_lean_filter.py` = **29 passed, 2 skipped**；real-Lean 用例须用 per-run 项目（`lean_src` 无 `Main` 目标）
 
 ## 1. M3 DoD / A2-7
 

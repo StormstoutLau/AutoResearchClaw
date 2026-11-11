@@ -10,7 +10,7 @@ upstream: arc-g2-m3-implementation-DESIGN
 
 # 实施规格：G2 M3 sidecar（代码未落地）
 
-> **状态**：本文件是**实施规格**，对应 P-054 设计包；截至 2026-11-11 **尚未写生产代码**，因此不含实际测试读数。P-056 已按 P-055 复审修正 D-A/D-B/D-C 与 O-1..O-5，并通过 [P-057 复审](../../docs/arc-g2-m3-fixes-review-20261111.md)（零缺陷，O-A..O-D 随施工落实）；执行批（**P-058**）按本规格施工后，回填 §6 的实测读数并把 CHECKLIST 勾选。
+> **状态**：本文件是**实施规格**，对应 P-054 设计包；截至 2026-11-11 **尚未写生产代码**，因此不含实际测试读数。P-056 已按 P-055 复审修正 D-A/D-B/D-C 与 O-1..O-5；P-058 已落实 P-057 的 O-A..O-D（含 AP 基线测试）；执行批（**P-059**）按本规格施工后，回填 §6 的实测读数并把 CHECKLIST 勾选。
 > **依据**：[DESIGN.md](DESIGN.md) §3（D-1）、§4（D-2）、§5（契约）、§6（生命周期）。
 
 ## 1. 改动清单（计划）
@@ -25,7 +25,7 @@ upstream: arc-g2-m3-implementation-DESIGN
 | 6 | `tests/test_evidence_sidecar.py` | 新增 | 8 项单元测试（mock，无 Lean） |
 | 7 | `tests/test_evidence_sidecar_live.py` | 新增 | 8 项 live（`ARB_LEAN_PROJECT` 门控） |
 | 8 | `.github/workflows/ci.yml` | 修改 | 单元测试加入固定清单；live 测试在 CI skip |
-| 9 | `docs/PROGRESS.md` | 修改 | P-058 执行行与读数 |
+| 9 | `docs/PROGRESS.md` | 修改 | P-059 执行行与读数 |
 
 **不改**：M0 契约 schema；ARC 3.11 内核；AP 其余 `proof_pipeline/` 模块。
 
@@ -161,7 +161,7 @@ def _map_exit(code: int, payload: dict) -> None             # 抛对应异常
 
 门控：`ARB_LEAN_PROJECT` + `shutil.which("lake")`；否则 `pytest.skip`（S-11）。
 
-## 5. 实施顺序（P-058）
+## 5. 实施顺序（P-059）
 
 1. **AP 超时证据**：`CompileReport.timed_out` + `_run_build` 超时分支写 `diagnostics`，补 AP 单测。
 2. AP `arb_verify.py` 纯函数骨架（请求校验、响应构造）→ 本地以假数据跑通 65/78/75。
@@ -169,9 +169,8 @@ def _map_exit(code: int, payload: dict) -> None             # 抛对应异常
 4. AP 接真实 Lean（`LeanSimRuntime` + `LegalityChecker`）→ live L-A/L-D/L-F。
 5. 补 L-B/L-C/L-E/L-G/L-H；记录 warm/cold 计时。
 6. CI 固定清单加入单元测试；live 文件保留 skip。
-7. 回填 §6 读数、CHECKLIST 勾选、PROGRESS P-058。
-8. **P-057 O-C**：`rejected_dangerous_construct` 以 `report.diagnostics.startswith("rejected:")` 判定。
-9. **P-057 O-D**：施工时跑 AP 相关测试（`test_b27_compile_check.py`、`test_d2_d10_lean4_runtime.py` 等）并回填读数。
+7. 回填 §6 读数、CHECKLIST 勾选、PROGRESS P-059。
+8. 施工后重跑 AP 相关测试并与 **P-058 基线**对比（无 Lean 环境：`29 passed, 2 skipped`；`AUTO_PROVER_LAKE_PROJECT` 指向 **per-run 项目**而非 `lean_src`，否则 b27 真实用例因无 `Main` 目标失败）。
 
 ## 6. 验证命令与预期读数（待执行）
 

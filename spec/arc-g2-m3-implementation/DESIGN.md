@@ -34,10 +34,9 @@ upstream: arc-g2-m3-implementation-RESEARCH
 
 ### 3.1 触发条件
 
-构造最小树**当且仅当**：
+构造最小树**当且仅当** `compile_report.success is True`。
 
-1. `compile_report.success is True`；
-2. `compile_report.evidence_complete is True`。
+`evidence_complete` **不进入建树条件**：它由 policy 的 `evidence_incomplete` 出口处理（P-057 O-A；`LeanSimRuntime` 当前两处构造点恒为 `True`，但删除该条件可避免未来出现 `success=True, evidence_complete=False` 时无树、又被 `latex_ok` 误标 `latex_verified`）。
 
 含 sorry 时**也造树**，并令 `tree.sorry = len(compile_report.sorry_warnings)`；axiom 与合法性的处置交给 policy（`axioms_not_clean` / `axiom_check_skipped` / `legality_failed` / `tree_partial`）。否则 `proof_tree=None`、`legality_checked=False`，走 policy 的 `_fallback`。
 
@@ -243,6 +242,10 @@ label, reason = decide_citation_label(evidence)
 | 危险构造被拒 | 任意 | 0 | `failed` | stage2 | `rejected_dangerous_construct` |
 | 超时（`timed_out`） | 任意 | 75 | 不提升 | stage2 | `lean_timeout` |
 | sidecar 整体硬超时 | 任意 | 75 | 不提升 | stage2 | `lean_timeout`（客户端合成） |
+
+**判定优先级（P-057 O-B）**：policy 的短路顺序为 `tree_partial`（sorry/blocked）> `file_sorry`（sorry 警告）> `evidence_incomplete` > `axioms_not_clean`/`axiom_check_skipped` > `legality_not_checked`/`legality_failed` > `all_gates_passed`。多条件并存时按此取第一条；矩阵各行为单条件示例。
+
+**危险构造检测（P-057 O-C）**：`rejected_dangerous_construct` 以 `report.diagnostics.startswith("rejected:")` 判定——`proving_runtime.py:161` 的拒绝分支稳定写入该前缀，不新增 AP 字段。
 
 ## 8. 测试设计
 
