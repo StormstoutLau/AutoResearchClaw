@@ -1,7 +1,7 @@
 ---
 id: arc-g2-m3-implementation-RESEARCH
 type: design
-version: 1.0
+version: 1.1
 status: verified
 date: 2026-11-11
 depends: [arc-g2-m3-sidecar, arc-g2-m0-contracts, arc-g2-m2-vendor]
@@ -13,6 +13,7 @@ upstream: arc-g2-m3-sidecar
 > **Feature**：P-054，M3 实施批的工程调研（设计包）。
 > **Spec 步骤**：T1 完整管线（Layer-1：新增 `researchclaw/evidence/sidecar.py`、AP `scripts/arb_verify.py` 与测试）。
 > **结论先行**：P-053 的 **D-1 已可解**——最小 `ProofTree`（根 PROVEN）+ **真实运行 AP 7 层 `LegalityChecker`** 后，`decide_citation_label` 返回 `formally_verified`（本批探针）；仅造树不跑合法性只会得到 `partially_formalized`。**D-2 按「必需 vs 可选」拆分**：77 保留给 REVOKED，必需 Lean 缺失用 78，可选 Lean 缺失走 exit 0 + `degraded_reason`。工程形态：ARC 侧文件型客户端 + AP 侧 JSON CLI，进程每请求、超时 `taskkill /T`、响应返回**完整 C4**。
+> **修订**：v1.1（2026-11-11，P-056 设计修复）**D-A/D-B/D-C 修正**——建树条件改为「success 即建树、sorry 计入 `tree.sorry`」；`latex_ok=report.success`；`failed→stage2`；超时改用 AP `CompileReport.timed_out`（`wait_for` 无法抢占同步 `_run_build`）。新增 F-13/F-14。
 
 ## 1. 问题与开工前置
 
@@ -31,7 +32,7 @@ P-053 复审确认两项 P1 缺口，必须在实施前定案：
 | F-2 | **最小树 + 真实 `LegalityChecker.check(VerifiedProof)`**：合法代码 → `formally_verified / all_gates_passed`；注入 `axiom cheat : False` → 第 2 层失败 → `partially_formalized / legality_failed` | 本批双探针 |
 | F-3 | `ProofTree` 字段：`root/total_subgoals/proven/sorry/blocked`；`ProofNode(id, goal, status=PROVEN)` 足以构造最小树 | `datatypes/proof.py:28-52` |
 | F-4 | `VerifiedProof` 必填 `theorem_name/lean_code`，`proof_tree` 可选；`LegalityChecker(PipelineConfig).check(proof)` 为纯正则检查，无 IO | `datatypes/result.py`、`stage3_5_legality.py:24-50` |
-| F-5 | `CompileReport` 默认 `evidence_complete=True`、`axiom_check="not_requested"`；要拿 `formally_verified` 必须显式传 `theorem_name` 并得到 `axiom_check="passed"` | `datatypes/numerical.py` 类定义 |
+| F-5 | `CompileReport` 默认 `evidence_complete=True`、`axiom_check="not_requested"`；要拿 `formally_verified` 必须显式传 `theorem_name` 并得到 `axiom_check="passed"` | `datatypes/config.py:194` 类定义 |
 | F-6 | AP 已有「真实 Lean 测试按环境变量跳过」范式：`AUTO_PROVER_LAKE_PROJECT` + `shutil.which("lake")` 决定 skip/实跑 | `tests/test_b27_compile_check.py` |
 | F-7 | 3.12.11 venv（numpy 2.5.4 + scipy 1.18.1）可导入完整 `proof_pipeline` 并调用判定/合法性模块 | P-052 探针 + 本批探针 |
 | F-8 | 退出码契约：0 ok / 65 data / 75 retryable / 77 revoked / 78 config / 85 paused；**只有 75 可重试** | `researchclaw/runtime/exit_codes.py:10-15` |
@@ -39,6 +40,8 @@ P-053 复审确认两项 P1 缺口，必须在实施前定案：
 | F-10 | Windows `taskkill /pid <pid> /t /f` 可终止进程及其子进程 | Microsoft taskkill 文档 |
 | F-11 | `os.replace` 在同文件系统内为原子替换（POSIX 要求；Windows 目标为文件时静默替换） | Python 文档 |
 | F-12 | AP 无 console script；sidecar 需新增 `scripts/arb_verify.py`，不能复用 `e2e_stage3.py`（1800s、需 LLM） | `pyproject.toml`、`scripts/e2e_stage3.py` |
+| F-13 | `_run_build` 的 `TimeoutExpired` 分支只写 `message`，不写 `diagnostics`；`compile_report` 只取 `diagnostics` ⇒ **超时信号丢失**，与普通编译失败不可区分 | `stages/proving_runtime.py:287-289`、`compile_report` 读码 |
+| F-14 | `compile_report` 是 `async def`，内部却**同步**调用 `_run_build`（阻塞事件循环）⇒ `asyncio.wait_for` 无法抢占；超时必须由结构化字段或外部进程终止兜底 | `proving_runtime.py` 读码 |
 
 ## 3. 外部锚点与工程先例（S/C）
 

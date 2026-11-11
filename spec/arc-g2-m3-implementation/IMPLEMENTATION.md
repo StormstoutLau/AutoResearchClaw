@@ -10,7 +10,7 @@ upstream: arc-g2-m3-implementation-DESIGN
 
 # 实施规格：G2 M3 sidecar（代码未落地）
 
-> **状态**：本文件是**实施规格**，对应 P-054 设计包；截至 2026-11-11 **尚未写生产代码**，因此不含实际测试读数。执行批（**P-056**，编号经 P-055 复审让位调整）按本规格施工后，须先落实 [P-055 复审](../../docs/arc-g2-m3-impl-review-20261111.md) 的 D-A/D-B/D-C 修正，再回填 §6 的实测读数并把 CHECKLIST 勾选。
+> **状态**：本文件是**实施规格**，对应 P-054 设计包；截至 2026-11-11 **尚未写生产代码**，因此不含实际测试读数。P-056 已按 P-055 复审修正 D-A/D-B/D-C 与 O-1..O-5；执行批（**P-057**）按本规格施工后，回填 §6 的实测读数并把 CHECKLIST 勾选。
 > **依据**：[DESIGN.md](DESIGN.md) §3（D-1）、§4（D-2）、§5（契约）、§6（生命周期）。
 
 ## 1. 改动清单（计划）
@@ -18,14 +18,16 @@ upstream: arc-g2-m3-implementation-DESIGN
 | # | 文件 | 类型 | 内容 |
 |---|---|---|---|
 | 1 | `F:\Auto_Prover\scripts\arb_verify.py` | 新增（AP） | JSON CLI：请求校验、工程/lake 解析、编译、判定、响应落盘 |
-| 2 | `researchclaw/evidence/sidecar.py` | 新增（ARC） | 客户端：请求写、进程启动、超时终止、响应校验、退出码映射 |
-| 3 | `researchclaw/evidence/__init__.py` | 修改 | 导出 `SidecarConfig`、`SidecarResult`、`run_lean_check` 与错误类型 |
-| 4 | `tests/test_evidence_sidecar.py` | 新增 | 8 项单元测试（mock，无 Lean） |
-| 5 | `tests/test_evidence_sidecar_live.py` | 新增 | 7 项 live（`ARB_LEAN_PROJECT` 门控） |
-| 6 | `.github/workflows/ci.yml` | 修改 | 单元测试加入固定清单；live 测试在 CI skip |
-| 7 | `docs/PROGRESS.md` | 修改 | P-055 执行行与读数 |
+| 2 | `F:\Auto_Prover\proof_pipeline\datatypes\config.py` | 修改（AP） | `CompileReport` 增 `timed_out: bool = False`（D-C） |
+| 3 | `F:\Auto_Prover\proof_pipeline\stages\proving_runtime.py` | 修改（AP） | `_BuildOutcome` 增 `timed_out`；超时分支写 `diagnostics`（D-C） |
+| 4 | `researchclaw/evidence/sidecar.py` | 新增（ARC） | 客户端：请求写、进程启动、超时终止、响应校验、退出码映射 |
+| 5 | `researchclaw/evidence/__init__.py` | 修改 | 导出 `SidecarConfig`、`SidecarResult`、`run_lean_check` 与错误类型 |
+| 6 | `tests/test_evidence_sidecar.py` | 新增 | 8 项单元测试（mock，无 Lean） |
+| 7 | `tests/test_evidence_sidecar_live.py` | 新增 | 8 项 live（`ARB_LEAN_PROJECT` 门控） |
+| 8 | `.github/workflows/ci.yml` | 修改 | 单元测试加入固定清单；live 测试在 CI skip |
+| 9 | `docs/PROGRESS.md` | 修改 | P-057 执行行与读数 |
 
-**不改**：`proof_pipeline/` 任何模块；M0 契约 schema；ARC 3.11 内核。
+**不改**：M0 契约 schema；ARC 3.11 内核；AP 其余 `proof_pipeline/` 模块。
 
 ## 2. AP 侧 `arb_verify.py`（新增）
 
@@ -59,9 +61,10 @@ def main() -> int
 3. 解析 lake；`require_lean=true` 且缺失 → 写降级响应 + **78**；`false` → 写降级响应 + **0**。
 4. `use_per_run_project=true` → `create_per_run_project(source, run_root=ARB_LEAN_RUN_ROOT or temp, run_id=request_id)`；失败 → 78。
 5. `LeanSimRuntime(lake_path=lake, project_dir=project).compile_report(code, theorem_name, timeout_s)`。
-6. 按 DESIGN §3：满足 5 个条件 → 最小树 + `LegalityChecker` + `legality_checked=True`；否则 `tree=None`。
-7. `decide_citation_label` → `status`；映射 `verification_depth`；更新 C4 的 `status`/`verification_depth`/`policy_version`。
-8. `finally`：写响应（原子）、`remove_per_run_project`；保留 request/response。
+6. **超时**：`report.timed_out` 为真 → 写响应 `exit 75` + `lean_timeout`，跳过判定（不提升状态）。
+7. 按 DESIGN §3：`report.success` → 最小树（`tree.sorry=len(report.sorry_warnings)`）+ `LegalityChecker` + `legality_checked=True`；否则 `tree=None`、`latex_ok=False`。
+8. `decide_citation_label` → `status`；映射 `verification_depth`；更新 C4 的 `status`/`verification_depth`/`policy_version`。
+9. `finally`：写响应（原子）、`remove_per_run_project`；保留 request/response。
 
 ### 2.4 响应构造要点
 
@@ -153,18 +156,20 @@ def _map_exit(code: int, payload: dict) -> None             # 抛对应异常
 | L-D | sorry | `partially_formalized` / stage2 |
 | L-E | 语法错误 | 不提升 / `lean_compile_failed` |
 | L-F | axiom 注入 | `partially_formalized` / `legality_failed` |
-| L-G | 极小 timeout | 75 |
+| L-G | 极小 timeout | 75 / `lean_timeout`（`timed_out`） |
+| L-H | 危险构造（`IO.`） | `failed` / `rejected_dangerous_construct`；exit 0 |
 
 门控：`ARB_LEAN_PROJECT` + `shutil.which("lake")`；否则 `pytest.skip`（S-11）。
 
-## 5. 实施顺序（P-056）
+## 5. 实施顺序（P-057）
 
-1. AP `arb_verify.py` 纯函数骨架（请求校验、响应构造）→ 本地以假数据跑通 65/78。
-2. ARC `sidecar.py` + 8 项单元测试（mock）→ 3.11/3.13 全绿。
-3. AP 接真实 Lean（`LeanSimRuntime` + `LegalityChecker`）→ live L-A/L-D/L-F。
-4. 补 L-B/L-C/L-E/L-G；记录 warm/cold 计时。
-5. CI 固定清单加入单元测试；live 文件保留 skip。
-6. 回填 §6 读数、CHECKLIST 勾选、PROGRESS P-055。
+1. **AP 超时证据**：`CompileReport.timed_out` + `_run_build` 超时分支写 `diagnostics`，补 AP 单测。
+2. AP `arb_verify.py` 纯函数骨架（请求校验、响应构造）→ 本地以假数据跑通 65/78/75。
+3. ARC `sidecar.py` + 8 项单元测试（mock）→ 3.11/3.13 全绿。
+4. AP 接真实 Lean（`LeanSimRuntime` + `LegalityChecker`）→ live L-A/L-D/L-F。
+5. 补 L-B/L-C/L-E/L-G/L-H；记录 warm/cold 计时。
+6. CI 固定清单加入单元测试；live 文件保留 skip。
+7. 回填 §6 读数、CHECKLIST 勾选、PROGRESS P-057。
 
 ## 6. 验证命令与预期读数（待执行）
 
@@ -176,7 +181,7 @@ python -m pytest tests/test_evidence_sidecar.py -q
 # live（本机 Lean 4.20 工程）
 $env:ARB_LEAN_PROJECT="D:\Textbook\lean_src"
 python -m pytest tests/test_evidence_sidecar_live.py -q
-# 预期：7 passed（L-A..L-G）
+# 预期：8 passed（L-A..L-H）
 
 # 直接 CLI 冒烟
 python F:\Auto_Prover\scripts\arb_verify.py --request <req> --response <resp>
@@ -190,10 +195,12 @@ python scripts/spec/roadmap_coverage_check.py
 | 项 | 预期 | 实测（执行批回填） |
 |---|---|---|
 | 单元 | 8 passed | — |
-| live | 7 passed | — |
+| live | 8 passed | — |
 | L-A 构建 | rc=0，warm 8–60s | — |
 | L-D sorry | `partially_formalized` | — |
 | L-F axiom | `legality_failed` | — |
+| L-G 超时 | 75 / `timed_out=True` | — |
+| L-H 危险构造 | `rejected_dangerous_construct` | — |
 | wheel/包 | 无新增依赖 | — |
 
 ## 7. 回退点
@@ -207,6 +214,7 @@ python scripts/spec/roadmap_coverage_check.py
 1. **不伪造证据**：`tree_origin=compile_only` 必须出现在响应；无树时不得声称形式化。
 2. **不占用 77**：`_map_exit` 显式拒绝 77；遇到 77 抛 `SidecarError`（契约违规）。
 3. **不传凭据**：`_build_env` 白名单；测试 U-7 机械断言。
-4. **不吞超时**：超时先 `taskkill /t /f`，再抛 75；不得仅 `Popen.kill()`。
+4. **不吞超时**：AP 内部超时置 `timed_out=True` → 响应 75；ARC 硬超时先 `taskkill /t /f` 再合成 75，不得仅 `Popen.kill()`。
 5. **不让 lake 警告污染诊断**：sidecar 只信 `compile_report` 结构化字段，不从 stdout 解析。
 6. **Windows 路径**：全部 `Path`；JSON 中统一 `str()`；不拼接 `\\`。
+7. **超时字段兼容**：`CompileReport.timed_out` 默认 `False`，AP 既有构造点零变化；vendor（P-049）不含 `proving_runtime`，无需同步。

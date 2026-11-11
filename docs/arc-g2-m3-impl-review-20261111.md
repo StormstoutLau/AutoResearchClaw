@@ -72,6 +72,11 @@ A2-7 明文「编译失败 → 深度 stage2」。修正：lean_check 模式下 
 ## 4. 结论
 
 - **无幻觉**：12 项主张中 11 项复现/读码一致；唯一偏差是 O-1 的引用指针（内容正确）。P-054 的两个核心定案——最小树 + 真实合法性（D-1 解法）、77 保留/78 必需/0 可选（D-2 解法）——**方向正确且经探针背书**。
-- **三处 P1 修正（D-A/D-B/D-C）必须在施工前落入 DESIGN**：均为映射规则修正，改动面小（§3.1/§3.3/§2.3 第 5 步 + §7 补行），不需要独立修复批——由执行批（重编号为 **P-056**）开工时先修订 DESIGN 再写码。
+- **三处 P1 修正（D-A/D-B/D-C）必须在施工前落入 DESIGN**：均为映射规则修正，改动面小（§3.1/§3.3/§2.3 第 5 步 + §7 补行），不需要独立修复批——由设计修复批（**P-056**）落实，执行批为 **P-057**。
 - 原「执行批 P-055」编号让位给本复审，P-054 文档中的两处引用已同步订正。
-- CHECKLIST 保持 pending；O-1..O-5 与 D-A..D-C 一并作为 P-056 输入。
+- CHECKLIST 保持 pending；O-1..O-5 与 D-A..D-C 一并作为 P-057 输入。
+
+## 5. P-056 追记（2026-11-11）
+
+- D-A/D-B/D-C 与 O-1..O-5 已在 P-056 落入 [DESIGN](../spec/arc-g2-m3-implementation/DESIGN.md)/[IMPLEMENTATION](../spec/arc-g2-m3-implementation/IMPLEMENTATION.md)/[CHECKLIST](../spec/arc-g2-m3-implementation/CHECKLIST.md)；执行批顺延为 **P-057**。
+- **D-C 实现口径修正**：本报告建议的 `asyncio.wait_for` 不可行——`compile_report` 虽是 `async def`，内部同步调用 `_run_build` 会阻塞事件循环，`wait_for` 无法抢占。P-056 改为 AP `CompileReport.timed_out` 结构化字段 + ARC 客户端硬超时兜底（`taskkill /T` 后合成 75）。

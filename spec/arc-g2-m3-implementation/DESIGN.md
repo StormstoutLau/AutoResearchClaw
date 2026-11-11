@@ -14,7 +14,7 @@ upstream: arc-g2-m3-implementation-RESEARCH
 
 ## 1. 范围
 
-- **做**：ARC 侧 sidecar 客户端；AP 侧 `scripts/arb_verify.py`；`mode=lean_check` 的确定性验证；完整 C4 响应；降级与退出码；单元 + live 测试。
+- **做**：ARC 侧 sidecar 客户端；AP 侧 `scripts/arb_verify.py`；`mode=lean_check` 的确定性验证；完整 C4 响应；降级与退出码；单元 + live 测试；**AP 侧一处超时证据修复**（D-C）。
 - **不做**：NL→Lean 的 `mode=verify`（M4）；`leanchecker` 独立深度（4.20 无）；sidecar 随 wheel 分发。
 
 ## 2. 模块与文件
@@ -26,46 +26,52 @@ upstream: arc-g2-m3-implementation-RESEARCH
 | ARC | `tests/test_evidence_sidecar.py` | 单元测试（mock 进程，无 Lean） |
 | ARC | `tests/test_evidence_sidecar_live.py` | live 测试（环境门控，真实 Lean） |
 | AP | `scripts/arb_verify.py` | JSON CLI：读请求、跑 Lean、建判定、写响应 |
-| AP | （不改 `proof_pipeline/`） | 复用 `LeanSimRuntime`、`LegalityChecker`、`decide_citation_label` |
+| AP | `proof_pipeline/stages/proving_runtime.py` | **修改**：超时分支写 `diagnostics` 并置 `timed_out`（D-C） |
+| AP | `proof_pipeline/datatypes/config.py` | **修改**：`CompileReport` 增 `timed_out: bool = False` |
+| AP | （其余 `proof_pipeline/` 不改） | 复用 `LeanSimRuntime`、`LegalityChecker`、`decide_citation_label` |
 
 ## 3. D-1 判定映射（编译见证 + 真实合法性）
 
 ### 3.1 触发条件
 
-仅当以下**全部成立**时构造最小树并跑合法性：
+构造最小树**当且仅当**：
 
 1. `compile_report.success is True`；
-2. `compile_report.status == "success"`（无 sorry 警告）；
-3. `not compile_report.sorry_warnings`；
-4. `compile_report.axiom_check == "passed"`；
-5. `compile_report.evidence_complete is True`。
+2. `compile_report.evidence_complete is True`。
 
-否则 `proof_tree=None`、`legality_checked=False`，走 policy 的 `_fallback`。
+含 sorry 时**也造树**，并令 `tree.sorry = len(compile_report.sorry_warnings)`；axiom 与合法性的处置交给 policy（`axioms_not_clean` / `axiom_check_skipped` / `legality_failed` / `tree_partial`）。否则 `proof_tree=None`、`legality_checked=False`，走 policy 的 `_fallback`。
+
+> **P-055 D-A 修正**：旧设计把「无 sorry + axioms passed」也放进建树条件，导致含 sorry / axiom dirty / 编译失败时无树，而 `latex_ok=True` 常量又让它们回落成 `latex_verified`——越过 A2-7 上限。现改为「success 即建树，其余交给 policy」，并令 `latex_ok = compile_report.success`（编译失败 → `FAILED`，不再冒充 `latex_verified`）。
 
 ### 3.2 构造与判定
 
 ```python
-tree = ProofTree(
-    root=ProofNode(id="root", goal=theorem_name, status=NodeStatus.PROVEN),
-    total_subgoals=1, proven=1, sorry=0, blocked=0,
-)
-verified = VerifiedProof(
-    theorem_name=theorem_name, lean_code=code,
-    compile_status="success", proof_tree=tree,
-)
-legality = LegalityChecker(PipelineConfig()).check(verified)   # 真实 7 层
+if compile_report.success:
+    tree = ProofTree(
+        root=ProofNode(id="root", goal=theorem_name, status=NodeStatus.PROVEN),
+        total_subgoals=1, proven=1,
+        sorry=len(compile_report.sorry_warnings), blocked=0,
+    )
+    verified = VerifiedProof(
+        theorem_name=theorem_name, lean_code=code,
+        compile_status=compile_report.status, proof_tree=tree,
+    )
+    legality = LegalityChecker(PipelineConfig()).check(verified)   # 真实 7 层
+else:
+    tree, legality = None, None
+
 evidence = VerdictEvidence(
-    latex_ok=True,
+    latex_ok=compile_report.success,          # 编译失败 → FAILED
     proof_tree=tree,
     compile_report=compile_report,
     legality_report=legality,
-    legality_checked=True,
+    legality_checked=tree is not None,
 )
 label, reason = decide_citation_label(evidence)
 ```
 
-- **语义**：最小树是「kernel 已接受该定理」的**编译见证**（`tree_origin="compile_only"`），不是伪造证明；合法性由真实 `LegalityChecker` 报告背书。
-- **反例（本批探针）**：合法代码 → `formally_verified / all_gates_passed`；`axiom cheat : False` → 第 2 层失败 → `partially_formalized / legality_failed`。
+- **语义**：最小树是「kernel 已接受该定理（sorry 已计入 `tree.sorry`）」的**编译见证**（`tree_origin="compile_only"`），不是伪造证明；合法性由真实 `LegalityChecker` 报告背书。
+- **反例（P-055 探针）**：合法代码 → `formally_verified / all_gates_passed`；`axiom cheat : False` → 第 2 层失败 → `partially_formalized / legality_failed`；sorry → `tree_partial`；编译失败 → `FAILED / stage1_not_success`。
 - **禁止**：不运行合法性却设 `legality_checked=True`（P-053 D-1 的淘汰方案）。
 
 ### 3.3 深度映射
@@ -73,11 +79,11 @@ label, reason = decide_citation_label(evidence)
 | `status` | `verification_depth` |
 |---|---|
 | `formally_verified` | `stage3` |
-| `partially_formalized` / `numerically_verified` | `stage2` |
-| `latex_verified` / `failed` / `falsified` / `speculation` | `stage1` |
+| `partially_formalized` / `numerically_verified` / `failed` / `falsified` | `stage2` |
+| `latex_verified` / `speculation` | `stage1` |
 | （未来 `leanchecker` 通过） | `stage3_5`（M4+，M3 不产出） |
 
-`stage3_5` 保留但 M3 不写；A2-7 的「无 Lean/编译失败/sorry → 上限 `partially_formalized`、深度 `stage2`」由上表保证。
+**P-055 D-B 修正**：`failed` 由 `stage1` 改为 `stage2`——A2-7 明文要求「编译失败 → 深度 stage2」；`falsified` 来自 Stage 2 数值反例，同样记 `stage2`（lean_check 不产出，属 M4 语义）。`stage3_5` 保留但 M3 不写。
 
 ## 4. D-2 退出码与 `require_lean`
 
@@ -140,6 +146,8 @@ label, reason = decide_citation_label(evidence)
 - `claim` 必须是**完整 C4**（14 必填）；sidecar 只改 `status`/`verification_depth`/`policy_version`，不动其他字段。
 - `lean_statement` ≤ 200,000 字符；`theorem_name` 限 `^[A-Za-z_][A-Za-z0-9_'.]*$`；`timeout_s` 钳制 5..1800。
 - `source_project` 为空时读 `ARB_LEAN_PROJECT`；仍为空 → 按 §4 处理。
+- **P-055 O-3**：`request_id` 会经 AP `_sanitize_run_id` 改写为 per-run `run_id`；响应中的 `lean.project` 是实际路径，ARC 不得假设目录名与 `request_id` 相同。
+- **P-055 O-5**：ARC 硬超时 = 请求 `timeout_s` + 30s（进程启动/响应落盘缓冲）；契约两侧只认请求里的 `timeout_s`，客户端不另配业务超时。
 
 ### 5.2 响应
 
@@ -150,7 +158,7 @@ label, reason = decide_citation_label(evidence)
   "run": {
     "run_id": "req-20261111-0001",
     "attempt": 1,
-    "inputs_digest": "sha256:...",
+    "inputs_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "exit_code": 0,
     "status": "succeeded",
     "usage": {"build_ms": 8421.0, "total_ms": 9100.0}
@@ -214,8 +222,11 @@ label, reason = decide_citation_label(evidence)
 4. 必需能力缺失且 `require_lean=true` → 写降级响应 + exit 78；`false` → 写降级响应 + exit 0。
 5. `use_per_run_project=true` → `create_per_run_project`（AP）；失败按配置错误 78。
 6. `LeanSimRuntime(lake_path, project_dir).compile_report(code, theorem_name, timeout)`；`is_llm_code=True` 走 AP 危险构造过滤。
-7. 按 §3 构造树/合法性/判定；更新 C4；写响应（`finally` 中保证落盘）。
-8. `finally`：`remove_per_run_project`（Windows 文件锁重试）；不删除 request/response（审计）。
+7. **超时**：AP `compile_report` 在 `_run_build` 超时后置 `report.timed_out=True`（见 §2 的 AP 改动）；arb_verify 见 `timed_out` → 写响应 `exit 75` + `lean_timeout`，不再走普通失败。
+8. 按 §3 构造树/合法性/判定；更新 C4；写响应（`finally` 中保证落盘）。
+9. `finally`：`remove_per_run_project`（Windows 文件锁重试）；不删除 request/response（审计）。
+
+> **P-055 D-C 修正（实现口径）**：`compile_report` 虽然是 `async def`，内部却同步调用 `_run_build`（阻塞事件循环），**`asyncio.wait_for` 无法抢占**。因此不能只在 arb_verify 外层加 `wait_for`；必须让 AP 把超时信号结构化（`CompileReport.timed_out`），arb_verify 据此返回 75。ARC 的 `timeout_s + 30` 硬超时仅作**兜底**：若 sidecar 整体挂死，客户端 `taskkill /T` 后合成 75 结果（无响应文件）。
 
 ## 7. 降级矩阵（实施口径）
 
@@ -227,8 +238,11 @@ label, reason = decide_citation_label(evidence)
 | 工程/`lean-toolchain` 缺失 | false | 0 | 不提升 | stage2 | `lean_project_missing` |
 | 编译失败 | 任意 | 0 | `_fallback`（无树 → ≤ latex） | stage2 | `lean_compile_failed` |
 | 含 sorry | 任意 | 0 | `partially_formalized` | stage2 | `lean_sorry_present` |
+| axiom 不干净/未检 | 任意 | 0 | `partially_formalized` | stage2 | `axioms_not_clean` |
 | 合法性失败 | 任意 | 0 | `partially_formalized` | stage2 | `legality_failed` |
-| 超时 | 任意 | 75 | 不提升 | stage2 | `lean_timeout` |
+| 危险构造被拒 | 任意 | 0 | `failed` | stage2 | `rejected_dangerous_construct` |
+| 超时（`timed_out`） | 任意 | 75 | 不提升 | stage2 | `lean_timeout` |
+| sidecar 整体硬超时 | 任意 | 75 | 不提升 | stage2 | `lean_timeout`（客户端合成） |
 
 ## 8. 测试设计
 
@@ -255,7 +269,8 @@ label, reason = decide_citation_label(evidence)
 | L-D | 注入 sorry | `partially_formalized`；depth stage2 |
 | L-E | 语法错误 | 不提升；`lean_compile_failed`；exit 0 |
 | L-F | 注入 axiom | `partially_formalized`；`legality_failed` |
-| L-G | 极小 timeout | exit 75 |
+| L-G | 极小 timeout | exit 75；`lean_timeout`（`timed_out=True`） |
+| L-H | 危险构造（`#eval`/`axiom` 之外的 `IO.`） | `failed`；`rejected_dangerous_construct`；exit 0 |
 
 门控：`ARB_LEAN_PROJECT` 存在且 `shutil.which("lake")` 非空，否则 `pytest.skip`（S-11，C-3）。
 
@@ -264,6 +279,7 @@ label, reason = decide_citation_label(evidence)
 | 风险 | 缓解 |
 |---|---|
 | AP 上游改动导致 `LegalityChecker` 行为变化 | 记录所需 AP commit（`bd95f02` 起）；live 测试锁定 |
+| AP 超时字段（`timed_out`）漂移 | 该字段为 M3 新增契约；AP 测试与 live L-G 双锁定；vendor 升级时复核 |
 | 最小树被误读为「伪造证明」 | 响应 `tree_origin=compile_only`；DESIGN/README 写明语义；合法性真实运行 |
 | `taskkill` 留孤儿 | U-1；连续 2 次泄漏改 Job Object |
 | `theorem_name` 非法/Unicode | 正则白名单；不合法 → 65 |
