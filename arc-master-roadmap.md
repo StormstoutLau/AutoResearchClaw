@@ -8,7 +8,7 @@ depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.3e）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.3f）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -48,6 +48,8 @@ upstream: arb-v2-decisions
 > **修订**：v1.3d（2026-11-11，P-044）**Q2 第三方审计闸门关闭**：`atlas_*.py`（9 个）与 `lean4_cases`（23 条）经一手比对确认均为作者自有代码（来源 `D:\Textbook\scripts`；5 个逐字节、4 个有记录在案的偏离），无第三方归属要求，`NOTICE` 无需追加；结论落 AP `THIRD_PARTY_NOTICES.md`（commit `1ded9be`），四份上游文档的旧「唯一偏离」断言已订正。Q2 自此无保留，G2 仅剩 U-2（3.11 内核 65 用例复跑）。**106 计数不变**。依据：[P-042 §8.4](spec/arc-g2-decisions/RESEARCH.md)。
 >
 > **修订**：v1.3e（2026-11-11，P-046/P-047）**G2 开工前置清零 + M0 契约冻结**：U-2 由 P-046 关闭——AP 上游修复 venv redirector × Job Object（D173，commit `bd95f02`），65 项 node ID 冻结（`testset-3.11.txt`），3.11.15 与 3.13.5 均 65 passed；M0 由 P-047 交付——7 份 JSON Schema（C1–C7）、7 正 8 反 fixture、兼容矩阵与 `jsonschema` dev 依赖，A2-1 机械可验；「6 钩子可跑」由 G0b 交付并于 P-046 全绿。G2 可进入 M1（AR-01..08）。**106 计数不变**。依据：[P-045 调研](spec/arc-g2-py311-env/RESEARCH.md)、[P-047 实施](spec/arc-g2-m0-contracts/IMPLEMENTATION.md)。
+>
+> **修订**：v1.3f（2026-11-11，P-048）**M1 交付（AR-01..08）**：八条判据落为纯函数（`researchclaw/evidence/ar_checks.py`），严重度只用 `fail/warn/downgrade`，检查层不写回 `status`；16 fixture（每判据 1 正 1 反）+ 8 条变异自检证明判据承重；A2-2 机检 28 passed（3.13.5 与 3.11.15 双环境）。**源冲突裁定**：AR-05 的 `claim_type ∈ {model, method}` 与 C4 v1 的 `exploratory/confirmatory` 不兼容，v1 下按 A/B 类触发（原文为并集，覆盖面不缩小）。G2 可进入 M2（3.11 内核 vendor）。**106 计数不变**。依据：[P-048 实施](spec/arc-g2-m1-ar-checks/IMPLEMENTATION.md)。
 
 ---
 
@@ -327,7 +329,7 @@ flowchart LR
 | A2-6 | 谓词 `downgrade_missing_citation(claim)`：A/B 类缺引文 → 迁入 `assumptions`、状态降 `speculation`（**不阻断**），推导为纯函数 | 一律 fail 即违背原语义 |
 | A2-7 | 无 Lean / 编译失败 / 有 sorry → 上限 `PARTIALLY_FORMALIZED`，深度 `stage2` | 冒充 `FORMALLY_VERIFIED` 即失败 |
 
-**决策闸门**：**Q1 = B（双轨）**、**Q2 = B（最小 vendor + sidecar + Lean 可选 Tier-3）**——均已于 2026-11-10 由 P-042 裁决；Q2 的许可证闸门由 P-043 解除（AP = Apache-2.0），第三方审计闸门由 P-044 关闭（两项均自有），vendor 合规要求见 [P-042 调研](spec/arc-g2-decisions/RESEARCH.md) §4/§5/§8。**G2 开工前置已清零**：U-2 由 P-046 关闭（65 项冻结 + 3.11/3.13 双环境 65 passed）；M0 契约 v1 由 P-047 交付（C1–C7 schema + 正反 fixture + 兼容矩阵），G2 可进入 M1。
+**决策闸门**：**Q1 = B（双轨）**、**Q2 = B（最小 vendor + sidecar + Lean 可选 Tier-3）**——均已于 2026-11-10 由 P-042 裁决；Q2 的许可证闸门由 P-043 解除（AP = Apache-2.0），第三方审计闸门由 P-044 关闭（两项均自有），vendor 合规要求见 [P-042 调研](spec/arc-g2-decisions/RESEARCH.md) §4/§5/§8。**G2 开工前置已清零**：U-2 由 P-046 关闭（65 项冻结 + 3.11/3.13 双环境 65 passed）；M0 契约 v1 由 P-047 交付（C1–C7 schema + 正反 fixture + 兼容矩阵）；M1 由 P-048 交付（AR-01..08 + 16 fixture + 8 变异）。G2 可进入 M2（3.11 内核 vendor）。
 
 **外锚**
 - W3C PROV-O：`Entity/Activity/Agent`、`used/generatedBy/wasDerivedFrom` → 映射到 `EvidenceRef`，保证跨系统可交换。

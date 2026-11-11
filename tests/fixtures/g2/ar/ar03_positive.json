@@ -1,0 +1,28 @@
+{
+  "claim_id": "c-00000005",
+  "claim_class": "C",
+  "claim_type": "exploratory",
+  "statement": "研究表明 [e-001] 该效应显著。",
+  "formal_statement": null,
+  "formality": {"status": "formal", "reason": null},
+  "assumptions": [],
+  "evidence": [
+    {
+      "evidence_id": "e-001",
+      "source_layer": "T1",
+      "tier": "E1",
+      "kind": "pointer",
+      "source_id": "arXiv:1706.03762",
+      "locator": "§4.2",
+      "quote": "the effect is significant",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "independent": true
+    }
+  ],
+  "reasoning_chain": [],
+  "stats_protocol": null,
+  "falsifier": {"condition": "", "test_ref": ""},
+  "verification_depth": "stage1",
+  "status": "speculation",
+  "policy_version": 2
+}

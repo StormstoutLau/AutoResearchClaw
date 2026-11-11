@@ -1,0 +1,29 @@
+{
+  "claim_id": "c-00000016",
+  "claim_class": "C",
+  "claim_type": "exploratory",
+  "statement": "The benchmark snapshot points to an external implementation.",
+  "formal_statement": null,
+  "formality": {"status": "formal", "reason": null},
+  "assumptions": [],
+  "evidence": [
+    {
+      "evidence_id": "e-001",
+      "source_layer": "T2",
+      "tier": "E2",
+      "kind": "snapshot",
+      "source_id": "local:notes/benchmark.txt",
+      "locator": "lines 1-3",
+      "quote": "12% faster",
+      "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "independent": false,
+      "readonly": false
+    }
+  ],
+  "reasoning_chain": [],
+  "stats_protocol": null,
+  "falsifier": {"condition": "", "test_ref": ""},
+  "verification_depth": "stage1",
+  "status": "speculation",
+  "policy_version": 2
+}

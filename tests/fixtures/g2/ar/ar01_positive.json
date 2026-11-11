@@ -1,0 +1,29 @@
+{
+  "claim_id": "c-00000001",
+  "claim_class": "A",
+  "claim_type": "exploratory",
+  "statement": "Table 3 reports a 1.3% deviation from the baseline.",
+  "formal_statement": "Theorem 1",
+  "formality": {"status": "formal", "reason": null},
+  "assumptions": [],
+  "evidence": [
+    {
+      "evidence_id": "e-001",
+      "source_layer": "T1",
+      "tier": "E1",
+      "kind": "pointer",
+      "source_id": "arXiv:1706.03762",
+      "locator": "Table 3",
+      "quote": "deviation 1.3%",
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "independent": true,
+      "replay_cmd": null
+    }
+  ],
+  "reasoning_chain": [],
+  "stats_protocol": null,
+  "falsifier": {"condition": "deviation > 2%", "test_ref": "e-001"},
+  "verification_depth": "stage1",
+  "status": "speculation",
+  "policy_version": 2
+}

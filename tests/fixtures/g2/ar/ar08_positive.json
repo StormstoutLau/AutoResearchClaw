@@ -1,0 +1,28 @@
+{
+  "claim_id": "c-00000015",
+  "claim_class": "C",
+  "claim_type": "exploratory",
+  "statement": "The benchmark points to an external implementation.",
+  "formal_statement": null,
+  "formality": {"status": "formal", "reason": null},
+  "assumptions": [],
+  "evidence": [
+    {
+      "evidence_id": "e-001",
+      "source_layer": "T2",
+      "tier": "E2",
+      "kind": "pointer",
+      "source_id": "https://example.org/benchmark",
+      "locator": "Table 2",
+      "quote": "12% faster",
+      "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "independent": true
+    }
+  ],
+  "reasoning_chain": [],
+  "stats_protocol": null,
+  "falsifier": {"condition": "", "test_ref": ""},
+  "verification_depth": "stage1",
+  "status": "speculation",
+  "policy_version": 2
+}

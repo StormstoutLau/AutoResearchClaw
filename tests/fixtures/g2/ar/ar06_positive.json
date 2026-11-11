@@ -1,0 +1,29 @@
+{
+  "claim_id": "c-00000011",
+  "claim_class": "C",
+  "claim_type": "exploratory",
+  "statement": "Two independent models agree on the trend.",
+  "formal_statement": null,
+  "formality": {"status": "formal", "reason": null},
+  "assumptions": [],
+  "evidence": [
+    {
+      "evidence_id": "e-001",
+      "source_layer": "T1",
+      "tier": "E1",
+      "kind": "pointer",
+      "source_id": "arXiv:1706.03762",
+      "locator": "§5",
+      "quote": "the trend holds",
+      "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "independent": true
+    }
+  ],
+  "reasoning_chain": [],
+  "stats_protocol": null,
+  "falsifier": {"condition": "", "test_ref": ""},
+  "consensus": {"models": ["m1", "m2"], "agreement": 0.8, "used_as": "filter"},
+  "verification_depth": "stage1",
+  "status": "latex_verified",
+  "policy_version": 2
+}
