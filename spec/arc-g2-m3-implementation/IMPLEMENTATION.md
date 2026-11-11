@@ -10,7 +10,7 @@ upstream: arc-g2-m3-implementation-DESIGN
 
 # 实施规格：G2 M3 sidecar（代码未落地）
 
-> **状态**：本文件是**实施规格**，对应 P-054 设计包；截至 2026-11-11 **尚未写生产代码**，因此不含实际测试读数。P-056 已按 P-055 复审修正 D-A/D-B/D-C 与 O-1..O-5；P-058 已落实 P-057 的 O-A..O-D（含 AP 基线测试）；执行批（**P-059**）按本规格施工后，回填 §6 的实测读数并把 CHECKLIST 勾选。
+> **状态**：本文件是**实施规格**，对应 P-054 设计包；截至 2026-11-11 **尚未写生产代码**，因此不含实际测试读数。P-056/P-058 已落实两轮复审的全部修正，P-059 一致性审查零缺陷（O-1..O-7 随施工落实）；执行批（**P-060**）按本规格施工后，回填 §6 的实测读数并把 CHECKLIST 勾选。
 > **依据**：[DESIGN.md](DESIGN.md) §3（D-1）、§4（D-2）、§5（契约）、§6（生命周期）。
 
 ## 1. 改动清单（计划）
@@ -25,7 +25,7 @@ upstream: arc-g2-m3-implementation-DESIGN
 | 6 | `tests/test_evidence_sidecar.py` | 新增 | 8 项单元测试（mock，无 Lean） |
 | 7 | `tests/test_evidence_sidecar_live.py` | 新增 | 8 项 live（`ARB_LEAN_PROJECT` 门控） |
 | 8 | `.github/workflows/ci.yml` | 修改 | 单元测试加入固定清单；live 测试在 CI skip |
-| 9 | `docs/PROGRESS.md` | 修改 | P-059 执行行与读数 |
+| 9 | `docs/PROGRESS.md` | 修改 | P-060 执行行与读数 |
 
 **不改**：M0 契约 schema；ARC 3.11 内核；AP 其余 `proof_pipeline/` 模块。
 
@@ -161,7 +161,7 @@ def _map_exit(code: int, payload: dict) -> None             # 抛对应异常
 
 门控：`ARB_LEAN_PROJECT` + `shutil.which("lake")`；否则 `pytest.skip`（S-11）。
 
-## 5. 实施顺序（P-059）
+## 5. 实施顺序（P-060）
 
 1. **AP 超时证据**：`CompileReport.timed_out` + `_run_build` 超时分支写 `diagnostics`，补 AP 单测。
 2. AP `arb_verify.py` 纯函数骨架（请求校验、响应构造）→ 本地以假数据跑通 65/78/75。
@@ -169,8 +169,10 @@ def _map_exit(code: int, payload: dict) -> None             # 抛对应异常
 4. AP 接真实 Lean（`LeanSimRuntime` + `LegalityChecker`）→ live L-A/L-D/L-F。
 5. 补 L-B/L-C/L-E/L-G/L-H；记录 warm/cold 计时。
 6. CI 固定清单加入单元测试；live 文件保留 skip。
-7. 回填 §6 读数、CHECKLIST 勾选、PROGRESS P-059。
+7. 回填 §6 读数、CHECKLIST 勾选、PROGRESS P-060。
 8. 施工后重跑 AP 相关测试并与 **P-058 基线**对比（无 Lean 环境：`29 passed, 2 skipped`；`AUTO_PROVER_LAKE_PROJECT` 指向 **per-run 项目**而非 `lean_src`，否则 b27 真实用例因无 `Main` 目标失败）。
+9. **P-059 O-5**：`datatypes/config.py` 改动涉及 vendor 清单——随批 re-vendor 该文件（Modified 头 + `SOURCE.json` 重算 sha256）或登记 pending-divergence。
+10. **P-059 O-1**：本文件与 DESIGN 版本号随施工批递增（1.1）。
 
 ## 6. 验证命令与预期读数（待执行）
 
