@@ -10,6 +10,7 @@ from researchclaw.adapters import AdapterBundle
 from researchclaw.config import RCConfig
 from researchclaw.evidence.stage_hooks import (
     ClaimStreamError,
+    _annotations,
     load_claims,
     run_stage20_gate,
     run_stage23_consistency,
@@ -300,6 +301,44 @@ def test_stage23_skips_without_production_gate(tmp_path: Path) -> None:
     assert result["payload"]["skipped"] == "no_production_gate"
 
 
+# ── G3 M3: stage-14 annotations + stage-23 trace/digest ────────
+
+
+def test_stage20_consumes_stage14_annotations(tmp_path: Path) -> None:
+    _write_claim(tmp_path, _claim())
+    stage14 = tmp_path / "stage-14"
+    stage14.mkdir()
+    (stage14 / "claim_annotations.json").write_text(
+        json.dumps({"c-11111111": {"metric": "accuracy", "value": 0.9, "source": "stage14"}}),
+        encoding="utf-8",
+    )
+    stage20 = tmp_path / "stage-20"
+    stage20.mkdir()
+    gate = run_stage20_gate(stage20, tmp_path)
+    assert gate["blocked"] is False
+    assert gate["payload"]["missing_annotation"] == []
+    (tmp_path / "annotations.external.json").write_text(
+        json.dumps({"c-11111111": {"value": 0.95, "source": "external"}}),
+        encoding="utf-8",
+    )
+    merged = _annotations(tmp_path)
+    assert json.loads(merged["c-11111111"])["source"] == "external"
+
+
+def test_stage23_reports_trace_and_digests(tmp_path: Path) -> None:
+    _passing_gate(tmp_path)
+    stage23 = tmp_path / "stage-23"
+    stage23.mkdir()
+    result = run_stage23_consistency(stage23, tmp_path)
+    payload = result["payload"]
+    assert payload["trace"]["ok"] is True
+    assert payload["digests"]["ok"] is True
+    assert result["consistent"] is True
+    blocked = run_stage23_consistency(stage23, tmp_path, require_export=True)
+    assert blocked["payload"]["trace"]["ok"] is False
+    assert blocked["consistent"] is True
+
+
 def test_stage23_executor_blocks_on_drift(tmp_path: Path) -> None:
     from researchclaw.pipeline.stage_impls._review_publish import (
         _execute_citation_verify,
@@ -340,6 +379,25 @@ def test_stage23_executor_no_bib_writes_consistency(tmp_path: Path) -> None:
     report = json.loads((stage23 / "claim_consistency.json").read_text(encoding="utf-8"))
     assert report["consistent"] is True
     assert report["checked"] == 1
+
+
+def test_stage23_executor_blocks_on_claim_trace(tmp_path: Path) -> None:
+    from researchclaw.pipeline.stage_impls._review_publish import (
+        _execute_citation_verify,
+    )
+
+    _passing_gate(tmp_path)
+    stage22 = tmp_path / "stage-22"
+    stage22.mkdir()
+    (stage22 / "claim_export.json").write_text("{}", encoding="utf-8")
+    stage23 = tmp_path / "stage-23"
+    stage23.mkdir()
+
+    result = _execute_citation_verify(
+        stage23, tmp_path, _config(), AdapterBundle(), llm=None
+    )
+    assert result.status == StageStatus.FAILED
+    assert "E_CLAIM_TRACE_MISMATCH" in (result.error or "")
 
 
 # ── P-063 / D-1: versioned stage dirs after PIVOT ───────────────

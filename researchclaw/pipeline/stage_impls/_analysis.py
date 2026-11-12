@@ -652,6 +652,14 @@ Generated: {_utcnow_iso()}
     artifacts = ["analysis.md", "experiment_summary.json"]
     if (stage_dir / "results_table.tex").exists():
         artifacts.append("results_table.tex")
+    try:
+        from researchclaw.evidence.claim_spine import annotations_from_stage14
+
+        annotations_from_stage14(run_dir)
+        if (stage_dir / "claim_annotations.json").exists():
+            artifacts.append("claim_annotations.json")
+    except Exception as _claim_exc:  # noqa: BLE001
+        logger.warning("Stage 14: claim annotation generation failed: %s", _claim_exc)
 
     # IMP-6 + FA: Generate charts early (Stage 14) so paper draft can reference them
     # Try FigureAgent first (multi-agent intelligent charts), fall back to visualize.py

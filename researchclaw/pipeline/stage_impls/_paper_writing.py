@@ -13,6 +13,7 @@ import yaml
 
 from researchclaw.adapters import AdapterBundle
 from researchclaw.config import RCConfig
+from researchclaw.evidence.claim_spine import MARKER_PLACEHOLDER
 from researchclaw.llm.client import LLMClient
 from researchclaw.pipeline._domain import _detect_domain, _is_ml_domain
 from researchclaw.pipeline._helpers import (
@@ -2167,6 +2168,29 @@ def _execute_paper_draft(
             "- The Conclusion should identify open problems and future directions.\n"
         )
         logger.info("Stage 17: Literature-first mode enabled for survey/review topic")
+
+    # G3 M3: expose claim ids so quantitative sentences can carry [c-xxxxxxxx].
+    try:
+        from researchclaw.evidence.stage_hooks import load_claims
+
+        _claim_candidates = [
+            (str(claim.get("claim_id")), str(claim.get("statement")))
+            for claim in load_claims(run_dir)
+            if claim.get("claim_id") and claim.get("statement")
+        ]
+    except Exception as _claim_exc:  # noqa: BLE001
+        logger.warning("Stage 17: claim candidates unavailable: %s", _claim_exc)
+        _claim_candidates = []
+    if _claim_candidates:
+        _claim_block = (
+            "\n\n## CLAIM CITATION GRAMMAR\n"
+            "When a sentence asserts a quantitative claim from the experiment, append its id\n"
+            f"in square brackets, e.g. {MARKER_PLACEHOLDER}. Only use ids from this list;\n"
+            "never copy the placeholder or invent an id.\n"
+        )
+        for _cid, _statement in _claim_candidates[:50]:
+            _claim_block += f"- {_cid}: {_statement[:120]}\n"
+        exp_metrics_instruction += _claim_block
 
     # --- Venue label derived from the active prompt bank ---
     # Domain-specific venue prose now lives in the prompt bank itself; here we

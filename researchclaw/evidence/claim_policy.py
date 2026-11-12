@@ -7,6 +7,11 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 from .ar_checks import Finding, check_claim
+from researchclaw.vendor.auto_prover.datatypes.core import CitationLabel
+
+# M3: single source of truth for the label vocabulary. ``speculation`` is the
+# only C4 status that does not exist in the vendor enum (pre-publication state).
+CITATION_LABELS = frozenset(label.value for label in CitationLabel)
 
 STATUS_ORDER = {
     "formally_verified": 7,
@@ -69,6 +74,7 @@ class ClaimDecision:
     blocked_reasons: tuple[str, ...] = ()
     downgraded: bool = False
     capped: bool = False
+    cap_reasons: tuple[str, ...] = ()
     problems: tuple[str, ...] = ()
 
     def as_dict(self) -> dict:
@@ -79,6 +85,7 @@ class ClaimDecision:
             "blocked_reasons": list(self.blocked_reasons),
             "downgraded": self.downgraded,
             "capped": self.capped,
+            "cap_reasons": list(self.cap_reasons),
             "problems": list(self.problems),
             "findings": [
                 {"code": f.code, "severity": f.severity, "field": f.field}
@@ -159,10 +166,15 @@ def evaluate_claim(claim: Mapping[str, Any], annotation: str | None = None) -> C
     working, downgraded = downgrade_missing_citation(raw)
     findings = tuple(check_claim(working))
     capped = False
+    cap_reasons: list[str] = []
     for finding in findings:
         if finding.cap:
             working, did_cap = _cap_status(working, finding.cap)
             capped = capped or did_cap
+            if did_cap:
+                reason = f"{finding.code}:{finding.cap}"
+                if reason not in cap_reasons:
+                    cap_reasons.append(reason)
     blocked: list[str] = []
     if not can_enter_deliverables(working, findings):
         blocked.append("claim_not_deliverable")
@@ -175,6 +187,7 @@ def evaluate_claim(claim: Mapping[str, Any], annotation: str | None = None) -> C
         blocked_reasons=tuple(blocked),
         downgraded=downgraded,
         capped=capped,
+        cap_reasons=tuple(cap_reasons),
     )
 
 

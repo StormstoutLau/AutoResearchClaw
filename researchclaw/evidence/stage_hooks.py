@@ -105,15 +105,30 @@ def load_claims(run_dir: Path, stage_prefix: str = "stage-09") -> list[dict]:
 
 
 def _annotations(run_dir: Path) -> dict[str, str]:
+    """Merge annotations: stage-14 table < legacy root < external overrides."""
+    result: dict[str, str] = {}
+    stage14_path = Path(run_dir) / "stage-14" / "claim_annotations.json"
+    stage14 = _read_json(stage14_path, {})
+    if not isinstance(stage14, dict):
+        raise ClaimStreamError(f"{stage14_path}: annotations payload is not an object")
+    for key, value in stage14.items():
+        if isinstance(value, dict):
+            result[str(key)] = json.dumps(value, ensure_ascii=False, sort_keys=True)
     path = Path(run_dir) / "annotations.json"
     data = _read_json(path, {})
     if not isinstance(data, dict):
         raise ClaimStreamError(f"{path}: annotations payload is not an object")
-    return {
-        str(key): str(value)
-        for key, value in data.items()
-        if isinstance(value, (str, int, float))
-    }
+    for key, value in data.items():
+        if isinstance(value, (str, int, float)):
+            result[str(key)] = str(value)
+    external_path = Path(run_dir) / "annotations.external.json"
+    external = _read_json(external_path, {})
+    if not isinstance(external, dict):
+        raise ClaimStreamError(f"{external_path}: annotations payload is not an object")
+    for key, value in external.items():
+        if isinstance(value, dict):
+            result[str(key)] = json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return result
 
 
 def _claim_key(claim: Mapping[str, Any], index: int) -> str:
@@ -257,7 +272,9 @@ def _load_production_gate(run_dir: Path) -> dict:
     return production
 
 
-def run_stage23_consistency(stage_dir: Path, run_dir: Path) -> dict:
+def run_stage23_consistency(
+    stage_dir: Path, run_dir: Path, *, require_export: bool = False
+) -> dict:
     stage_dir = Path(stage_dir)
     run_dir = Path(run_dir)
     claims = load_claims(run_dir, stage_prefix="stage-20")
@@ -266,6 +283,8 @@ def run_stage23_consistency(stage_dir: Path, run_dir: Path) -> dict:
     production = _load_production_gate(run_dir)
     annotations = _annotations(run_dir)
     result = compare_claims(claims, production, annotations)
+    from .claim_spine import verify_claim_digests, verify_claim_trace
+
     payload = {
         "consistent": not result["diffs"],
         "checked": len(claims),
@@ -275,5 +294,10 @@ def run_stage23_consistency(stage_dir: Path, run_dir: Path) -> dict:
     }
     if result["skipped"]:
         payload["skipped"] = result["skipped"]
+    # Write the current audit view first so the trace check compares against
+    # this run's Stage 23 payload rather than a previous one.
+    _write_json(stage_dir / "claim_consistency.json", payload)
+    payload["trace"] = verify_claim_trace(run_dir, require_export=require_export)
+    payload["digests"] = verify_claim_digests(run_dir)
     _write_json(stage_dir / "claim_consistency.json", payload)
     return {"consistent": not result["diffs"], "payload": payload}

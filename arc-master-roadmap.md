@@ -8,7 +8,7 @@ depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.3t）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.3w）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -78,6 +78,12 @@ upstream: arb-v2-decisions
 > **修订**：v1.3s（2026-11-12，P-081）**Spec 门禁加固**：P-080 后的强制力审计发现两处缺口——① CI 只有 `pre-commit --all-files`，`step_enforce` 本地模式取 `_local_changed()`，CI checkout 干净时为空集 → **空转**（实测 exit 0）；② `FEATURE_RE` 只匹配已存在四文档，**四文档齐全无判据**。加固：`spec-gates` 增 range 兜底（`fetch-depth: 0`、`BASE=before 或 pull_request.base.sha`、全 0/不可达显式跳过、`--base` + 变更集、`rev-list --merges` 逐个 `--check-merge`）；`spec_map` 增 P 行 `basis` 与 `row_tier`；`step_enforce` 对 **P≥81** 的 T1 批次强制四文档齐全，T3 跳过，缺档位判红（阈值从本批起生效，不回溯）。实测：红 8 failed → 绿 16 passed；`--base HEAD~1`（29 路径 / 3 P / 3 session）exit 0。**M3/M4/M5 = P-082/P-083/P-084**。**106 计数不变**。依据：[P-081 实施](spec/arc-spec-gate-hardening/IMPLEMENTATION.md)。
 >
 > **修订**：v1.3t（2026-11-12，P-082）**Spec 门禁严格模式（用户裁决 G-3/G-4）**：`GATE_STRICT_MIN_P=82`，`BATCH_BINDING_MIN_P` 与 `EVIDENCE_MIN_P` 由 129/137 **下调至 82**——P-082 起 feature 绑定、四文档（T1）、digest 绑定同时生效；新增 `_require_tiers` 让档位词检查覆盖 batch / session / batch-registration 三模式（P≥82 的声明行必须含 T1 或 T3，T3 仍合法无四文档）。本批 session 绑定四文档 sha256 自证（定稿→stage→digest→session）。实测：红 4 failed → 绿 20 passed，P-081 既有 5 项零回归。**M3/M4/M5 = P-083/P-084/P-085**。**106 计数不变**。依据：[P-082 实施](spec/arc-spec-gate-strict/IMPLEMENTATION.md)。
+>
+> **修订**：v1.3u（2026-11-12，P-083）**G3 M3 交付（claim 脊柱）**：新增 `evidence/claim_spine.py`——Stage 14 显式绑定表 `claim_annotations.json`（metric/value/n/ci/condition/source/`evidence_locator`/`evidence_digest`）、`[c-xxxxxxxx]` 标记与 `§<heading>` 段落定位、Stage 22 `claim_export.json`（只导出 deliverable，`citation_label` 复用 vendor 词表）、Stage 23 `verify_claim_trace` + `verify_claim_digests` 三出口一致性与证据复算。`claim_policy` 显式 re-export vendor `CitationLabel`（差集仅 `speculation`），`ClaimDecision.cap_reasons` 落 gate/export；Stage 20 annotation 合并顺序 external > legacy root > stage14。实测：M3 套件 **114 passed 双环境**、相关回归 177 + `test_rc_executor` 207、性能 35.83ms；A3-1/A3-3 达标，3 项 P3（U-1..U-3）登记。**M4/M5 = P-084/P-085**。**106 计数不变**。依据：[P-083 实施](spec/arc-g3-m3-claim-spine/IMPLEMENTATION.md)。
+>
+> **修订**：v1.3v（2026-11-12，P-084）**G3 M3 复核（1 P2 + 5 P3）**：独立异构复核 V-1..V-12（双环境 114×2、回归 177 + rc_executor 组 270、登记链）全过；12 组探针确证 **D-1 P2 示例标记误阻断链**——Stage 17 prompt 文法说明自带示例 id `c-1a2b3c4d`，论文正文复述即触发 `unknown_claim_marker` → `claim_marker_not_exported` → Stage 23 误阻断 gate pass 的正常 run（fail-closed 假阳性，X-12b 干净复跑确证）；D-2..D-6 五项 P3（标记块级归属错位/n 缺省伪造 1/版本化 stage-14 annotation 落错目录/论文回退 17 先于 19/大写标记静默）；O-1..O-6（含 P-083 IMPLEMENTATION §5 测试计数 18≠19 读数偏差）。修复批与 M4/M5 排期**待用户裁决**（建议 P-085 修复 / P-086 M4 / P-087 M5，沿 P-077 修复批前置先例）。**106 计数不变**。依据：[P-084 复核](docs/arc-g3-m3-review-20261112.md)。
+>
+> **修订**：v1.3w（2026-11-12，P-085）**G3 M3 D-1 修复（用户裁决 ①+②）**：① Stage 17 文法示例由合法 hex `c-1a2b3c4d` 改为**非匹配占位符** `[c-xxxxxxxx]`（`x` 不属 `[0-9a-f]`，正则天然不提取），并加「勿复制/勿虚构」；② `extract_claim_markers` 由空行分块改**逐行扫描**——代码围栏（```/~~~）开关、行内代码剔除、标题即时生效（附带关闭 P-084 D-2 归属错位）。③（unknown marker 降 warning）未采纳，真实未知 hex id 仍 fail-closed。实测：双环境 **118 passed**、十文件回归 **181 passed**、E2 占位符/围栏放行且 `c-deadbeef` 仍判红；ADD 30/30、3 项 P3。**M4/M5 仍为 P-086/P-087，待后续裁决**。**106 计数不变**。依据：[P-085 实施](spec/arc-g3-m3-claim-fixes/IMPLEMENTATION.md)。
 
 ---
 
@@ -799,10 +805,10 @@ G0a → G-1 → G0b ─┬→ G1 ─┐
 | [arc-roadmap-gaps-review-20261107.md](docs/arc-roadmap-gaps-review-20261107.md) | P-004 独立复核（主张全部成立 + F-1..F-8 修正） | **P-005 依据** |
 | [arc-d1-d2-verdict-analysis-20261108.md](docs/arc-d1-d2-verdict-analysis-20261108.md) | D-1/D-2 三方案七维对比、外部锚点与建议（裁决 A/C） | **G-1/G2/G3** |
 | [arc-g1-readiness-research-20261108.md](docs/arc-g1-readiness-research-20261108.md) | H-1..H-8 现状复核与测试方案、Q18/Q19/Q20 七维对比与裁决建议 | **G-1** |
-| [spec/arc-cli-agent-wiring/](../spec/arc-cli-agent-wiring/)（P-011..P-013） | CLI 代码代理接线断裂、R-3 统一接缝、U-3/U-5 收口 | **G-1/G1** |
-| [spec/arc-belief-revision-propagation/RESEARCH.md](../spec/arc-belief-revision-propagation/RESEARCH.md)（P-014） | 回退/回写、外部信息多步传播、Saga/backjump/HARKing 锚点 | **G3/G-1** |
-| [spec/arc-r3-engine-impact/RESEARCH.md](../spec/arc-r3-engine-impact/RESEARCH.md)（P-015） | R-3a/b/c 分层、Saga/Temporal/DAG/自动闭包影响面与触发条件 | **G1/G3/G7** |
-| [spec/arc-g0b-governance-base/RESEARCH.md](../spec/arc-g0b-governance-base/RESEARCH.md)（P-017） | G0b 六项验收缺口、路径迁移/钩子组成/Q3/统计/CI 方案 | **G0b** |
+| [spec/arc-cli-agent-wiring/](spec/arc-cli-agent-wiring/)（P-011..P-013） | CLI 代码代理接线断裂、R-3 统一接缝、U-3/U-5 收口 | **G-1/G1** |
+| [spec/arc-belief-revision-propagation/RESEARCH.md](spec/arc-belief-revision-propagation/RESEARCH.md)（P-014） | 回退/回写、外部信息多步传播、Saga/backjump/HARKing 锚点 | **G3/G-1** |
+| [spec/arc-r3-engine-impact/RESEARCH.md](spec/arc-r3-engine-impact/RESEARCH.md)（P-015） | R-3a/b/c 分层、Saga/Temporal/DAG/自动闭包影响面与触发条件 | **G1/G3/G7** |
+| [spec/arc-g0b-governance-base/RESEARCH.md](spec/arc-g0b-governance-base/RESEARCH.md)（P-017） | G0b 六项验收缺口、路径迁移/钩子组成/Q3/统计/CI 方案 | **G0b** |
 
 **四个已核实的急救事实**（对应 H-1..H-4）：
 

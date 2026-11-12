@@ -2658,6 +2658,18 @@ def _execute_export_publish(
     except Exception as exc:  # noqa: BLE001
         logger.debug("Stage 22: Framework diagram prompt generation skipped: %s", exc)
 
+    # G3 M3: export publishable claims; unpublished citations are reported for
+    # Stage 23 to block (export itself must stay non-fatal here).
+    try:
+        from researchclaw.evidence.claim_spine import export_claim_labels
+
+        _claim_export = export_claim_labels(run_dir)
+        artifacts.append("claim_export.json")
+        for _claim_error in _claim_export.get("errors", []):
+            logger.warning("Stage 22: claim export issue: %s", _claim_error)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Stage 22: claim export failed: %s", exc)
+
     return StageResult(
         stage=Stage.EXPORT_PUBLISH,
         status=StageStatus.DONE,
@@ -2794,7 +2806,13 @@ def _execute_citation_verify(
     try:
         from researchclaw.evidence.stage_hooks import run_stage23_consistency
 
-        _claim_consistency = run_stage23_consistency(stage_dir, run_dir)
+        _claim_consistency = run_stage23_consistency(
+            stage_dir,
+            run_dir,
+            # A resumed/partial run may reach Stage 23 without Stage 22; only
+            # demand the export when the publish stage actually ran.
+            require_export=(run_dir / "stage-22").is_dir(),
+        )
     except Exception as exc:  # noqa: BLE001
         logger.error("Stage 23 claim consistency failed internally: %s", exc)
         return StageResult(
@@ -2813,6 +2831,30 @@ def _execute_citation_verify(
             artifacts=("claim_consistency.json", "claim_verification.json"),
             evidence_refs=("stage-23/claim_consistency.json",),
             error=f"E23_CLAIM_DRIFT: {len(diffs)} claim(s) differ between production and audit",
+        )
+
+    _claim_payload = _claim_consistency.get("payload", {})
+    _claim_trace = _claim_payload.get("trace", {})
+    if not _claim_trace.get("ok", True):
+        _trace_errors = _claim_trace.get("errors", [])
+        logger.error("Stage 23 BLOCKED by claim trace: %s", _trace_errors[:5])
+        return StageResult(
+            stage=Stage.CITATION_VERIFY,
+            status=StageStatus.FAILED,
+            artifacts=("claim_consistency.json", "claim_verification.json"),
+            evidence_refs=("stage-23/claim_consistency.json",),
+            error=f"E_CLAIM_TRACE_MISMATCH: {len(_trace_errors)} claim trace error(s)",
+        )
+    _claim_digests = _claim_payload.get("digests", {})
+    if not _claim_digests.get("ok", True):
+        _digest_errors = _claim_digests.get("errors", [])
+        logger.error("Stage 23 BLOCKED by claim digest: %s", _digest_errors[:5])
+        return StageResult(
+            stage=Stage.CITATION_VERIFY,
+            status=StageStatus.FAILED,
+            artifacts=("claim_consistency.json", "claim_verification.json"),
+            evidence_refs=("stage-23/claim_consistency.json",),
+            error=f"E_CLAIM_DIGEST_MISMATCH: {len(_digest_errors)} evidence digest error(s)",
         )
 
     if not bib_text.strip():

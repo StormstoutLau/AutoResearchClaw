@@ -10,6 +10,8 @@ from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 
 from researchclaw.evidence.claim_policy import (
+    CITATION_LABELS,
+    STATUS_ORDER,
     audit_claim,
     build_claim_records,
     can_enter_deliverables,
@@ -18,6 +20,7 @@ from researchclaw.evidence.claim_policy import (
     requires_annotation,
 )
 from researchclaw.evidence.ar_checks import Finding
+from researchclaw.vendor.auto_prover.datatypes.core import CitationLabel
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACTS = ROOT / "contracts" / "v1"
@@ -319,6 +322,33 @@ def test_build_claim_records_extracts_hypotheses():
     validator = _c4_validator()
     for record in records:
         assert list(validator.iter_errors(record)) == []
+
+
+# ── G3 M3: vendor vocabulary + cap reasons ─────────────────────
+
+
+def test_vendor_label_and_status_order_are_consistent():
+    assert CITATION_LABELS == {label.value for label in CitationLabel}
+    assert set(STATUS_ORDER) - CITATION_LABELS == {"speculation"}
+    schema = json.loads(
+        (CONTRACTS / "c4_claim_record.schema.json").read_text(encoding="utf-8")
+    )
+    assert set(STATUS_ORDER) == set(schema["properties"]["status"]["enum"])
+
+
+def test_evaluate_claim_records_cap_reasons():
+    decision = evaluate_claim(
+        _claim(
+            claim_class="C",
+            formal_statement=None,
+            evidence=[],
+            status="numerically_verified",
+            consensus={"models": ["m1"], "agreement": 0.9, "used_as": "model"},
+        )
+    )
+    assert decision.capped is True
+    assert decision.cap_reasons == ("AR-06:latex_verified",)
+    assert decision.as_dict()["cap_reasons"] == ["AR-06:latex_verified"]
 
 
 def test_build_claim_records_falls_back_to_plan_objectives():
