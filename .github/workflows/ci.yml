@@ -74,6 +74,10 @@ jobs:
       - name: Verify imports
         run: python -c "import fastapi, uvicorn, httpx, mcp; print('extras OK')"
 
+      - name: Assert MCP SDK version (P-094 / P-093 §6.3)
+        run: |
+          python -c "import importlib.metadata as m; v = tuple(int(p) for p in m.version('mcp').split('.')[:2]); assert v >= (2, 1), f'mcp {v} does not satisfy pin >=2.1,<3'; print('mcp OK', v)"
+
   tests:
     name: Tests (${{ matrix.python-version }})
     runs-on: ubuntu-latest

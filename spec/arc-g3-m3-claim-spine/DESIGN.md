@@ -83,7 +83,7 @@ CITATION_LABELS = frozenset(label.value for label in CitationLabel)
 }
 ```
 
-- `value` 取 `metrics_summary[metric].mean`；`n` 取 `.count`。
+- `value` 取 `metrics_summary[metric].mean`；`n` 取 `.count`（**P-094 增补**：count 缺失时省略 `n`，不得伪造 1，口径同 `ci`）。
 - `ci` **仅当** `condition_summaries[condition]` 同时有 `ci95_low`/`ci95_high` 时写入；否则省略（不得用 min/max 冒充 CI）。
 - `condition` 仅在 claim statement 命中某个条件名时写入；否则省略。
 - `source` ∈ `{"stage14", "external"}`；external 覆盖时整条替换并改 `source`。
@@ -92,11 +92,12 @@ CITATION_LABELS = frozenset(label.value for label in CitationLabel)
 ### 4.2 标记文法
 
 - 正则：`\[(c-[0-9a-f]{8})\]`，与 `CLAIM_ID_RE` 同构。
-- `extract_claim_markers(text)` 按空行分块；每块归属最近的 `^#{1,6}\s+` 标题：
+- **P-094 增补**：正则加 `re.IGNORECASE`（大写 `[C-…]` 提取并 `.lower()` 归一键）；4 空格缩进代码块与未闭合行内码跨度同为示例区域，跳过（P-084 D-6 / P-086 O-2/O-3）。
+- `extract_claim_markers(text)` 逐行扫描（**P-085 改**：原按空行分块；围栏开合、行内码剔除、缩进块状态、标题即时生效），归属最近的前置 `^#{1,6}\s+` 标题：
   - 标题以数字开头（如 `## 4.2 Results`）→ `§4.2`；
   - 其余标题 → `§<标题文本>`；
   - 无标题 → `§Preamble`。
-- 返回 `{claim_id: [ref, ...]}`，ref 去重且保持首次出现顺序。
+- 返回 `{claim_id: [ref, ...]}`，键恒小写；ref 去重且保持首次出现顺序。
 
 ### 4.3 `stage-22/claim_export.json`
 
@@ -131,7 +132,7 @@ CITATION_LABELS = frozenset(label.value for label in CitationLabel)
    - 条件名（`condition_summaries` key）同样按 token 匹配 statement，命中则优先用该条件的 `metrics[metric]`，并用其 `n_seeds`/CI。
 4. 无匹配 → 不生成该 claim 的 annotation。
 5. 外部覆盖：读 run 根 `annotations.external.json`，存在则逐条整条覆盖并置 `source="external"`。
-6. 原子写 `stage-14/claim_annotations.json`。
+6. 原子写 `stage-14/claim_annotations.json`（**P-094 澄清**：恒写 live `stage-14/`，即便 summary 读自版本化目录；`evidence_locator` 仍指向实际读取的 summary）。
 
 ## 6. Stage 20 消费
 
@@ -162,7 +163,7 @@ brackets, e.g. [c-1a2b3c4d]. Only use ids from this list:
 `export_claim_labels(run_dir)`：
 
 1. 读 `stage-20/claim_gate.json.decisions`；缺失 → `{claims: {}, errors: []}`。
-2. 读论文文本：`stage-22/paper_final.md` → `stage-17/paper_draft.md` → `stage-19/paper_revised.md`。
+2. 读论文文本：`stage-22/paper_final.md` → `stage-19/paper_revised.md` → `stage-17/paper_draft.md`（**P-094 订正**：修订稿必新于草稿；原顺序 22→17→19 为 P-084 D-5 设计缺口）。
 3. `markers = extract_claim_markers(text)`。
 4. 对每个 decision：
    - `deliverable=false`：不导出；若 `claim_id in markers` → error `unpublished_claim_cited`。

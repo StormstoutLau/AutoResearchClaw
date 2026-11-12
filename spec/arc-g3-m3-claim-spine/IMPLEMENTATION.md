@@ -62,7 +62,7 @@ upstream: arc-g3-m3-claim-spine-DESIGN
 
 | 项 | 读数 |
 |---|---|
-| 新增/修改测试 | 新增 18 项：`test_claim_spine.py` 14 + `test_claim_policy.py` 2 + `test_stage_claim_hooks.py` 2 |
+| 新增/修改测试 | 新增 19 项：`test_claim_spine.py` 14 + `test_claim_policy.py` 2 + `test_stage_claim_hooks.py` 3（**P-094 订正**：原记录 18 系 `test_stage_claim_hooks.py` 计 2 所致，P-084 V-5 E1 diff 复计实为 19） |
 | 双环境 | 3.13.5 **114 passed**（1.66s）；3.11.15 **114 passed**（3.21s，`uv run --python 3.11 --with pytest --with jsonschema --with referencing`） |
 | 相关回归 | M1/M2/M3/M4/M5 十文件 **177 passed**；`test_rc_executor` **207 passed**（与 7 个 M1/M2 文件合计 270 passed） |
 | 性能探针 | 100 claims × 20 metrics 绑定 **35.83 ms**（E2，单次测量，含原子写） |

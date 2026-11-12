@@ -20,15 +20,17 @@ E_CLAIM_DIGEST_MISMATCH = "E_CLAIM_DIGEST_MISMATCH"
 ANNOTATIONS_NAME = "claim_annotations.json"
 EXPORT_NAME = "claim_export.json"
 
-CLAIM_MARKER_RE = re.compile(r"\[(c-[0-9a-f]{8})\]")
+CLAIM_MARKER_RE = re.compile(r"\[(c-[0-9a-f]{8})\]", re.IGNORECASE)
 # P-085 / D-1: non-hex placeholder. ``x`` never matches ``[0-9a-f]``, so a
-# prompt example can never be mistaken for a real claim id.
+# prompt example can never be mistaken for a real claim id. ``x``/``X`` also
+# never matches ``[0-9a-fA-F]`` (P-094 / F-4: extraction is case-insensitive).
 MARKER_PLACEHOLDER = "[c-xxxxxxxx]"
 _HEADING_RE = re.compile(r"^#{1,6}\s+(.*?)\s*$")
 _NUMBERED_HEADING_RE = re.compile(r"^(\d+(?:\.\d+)*)")
 _CLAIM_ID_RE = re.compile(r"^c-[0-9a-f]{8}$")
 _VERSION_RE = re.compile(r"_v(\d+)$")
 _FENCE_RE = re.compile(r"^\s*(```|~~~)")
+_INDENT_CODE_RE = re.compile(r"^ {4,}\S")
 _INLINE_CODE_RE = re.compile(r"`[^`]*`")
 
 
@@ -184,10 +186,13 @@ def _annotation_for(
     annotation: dict[str, Any] = {
         "metric": metric_key,
         "value": mean,
-        "n": int(count) if isinstance(count, int) and count > 0 else 1,
         "source": "stage14",
         "evidence_digest": _digest_file(summary_path),
     }
+    # P-094 / D-3: a missing count must never be reported as ``n=1`` (a
+    # fabricated sample size); omit the field like ``ci`` does.
+    if isinstance(count, int) and count > 0:
+        annotation["n"] = int(count)
     condition = _match_condition(statement, prepared_conditions)
     if condition is not None:
         data = conditions.get(condition)
@@ -255,8 +260,11 @@ def annotations_from_stage14(run_dir: Path) -> dict[str, dict]:
                 override = dict(entry)
                 override["source"] = "external"
                 annotations[str(claim_id)] = override
-    target_dir = summary_path.parent if summary_path is not None else run_dir / "stage-14"
-    _write_json(target_dir / ANNOTATIONS_NAME, annotations)
+    # P-094 / D-4: annotations always land in the live ``stage-14`` directory
+    # even when the summary was read from a versioned dir, so Stage 20/23 (and
+    # ``verify_claim_digests``) never silently miss them. The locator still
+    # points at the summary actually read.
+    _write_json(run_dir / "stage-14" / ANNOTATIONS_NAME, annotations)
     return annotations
 
 
@@ -269,30 +277,58 @@ def _heading_ref(heading: str) -> str:
     return "§" + text if text else "§Preamble"
 
 
+def _strip_inline_code(line: str) -> str:
+    """Remove inline code spans; a dangling backtick hides the rest of the line.
+
+    P-094 / O-3: an unclosed inline span is code until end of line, so text
+    after the last unmatched backtick is dropped (single-direction: only
+    removes candidate markers).
+    """
+    cleaned = _INLINE_CODE_RE.sub("", line)
+    if cleaned.count("`") % 2 == 1:
+        cleaned = cleaned[: cleaned.rfind("`")]
+    return cleaned
+
+
 def extract_claim_markers(text: str) -> dict[str, list[str]]:
     """Map ``[c-xxxxxxxx]`` to the nearest preceding Markdown heading.
 
     P-085 / D-1: fenced blocks and inline code spans are examples, not
     citations, so they are skipped. Headings apply to following lines only
     (a heading never re-attributes an earlier line).
+    P-094 / D-6: markers are matched case-insensitively and keyed lowercase.
+    P-094 / O-2: 4-space indented code blocks are examples too and are
+    skipped (a blank line does not close the block; a non-blank line with
+    less indentation does). Fence handling keeps P-085 semantics and runs
+    before the indented-block state.
     """
     markers: dict[str, list[str]] = {}
     current = "§Preamble"
     in_fence = False
+    in_indent = False
     for raw in (text or "").splitlines():
         line = raw.strip()
-        if _FENCE_RE.match(raw):
-            in_fence = not in_fence
-            continue
+        if not line:
+            continue                     # blank lines never close an indented block
         if in_fence:
+            if _FENCE_RE.match(raw):
+                in_fence = False
             continue
+        if _FENCE_RE.match(raw):
+            in_fence = True
+            in_indent = False
+            continue
+        if _INDENT_CODE_RE.match(raw):
+            in_indent = True
+            continue
+        in_indent = False
         heading = _HEADING_RE.match(line)
         if heading:
             current = _heading_ref(heading.group(1))
             continue
-        cleaned = _INLINE_CODE_RE.sub("", raw)
+        cleaned = _strip_inline_code(raw)
         for claim_id in CLAIM_MARKER_RE.findall(cleaned):
-            refs = markers.setdefault(claim_id, [])
+            refs = markers.setdefault(claim_id.lower(), [])
             if current not in refs:
                 refs.append(current)
     return markers
@@ -314,10 +350,12 @@ def _load_decisions(run_dir: Path) -> dict[str, dict]:
 
 
 def _paper_text(run_dir: Path) -> str:
+    # P-094 / D-5: the revised draft (Stage 19) is always newer than the
+    # Stage 17 draft, so it must win when the final paper is missing.
     for relative in (
         "stage-22/paper_final.md",
-        "stage-17/paper_draft.md",
         "stage-19/paper_revised.md",
+        "stage-17/paper_draft.md",
     ):
         path = run_dir / relative
         if path.is_file():

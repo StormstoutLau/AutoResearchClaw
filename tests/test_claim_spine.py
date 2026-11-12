@@ -368,3 +368,71 @@ def test_verify_digests_skips_pointer_evidence(tmp_path: Path) -> None:
     assert result["ok"] is True
     assert result["checked"] == 0
     assert result["skipped"] == 1
+
+
+# ── P-094: P-084 D-3/D-4/D-5/D-6 + P-086 O-2/O-3 ─────────────────
+
+
+def test_annotations_omit_n_when_count_missing(tmp_path: Path) -> None:
+    _write_claims(tmp_path, [_claim("c-11111111", "Our method improves accuracy.")])
+    _write_summary(
+        tmp_path,
+        {"metrics_summary": {"accuracy": {"mean": 0.95, "min": 0.9, "max": 0.99}}},
+    )
+    entry = annotations_from_stage14(tmp_path)["c-11111111"]
+    assert "n" not in entry
+
+
+def test_annotations_write_live_stage14_dir(tmp_path: Path) -> None:
+    _write_claims(tmp_path, [_claim("c-11111111", "Our method improves accuracy.")])
+    versioned = tmp_path / "stage-14_v2" / "experiment_summary.json"
+    _write_json(versioned, {"metrics_summary": {"accuracy": {"mean": 0.95, "count": 5}}})
+    result = annotations_from_stage14(tmp_path)
+    entry = result["c-11111111"]
+    assert entry["evidence_locator"] == "stage-14_v2/experiment_summary.json"
+    assert entry["evidence_digest"] == _digest(versioned)
+    on_disk = json.loads(
+        (tmp_path / "stage-14" / "claim_annotations.json").read_text(encoding="utf-8")
+    )
+    assert on_disk == result
+
+
+def test_export_prefers_revised_over_draft(tmp_path: Path) -> None:
+    _write_gate(tmp_path, {"c-11111111": _decision()})
+    revised = tmp_path / "stage-19" / "paper_revised.md"
+    revised.parent.mkdir(parents=True, exist_ok=True)
+    revised.write_text("## Revised\n\n[c-11111111]\n", encoding="utf-8")
+    draft = tmp_path / "stage-17" / "paper_draft.md"
+    draft.parent.mkdir(parents=True, exist_ok=True)
+    draft.write_text("## Draft\n\n[c-11111111]\n", encoding="utf-8")
+    entry = export_claim_labels(tmp_path)["claims"]["c-11111111"]
+    assert entry["paragraph_refs"] == ["§Revised"]
+
+
+def test_extract_markers_casefolds_uppercase() -> None:
+    text = "## Results\n\nValue [C-11111111].\n"
+    assert extract_claim_markers(text) == {"c-11111111": ["§Results"]}
+
+
+def test_extract_markers_skips_indented_code_block() -> None:
+    text = (
+        "## Results\n\n"
+        "    [c-11111111] inside an indented block\n"
+        "\n"
+        "Real [c-22222222].\n"
+    )
+    assert extract_claim_markers(text) == {"c-22222222": ["§Results"]}
+
+
+def test_extract_markers_skips_unclosed_inline_code() -> None:
+    text = (
+        "## Results\n\n"
+        "Real [c-11111111] then `` ` [c-22222222]\n"
+        "\n"
+        "## Discussion\n\n"
+        "Also [c-33333333].\n"
+    )
+    assert extract_claim_markers(text) == {
+        "c-11111111": ["§Results"],
+        "c-33333333": ["§Discussion"],
+    }

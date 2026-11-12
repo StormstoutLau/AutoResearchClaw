@@ -8,7 +8,7 @@ depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.4e）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.4f）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -100,6 +100,8 @@ upstream: arb-v2-decisions
 > **修订**：v1.4d（2026-11-13，P-092）**D-1 复评通过——G3 正式收口**：独立异构复评 4 组探针——P-1 复跑 P-090 原始失败场景（`stage:12-14` × `stage:1-23`）已放行、P-2 包含矩阵 9/9（子范围/单点/超集/部分重叠/工具精确/非法格式均与预期一致）、P-3 真实 Stage 17 阻断 → handback 落盘 → runner guard **保持 PAUSED**、P-4 工具越界仍判红；**D-1 闭合 → A3-8 闭合 → G3 全部 17 项验收（A3-1..8、AN-1..6、FC-1..3）闭合，G3 收口**。CI 盲区已封堵（guard 断言进入 `test_rc_executor` 阻断用例）。遗留 3 组 P3（AN-1 blob 边界、Stage 17 标记静默面、handback 生产面/日志/索引/通配）不阻塞。**下一步：G4（先 MCP 版本对齐验证）/ G5 / G8a 可开工**。**106 计数不变**。依据：[P-092 复评](docs/arc-g3-recheck-d1-20261113.md)。
 >
 > **修订**：v1.4e（2026-11-13，P-093）**G4 开工前置 MCP 版本对齐验证通过**：PyPI 实查 `mcp` 2.x 实存（2.0.0..2.3.0，latest 2.3.0），pin `mcp>=2.1,<3` 有效；临时 venv 装 2.3.0 实测——代码所用 `MCPServer`/`Client`/`StdioServerParameters`/`CallToolResult(content,structured_content,is_error)`/`@mcp.tool` 全部存在，仓内 MCP 测试 **42 passed**；CI extras job 按 pin 安装并冒烟，**"按 v2 文档写、按旧 SDK 跑" 的仓内风险不成立**。协议术语订正：2026-07-28 官方称 Modern（无握手、每请求 `_meta` 携带版本、stateless），`2025-11-25` 及更早为 Legacy（`initialize` 握手），非官方 "v1/v2"。发现本机 Anaconda 全局装旧 SDK 1.27.2 不满足 pin（本机 MCP 测试收集 ERROR，属环境漂移，CI 不受影响；修复 = `pip install -U "mcp>=2.1,<3"` 留用户执行）。**G4 可开工**。**106 计数不变**。依据：[P-093 调研](spec/arc-g4-mcp-alignment/RESEARCH.md)。
+>
+> **修订**：v1.4f（2026-11-13，P-094）**G3 遗留 P3 一次性清理（用户裁决）**：claim spine 六项静默面修复——D-3 annotation `n` 缺省省略（不再伪造 1）、D-4 版本化 stage-14 场景 annotation 恒写 live 目录、D-5 论文回退顺序 22→19→17、D-6 大写标记 casefold 提取（键恒小写，未知大写 id 仍 `unknown_claim_marker` 判红）、P-086 O-2 缩进代码块跳过、O-3 未闭合行内码截断；全部单向 fail-closed。P-083 O-3 登记面订正（测试计数 18→19）+ DESIGN §8 设计缺口订正，P-083 session 受控回边（seq 8-9）。CI extras job 加 mcp 版本断言（`importlib.metadata` 元组比较 `>= (2,1)`——订正 P-093 §6.3 建议形式，`mcp` 无 `__version__` 属性）。实测：新增 6 项、claim spine 套件 19→25，双环境 **125×2 passed**、M1-M5 十文件 **199 passed** + 扩展组 **348 passed**。登记遗留：P-084 O-4（论文 live-or-latest）、P-086 O-1（标题行内标记）。**106 计数不变**。依据：[P-094 实施](spec/arc-g3-p3-cleanup/IMPLEMENTATION.md)。
 
 ---
 
