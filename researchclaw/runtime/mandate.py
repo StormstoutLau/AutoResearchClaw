@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -150,12 +151,41 @@ class StageHandback:
         )
 
 
+_STAGE_SCOPE_RE = re.compile(r"^stage:(\d+)(?:-(\d+))?$")
+
+
+def _stage_bounds(entry: str) -> tuple[int, int] | None:
+    """Parse ``stage:N`` / ``stage:A-B``; None for tool scopes or bad ranges."""
+    match = _STAGE_SCOPE_RE.match(entry)
+    if not match:
+        return None
+    low = int(match.group(1))
+    high = int(match.group(2) or low)
+    return (low, high) if low <= high else None
+
+
+def _scope_covered(requested: str, allowed: Iterable[str]) -> bool:
+    """P-091: a stage sub-range is covered by a mandate stage range."""
+    requested_bounds = _stage_bounds(requested)
+    if requested_bounds is None:
+        return requested in set(allowed)
+    low, high = requested_bounds
+    for entry in allowed:
+        bounds = _stage_bounds(entry)
+        if bounds is not None and bounds[0] <= low and high <= bounds[1]:
+            return True
+    return False
+
+
 def validate_handback(handback: StageHandback, mandate: RunMandate) -> None:
     """Reject a handback that requests scope outside the mandate."""
     if not handback.reason.strip():
         raise HandbackScopeError("handback reason is empty")
-    allowed = set(mandate.scope)
-    out_of_scope = [item for item in handback.requested_scope if item not in allowed]
+    out_of_scope = [
+        item
+        for item in handback.requested_scope
+        if not _scope_covered(item, mandate.scope)
+    ]
     if out_of_scope:
         raise HandbackScopeError(
             f"{E_HANDBACK_SCOPE}: requested scope outside mandate: {out_of_scope}"

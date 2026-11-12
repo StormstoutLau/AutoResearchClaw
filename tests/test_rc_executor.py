@@ -2708,6 +2708,13 @@ class TestDataIntegrityBlock:
         handback = json.loads((stage_dir / "handback.json").read_text(encoding="utf-8"))
         assert handback["reason"] == "blocked_no_metrics"
         assert handback["requested_scope"] == ["stage:12-14"]
+        # P-091: the real sub-range must pass the runner guard (not FAILED).
+        from researchclaw.pipeline.runner import _apply_handback_guard
+        from researchclaw.runtime.mandate import ensure_run_mandate
+
+        _mandate = ensure_run_mandate(run_dir, run_id=run_dir.name)
+        _guarded = _apply_handback_guard(run_dir, 17, result, _mandate)
+        assert _guarded.status == StageStatus.PAUSED
         # LLM should NOT have been called
         assert len(llm.calls) == 0
 

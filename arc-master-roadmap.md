@@ -8,7 +8,7 @@ depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.4a）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.4e）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -92,6 +92,14 @@ upstream: arb-v2-decisions
 > **修订**：v1.3z（2026-11-13，P-088）**G3 收口复核（不可直接收口）**：独立异构复核 17 项验收（A3-1..8、AN-1..6、FC-1..3），G3 相关 11 文件 **185 passed**；15 项可判绿，**2 项 P2 阻断**——A3-7 仅在 `for_stage` 渲染点记录 `prompt_version`，直连 `_chat_with_prompt`/`llm.chat` 不记录且 claim 无版本字段；A3-8 的 `write_handback` 只有定义与单测、无生产阶段生产者/交回路由。另 O-1 AN-1 materialized 原始产物漂移不检测（blob 为 canonical）、O-2 A3-6 缺配置变更对照、D-3 P3 总纲与 P-087 文档的 A3-7/A3-8 编号互换。建议 **P-089 修复 + P-090 复评**后再决定 G4/G5/G8a。**106 计数不变**。依据：[P-088 复核](docs/arc-g3-closure-review-20261113.md)。
 >
 > **修订**：v1.4a（2026-11-13，P-089）**G3 收口修复**：① A3-7 请求级追踪——新增 `runtime/prompt_context.py`（ContextVar），`PromptManager.for_stage` 写入版本、`LLMClient.chat` 每次请求记录 `llm.request prompt_version=...`；Stage 17 写 `claim_prompt_versions.json`，Stage 22 `claim_export.json` 每条附加 `prompt_version`；② A3-8 handback 生产——Stage 17 两个阻断分支写 `handback.json`，runner 抽出 `_apply_handback_guard`，越界转 FAILED；③ A3-6 补配置变更对照；④ A3-7/A3-8 编号按总纲统一（P-087 文档受控回边）。实测：新增 4 项、修改 3 项，双环境 31/30 passed，相关回归 **357 passed**；ADD 34/34、3 项 P3。**106 计数不变**。依据：[P-089 实施](spec/arc-g3-closure-fixes/IMPLEMENTATION.md)。
+>
+> **修订**：v1.4b（2026-11-13，P-090）**G3 收口复评（A3-7/D-3 闭合，A3-8 未闭合）**：独立异构复评 8 组探针——A3-7 **闭合**（上下文版本/请求日志实际输出/侧车/export 携带版本/向后兼容 5/5）；D-3 **闭合**（总纲与 P-087 编号一致）；A3-8 生产与越界阻断成立，但**新发现 D-1 P2**——`validate_handback` 用离散集合匹配，而 mandate 范围记法 `stage:1-23` 与 Stage 17 生产的 `stage:12-14` 语义不一致，真实 run 中 Stage 17 暂停被升级为 FAILED（fail-closed 假阳性，探针实证）；CI 盲区确证（93 passed 全绿）。建议 **P-091 范围语义修复 + P-092 复评**。**106 计数不变**。依据：[P-090 复评](docs/arc-g3-recheck-20261113.md)。
+>
+> **修订**：v1.4c（2026-11-13，P-091）**Handback scope 范围语义修复**：`validate_handback` 由离散集合匹配改为范围包含判定——`stage:A-B` 覆盖 `stage:C-D` 当且仅当 `[C,D] ⊆ [A,B]`，`stage:N` 视为单点，`tool:*` 保持精确匹配，非法格式 fail-closed；`RunMandate`/`StageHandback` 数据形态与错误码不变。补 4 项单元测试 + 真实 Stage 17 `blocked_no_metrics` → runner guard 端到端回归（断言仍为 PAUSED，封堵 P-090 指出的 CI 盲区）。实测：相关回归 **361 passed**、双环境关键集 15/14 passed；ADD 30/30、2 项 P3（非严格先红后绿、无通配语法）。建议 **P-092 复评 D-1** 后收口 G3。**106 计数不变**。依据：[P-091 实施](spec/arc-g3-handback-scope/IMPLEMENTATION.md)。
+>
+> **修订**：v1.4d（2026-11-13，P-092）**D-1 复评通过——G3 正式收口**：独立异构复评 4 组探针——P-1 复跑 P-090 原始失败场景（`stage:12-14` × `stage:1-23`）已放行、P-2 包含矩阵 9/9（子范围/单点/超集/部分重叠/工具精确/非法格式均与预期一致）、P-3 真实 Stage 17 阻断 → handback 落盘 → runner guard **保持 PAUSED**、P-4 工具越界仍判红；**D-1 闭合 → A3-8 闭合 → G3 全部 17 项验收（A3-1..8、AN-1..6、FC-1..3）闭合，G3 收口**。CI 盲区已封堵（guard 断言进入 `test_rc_executor` 阻断用例）。遗留 3 组 P3（AN-1 blob 边界、Stage 17 标记静默面、handback 生产面/日志/索引/通配）不阻塞。**下一步：G4（先 MCP 版本对齐验证）/ G5 / G8a 可开工**。**106 计数不变**。依据：[P-092 复评](docs/arc-g3-recheck-d1-20261113.md)。
+>
+> **修订**：v1.4e（2026-11-13，P-093）**G4 开工前置 MCP 版本对齐验证通过**：PyPI 实查 `mcp` 2.x 实存（2.0.0..2.3.0，latest 2.3.0），pin `mcp>=2.1,<3` 有效；临时 venv 装 2.3.0 实测——代码所用 `MCPServer`/`Client`/`StdioServerParameters`/`CallToolResult(content,structured_content,is_error)`/`@mcp.tool` 全部存在，仓内 MCP 测试 **42 passed**；CI extras job 按 pin 安装并冒烟，**"按 v2 文档写、按旧 SDK 跑" 的仓内风险不成立**。协议术语订正：2026-07-28 官方称 Modern（无握手、每请求 `_meta` 携带版本、stateless），`2025-11-25` 及更早为 Legacy（`initialize` 握手），非官方 "v1/v2"。发现本机 Anaconda 全局装旧 SDK 1.27.2 不满足 pin（本机 MCP 测试收集 ERROR，属环境漂移，CI 不受影响；修复 = `pip install -U "mcp>=2.1,<3"` 留用户执行）。**G4 可开工**。**106 计数不变**。依据：[P-093 调研](spec/arc-g4-mcp-alignment/RESEARCH.md)。
 
 ---
 

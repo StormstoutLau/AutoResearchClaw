@@ -66,6 +66,48 @@ def test_handback_out_of_scope_is_rejected(tmp_path: Path) -> None:
     assert not (tmp_path / "stage-07" / "handback.json").exists()
 
 
+def test_handback_stage_subrange_is_covered(tmp_path: Path) -> None:
+    mandate = ensure_run_mandate(tmp_path, run_id="run-a")
+    handback = StageHandback(
+        reason="rerun experiment",
+        requested_scope=("stage:12-14",),
+    )
+    path = write_handback(tmp_path / "stage-17", handback, mandate)
+    assert path.is_file()
+
+
+def test_handback_single_stage_is_covered(tmp_path: Path) -> None:
+    mandate = ensure_run_mandate(tmp_path, run_id="run-a")
+    write_handback(
+        tmp_path / "stage-05",
+        StageHandback(reason="single stage", requested_scope=("stage:5",)),
+        mandate,
+    )
+
+
+def test_handback_subrange_outside_mandate_is_rejected(tmp_path: Path) -> None:
+    mandate = ensure_run_mandate(
+        tmp_path, run_id="run-a", scope=("stage:1-11",)
+    )
+    with pytest.raises(HandbackScopeError) as excinfo:
+        write_handback(
+            tmp_path / "stage-12",
+            StageHandback(reason="too far", requested_scope=("stage:12-14",)),
+            mandate,
+        )
+    assert "stage:12-14" in str(excinfo.value)
+
+
+def test_handback_unknown_scope_format_is_rejected(tmp_path: Path) -> None:
+    mandate = ensure_run_mandate(tmp_path, run_id="run-a")
+    with pytest.raises(HandbackScopeError):
+        write_handback(
+            tmp_path / "stage-03",
+            StageHandback(reason="bad format", requested_scope=("stage:1-x",)),
+            mandate,
+        )
+
+
 def test_handback_requires_reason(tmp_path: Path) -> None:
     mandate = ensure_run_mandate(tmp_path, run_id="run-a")
     with pytest.raises(HandbackScopeError):
