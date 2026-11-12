@@ -53,9 +53,10 @@ researchclaw = "researchclaw.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["researchclaw"]
-# P-103 (D-1): ship the tool registry inside the wheel so fail-closed startup
-# validation works for pip-installed users as well.
-force-include = {"tools/registry.yaml" = "researchclaw/tools/registry.yaml"}
+# P-103 review D-1: the registry ships as plain package data
+# (researchclaw/tools/registry.yaml). force-include was removed — it mapped the
+# repo-root file onto the already-present package path and broke wheel builds
+# (duplicate archive entry) plus test_packaging.py's no-force-include contract.
 
 [build-system]
 requires = ["hatchling>=1.30,<2"]

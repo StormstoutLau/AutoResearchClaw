@@ -23,7 +23,7 @@ tools:
     risk: medium
     approval: never
     sandbox_profile: default
-    handler: "researchclaw.mcp.server:ResearchClawMCPServer"
+    handler: "researchclaw.mcp.server:dispatch_tool"
   - name: get_pipeline_status
     version: "1.0"
     description: "Get the current status of a pipeline run."
@@ -41,7 +41,7 @@ tools:
     risk: low
     approval: never
     sandbox_profile: default
-    handler: "researchclaw.mcp.server:ResearchClawMCPServer"
+    handler: "researchclaw.mcp.server:dispatch_tool"
   - name: get_experiment_results
     version: "1.0"
     description: "Get experiment results from a completed or running pipeline."
@@ -62,7 +62,7 @@ tools:
     risk: low
     approval: never
     sandbox_profile: default
-    handler: "researchclaw.mcp.server:ResearchClawMCPServer"
+    handler: "researchclaw.mcp.server:dispatch_tool"
   - name: search_literature
     version: "1.0"
     description: "Search academic papers on a topic using Semantic Scholar and arXiv."
@@ -83,7 +83,7 @@ tools:
     risk: low
     approval: never
     sandbox_profile: default
-    handler: "researchclaw.mcp.server:ResearchClawMCPServer"
+    handler: "researchclaw.mcp.server:dispatch_tool"
   - name: review_paper
     version: "1.0"
     description: "Run AI peer review on a paper draft (by paper_path or run_id)."
@@ -107,7 +107,7 @@ tools:
     risk: medium
     approval: never
     sandbox_profile: default
-    handler: "researchclaw.mcp.server:ResearchClawMCPServer"
+    handler: "researchclaw.mcp.server:dispatch_tool"
   - name: get_paper
     version: "1.0"
     description: "Get the generated paper from a pipeline run."
@@ -131,7 +131,7 @@ tools:
     risk: low
     approval: never
     sandbox_profile: default
-    handler: "researchclaw.mcp.server:ResearchClawMCPServer"
+    handler: "researchclaw.mcp.server:dispatch_tool"
 sandbox_profiles:
   default:
     network: none

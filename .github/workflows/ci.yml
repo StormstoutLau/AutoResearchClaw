@@ -42,6 +42,7 @@ jobs:
               "researchclaw/templates/styles/iclr_2025/iclr2025_conference.bst",
               "researchclaw/vendor/auto_prover/LICENSE",
               "researchclaw/vendor/auto_prover/NOTICE",
+              "researchclaw/tools/registry.yaml",
           ]
           for path in required:
               assert path in names, f"missing wheel asset: {path}"

@@ -626,3 +626,25 @@ class ResearchClawMCPServer:
         except OSError:
             pass
         return text[:400]
+
+
+_DEFAULT_SERVER: "ResearchClawMCPServer | None" = None
+
+
+def _default_server() -> "ResearchClawMCPServer":
+    """Lazily create the process-wide server behind the registry handlers."""
+    global _DEFAULT_SERVER
+    if _DEFAULT_SERVER is None:
+        _DEFAULT_SERVER = ResearchClawMCPServer()
+    return _DEFAULT_SERVER
+
+
+async def dispatch_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Module-level call site referenced by ``tools/registry.yaml`` handlers.
+
+    ``module:attr`` handlers cannot express ``Class.method``, so the registry
+    points here instead of at the class (P-103 review D-3): resolving the class
+    passed strict checks but an invoker call would *construct* a server rather
+    than dispatch. The M3 invoker binds this function directly.
+    """
+    return await _default_server().handle_tool_call(name, arguments)

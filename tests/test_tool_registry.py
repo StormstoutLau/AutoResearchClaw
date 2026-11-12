@@ -197,6 +197,17 @@ def test_profile_missing_pids_fails(tmp_path: Path) -> None:
 # ── T-12: deferred handler resolution ────────────────────────────
 
 
+def test_handler_resolving_to_class_is_rejected(tmp_path: Path) -> None:
+    # P-103 review D-3: resolvable != callable-safe. A class would be
+    # *constructed* (not invoked) by a caller; strict load must reject it.
+    path = _write_registry(tmp_path, _payload(
+        handler="researchclaw.tools.registry:RegistryError"))
+    with pytest.raises(RegistryError) as ei:
+        load_registry(path, strict_handlers=True)
+    assert ei.value.code == E_REGISTRY_HANDLER
+    load_registry(path)  # format-only (non-strict) load still succeeds
+
+
 def test_strict_resolution(tmp_path: Path) -> None:
     ok = _write_registry(tmp_path / "ok", _payload(
         handler="researchclaw.tools.registry:load_registry"))

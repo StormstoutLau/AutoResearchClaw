@@ -26,7 +26,8 @@ def _make_registry(tmp_path: Path, extra_tools: list[dict] | None = None) -> Pat
                 "version": "1.0",
                 "description": "Probe A",
                 "inputSchema": {"type": "object", "properties": {
-                    "topic": {"type": "string", "description": "t"}},
+                    "topic": {"type": "string", "description": "t"},
+                    "config_path": {"type": "string", "description": "cp"}},
                     "required": ["topic"]},
                 "outputSchema": {"type": "object"},
                 "scope": "global",
@@ -178,6 +179,40 @@ def test_reload_failure_keeps_registration(tmp_path: Path) -> None:
     with pytest.raises(RegistryError):
         refresh_from_registry(server, registry, _dispatcher([]), path=path)
     assert {t.name for t in asyncio.run(server.list_tools())} >= {"probe_a", "probe_b"}
+
+
+# ── P-103 review D-2: omitted optional args must not arrive as None ──
+
+
+def test_optional_kwargs_omitted_not_forwarded_as_none(tmp_path: Path) -> None:
+    # pydantic fills signature defaults (None) for omitted optionals; forwarding
+    # them overrides handler-side defaults (run_pipeline.auto_approve True→False).
+    import asyncio
+
+    server = MCPServer(name="t", version="0")
+    calls: list = []
+    registry = load_registry(_make_registry(tmp_path), strict_handlers=True)
+    register_from_registry(server, registry, _dispatcher(calls))
+    asyncio.run(server.call_tool("probe_a", {"topic": "x"}))
+    assert calls[-1][1] == {"topic": "x"}
+    asyncio.run(server.call_tool("probe_a", {"topic": "x", "config_path": "c.yaml"}))
+    assert calls[-1][1] == {"topic": "x", "config_path": "c.yaml"}
+
+
+def test_real_registry_run_pipeline_minimal_args(tmp_path: Path) -> None:
+    # P-103 review D-2 regression: legacy contract auto_approve=True must hold
+    # when the client sends only the required topic.
+    import asyncio
+
+    server = MCPServer(name="t", version="0")
+    calls: list = []
+    registry = load_registry(strict_handlers=True)
+    register_from_registry(server, registry, _dispatcher(calls))
+    asyncio.run(server.call_tool("run_pipeline", {"topic": "x"}))
+    received = calls[-1][1]
+    assert received["topic"] == "x"
+    assert "auto_approve" not in received
+    assert "config_path" not in received
 
 
 # ── dispatcher wiring ────────────────────────────────────────────

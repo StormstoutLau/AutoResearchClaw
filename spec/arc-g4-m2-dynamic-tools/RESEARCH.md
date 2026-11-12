@@ -1,7 +1,7 @@
 ---
 id: arc-g4-m2-dynamic-tools-RESEARCH
 type: design
-version: 1.0
+version: 1.1
 status: verified
 date: 2026-11-14
 depends: [arc-g4-m1-registry, arc-g4-m1-registry-review]
@@ -87,5 +87,20 @@ upstream: arc-g4-m1-registry-review
 - [P-102 复核](../../docs/arc-g4-m1-registry-review-20261114.md)（D-1/D-2/D-3）
 - [P-100 复核 D-5](../../docs/arc-g4-m0-design-review-20261114.md)
 - SDK：`mcp/server/mcpserver/server.py`、`mcp/server/lowlevel/server.py`、`mcp/server/session.py`
+
+## 7. 复核收敛输入（v1.1，受控回边）
+
+复核批（DeepSeek-V4.1-Flash，**并入 P-103 不占号**，用户裁决 2026-11-12）报告：[arc-g4-m2-review-20261114.md](../../docs/arc-g4-m2-review-20261114.md)。一手取证结论作为本批收敛设计的输入：
+
+| # | 发现 | 复核证据（取证等级） |
+|---|---|---|
+| D-1 P1 | **wheel 构建失败**：`force-include` 把仓库根文件映射到已存在的包内副本同一路径 → `ValueError: duplicate archive entry`；且违反既有打包契约测试 `test_packaging.py::test_wheel_does_not_force_include_package_data` | E2 实构建 `uv build --wheel` 中止；E1 CI 全清单 1 failed / 600 passed |
+| D-2 P2 | **可选参数以 `None` 注入**：pydantic 按合成签名默认值填充缺省可选参数并原样下发；`run_pipeline.auto_approve` 由 legacy 默认 `True` 变 `bool(None)=False` 静默翻转（MCP 42 项只锁 schema，未覆盖参数语义，故未捕获） | E2 X-4/X-16 实测 dispatcher 实收 kwargs；E1 `git show 0648e2a` legacy 签名 `auto_approve: bool = True` |
+| D-3 P2 | **handler 指向类对象**：6 条 handler 均为 `researchclaw.mcp.server:ResearchClawMCPServer`，`resolve()` 返回类——V-5b 只证「可导入」，invoker 调用会构造而非分发 | E2/E4 X-17 实测 `isclass=True`×6 |
+| D-4 P3 | DESIGN 三处漂移：`register_from_registry` 声明带 `notifier`（实现无）/ `_dispatch_tool` 返回 `_as_result(...)`（实现为裸 dict）/ 「启动时模块级 load」（实现为 lazy） | E3 读码 |
+| D-5 P3 | 自报读数失准：dynamic「12 项」实为 10；「宽回归 295/5」口径不可复现；「packaging 冒烟绿」未经真实构建 | E1 |
+| O-6 | `__registry_handler__` 死属性（全仓只写不读） | E4 扫描 |
+
+另：复核证实 §3.2 的 listChanged 阻塞判断（X-11：`connection` 属性不存在、`session_manager` 属性激活即抛 RuntimeError），阻塞点登记成立。
 
 ---

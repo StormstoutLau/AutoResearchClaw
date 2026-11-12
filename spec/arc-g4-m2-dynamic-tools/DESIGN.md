@@ -1,7 +1,7 @@
 ---
 id: arc-g4-m2-dynamic-tools-DESIGN
 type: design
-version: 1.0
+version: 1.1
 status: verified
 date: 2026-11-14
 depends: [arc-g4-m2-dynamic-tools-RESEARCH]
@@ -67,13 +67,14 @@ def _freeze(obj):
 ### 3.1 `registry_adapter.py`
 
 ```python
-def register_from_registry(server, registry, dispatcher, *, notifier=None) -> list[str]
-def refresh_from_registry(server, old_registry, notifier=None) -> Registry
+def register_from_registry(server, registry, dispatcher) -> list[str]
+def refresh_from_registry(server, old_registry, dispatcher, *,
+                          notifier=None, path=None) -> Registry
 ```
 
 - `register_from_registry`：遍历 `registry.tools` → `_make_call(dispatcher, name)`（async，转发 `dispatcher(name, kwargs)`，设置 `__name__`）→ `server.add_tool(_call, name=..., description=...)` → **路径 B 注入**：`server._tool_manager.get_tool(name).parameters = spec.input_schema` → 返回注册名列表。**零工具名硬编码**（T-4）。
 - `refresh_from_registry`：`new = old.reload()` → 对 old 中每个 tool `server.remove_tool(name)` → `register_from_registry(server, new, ...)` → `notifier()`（若提供）→ 返回 new。失败时抛 `RegistryError`（旧注册不变——remove 仅在校验成功后执行）。
-- dispatcher 签名：`async (name: str, args: dict) -> Any`；`server.py` 传入 `self._dispatch_tool`（新增小方法：`self._as_result(await self.handle_tool_call(name, args))`）。
+- dispatcher 签名：`async (name: str, args: dict) -> Any`；`server.py` 传入 `self._dispatch_tool`（新增小方法：返回**裸 dict**——SDK 负责包装 `CallToolResult`，P-103 实测返回预包装结果会双重包装崩溃）。
 
 ### 3.2 listChanged 阻塞点（诚实声明）
 
@@ -83,7 +84,7 @@ def refresh_from_registry(server, old_registry, notifier=None) -> Registry
 
 ## 4. `GET /api/tools`（M0 §3.1）
 
-`routes/tools.py`：`router = APIRouter(prefix="/api", tags=["tools"])`；启动时模块级 `load_registry(strict_handlers=True)`（异常 → 应用启动失败，Q-3）。返回：
+`routes/tools.py`：`router = APIRouter(prefix="/api", tags=["tools"])`；路由模块 **lazy** 持有 `REGISTRY`（`get_registry()` 首次调用时 `load_registry(strict_handlers=True)`），`app.py` include 路由后立即 `get_registry()` → 启动 fail-closed（异常 → 应用启动失败，Q-3）。返回：
 
 ```json
 {"version": 1, "tools": [{"name","version","description","inputSchema","outputSchema","scope","risk","approval"}]}
@@ -103,7 +104,7 @@ def _register_tools(self) -> None:
     register_from_registry(self._mcp, registry, self._dispatch_tool)
 ```
 
-`_dispatch_tool`：`self._as_result(await self.handle_tool_call(name, args))`。`get_tools()`/`TOOL_DEFINITIONS` **不动**（T-9 兼容）。`mcp/tools.py` 保留双源。
+`_dispatch_tool`：返回裸 dict（`await self.handle_tool_call(name, args)`），由 SDK 包装 content/structured_content。`get_tools()`/`TOOL_DEFINITIONS` **不动**（T-9 兼容）。`mcp/tools.py` 保留双源。
 
 ## 6. 决策表（含拒绝方案）
 
@@ -144,5 +145,24 @@ def _register_tools(self) -> None:
 - invoker/事件/审批（M3）。
 - 沙箱（M4）、HostProfile（M5）。
 - 删除 `mcp/tools.py`（M3/M4）。
+
+## 10. 复核收敛设计（v1.1，受控回边）
+
+复核 [arc-g4-m2-review-20261114.md](../../docs/arc-g4-m2-review-20261114.md) 发现 D-1（P1）/ D-2、D-3（P2）/ D-4、D-5（P3）；输入见 RESEARCH §7。
+
+| # | 缺陷 | 收敛设计 | 拒绝方案与理由 |
+|---|---|---|---|
+| D-1 | wheel 构建失败：`force-include` 与包内副本同路径冲突（duplicate archive entry），且违反既有契约测试 `test_packaging.py`（no-force-include） | **删除 `force-include`**：注册表以普通包数据随 `packages=["researchclaw"]` 分发（hatchling 默认包含包内非 .py 文件，`domains/profiles/*.yaml` 同口径先例）；CI wheel 校验 `required` 清单增加 `researchclaw/tools/registry.yaml` | 拒绝「删包内副本、保留 force-include」——与既有契约测试语义冲突（该测试存在早于本批，是有效护栏） |
+| D-2 | 可选参数以 `None` 注入 dispatcher：`run_pipeline.auto_approve` 由 legacy 默认 `True` 变 `bool(None)=False` 静默翻转 | `_make_call` 的 `_call` 在 dispatch 前丢弃「值为 `None` 且非 required」的 kwargs（absent ⇔ None 不下发，handler 侧默认值恢复权威）；required 的 `None` 透传（诚实交给 handler 校验） | 拒绝「从 schema default 生成签名默认值」——无 default 的可选参数在 pydantic 合成签名下会变成 required，破坏注册表声明的可选语义；拒绝仅在六个 handler 内逐个修补——不可维护且不修 invoker 面 |
+| D-3 | 6 条 handler 指向类对象，V-5b「可导入」≠「可调用」 | ① handler 改指 `researchclaw.mcp.server:dispatch_tool`（新增模块级 async 函数 + lazy 单例 `handle_tool_call`；`module:attr` 格式无法表达 `Class.method`）；② `ToolSpec.resolve()` 加载期拒绝类/不可调用对象（复用 `E_REGISTRY_HANDLER`） | 拒绝仅登记不改 handler——M3 前置缺陷现在即可廉价关闭；拒绝自造 per-tool 函数族——与 dispatcher 接缝重复 |
+| D-4 | DESIGN 与实现三处漂移 | §3.1/§4/§5 原地回填（本版本），实现即真值 | — |
+| O-6 | `__registry_handler__` 死属性 | 删除 setattr（全仓无读取点）；M3 invoker 自行 `spec.resolve()` | — |
+
+### 10.1 收敛验收（可失败）
+
+- D-1 三连：`uv build --wheel` 成功、zip 内恰一份 `researchclaw/tools/registry.yaml` 且无重复路径、装 wheel 后 `load_registry()` 成功。
+- D-2 关闭：`run_pipeline` 仅传 `topic` → dispatcher 实收 kwargs 不含 `auto_approve`/`config_path` 键（回归用例锁定 legacy 契约）。
+- D-3 关闭：handler 指向类 → strict load 抛 `E_REGISTRY_HANDLER`；非 strict（仅格式）仍通过。
+- 回归：CI 固定清单 40 文件 0 failed；四套件 79 passed；3.11 双口径（含 extras 79 / 无 extras 24+1skip，skip 为既有 `importorskip("mcp")`）。
 
 ---

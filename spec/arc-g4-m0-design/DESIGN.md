@@ -88,7 +88,7 @@ def register_from_registry(server: MCPServer, registry: Registry) -> None:
 ```
 
 - `inputSchema` 由 SDK 从函数签名生成 vs **注册表为准**：SDK 2.x 的 decorator 不支持传入外部 schema 时，M2 采用「注册表 schema 为真值源 + 测试断言 SDK `list_tools()` 返回与注册表一致」；若不一致以注册表为准并在 CI 断言（A4-10 的「一致」含义）。
-- `listChanged`：`Registry.reload()` 成功后调用 `ServerSession.send_tool_list_changed()`（E2 已确认入口存在）；`MCPServer` 无该属性，故经 `server.connection`/session 引用获取，M2 落地时验证。
+- `listChanged`：**M2 落地验证结论（P-103 复核 X-11 实测）**：`MCPServer` 无 `connection`/运行期 session 属性；`session_manager` 懒加载、未调用 `streamable_http_app()` 前访问即抛 `RuntimeError`——stdio 单连接下真通知不可达。M2 交付 notifier 接缝（reload → 重新注册 → `notifier()`，fake 可测）并显式登记阻塞点；真 `send_tool_list_changed()` 留 HTTP/多 session 批次。
 - **新增工具无需改代码**：在 `tools/registry.yaml` 追加条目 + handler 可导入即生效（M2 用例：临时注册表加一个工具，`list_tools()` 出现、无需改 `server.py`）。
 
 ### 3.1 REST `GET /api/tools`（M2）
@@ -161,7 +161,7 @@ class HostProfile:
 |---|---|---|---|---|
 | M0 | **P-099** | 设计冻结（已完成；P-100 复核 2 P2 + 5 P3） | DC + 门禁 | 本 feature 四文档 |
 | M1 | **P-101**（原 P-100，P-100 让位于复核批） | 注册表 + 启动校验（已完成；P-102 复核 1 P2 + 2 P3 → **M2 批内先修 D-1/D-2/D-3，已随 P-103 落地**） | **A4-1** | `tools/registry.yaml`、`researchclaw/tools/registry.py`、`tests/test_tool_registry.py` |
-| M2 | **P-103**（原 P-102） | MCP 动态注册 + listChanged + `GET /api/tools`（实施中；前置 spike 已定案路径 B） | **A4-10** | `researchclaw/mcp/registry_adapter.py`、`server/routes/tools.py`、`tests/test_mcp_dynamic_tools.py` |
+| M2 | **P-103**（原 P-102） | MCP 动态注册 + listChanged + `GET /api/tools`（**已完成**；复核并入批（DeepSeek，不占号）发现 D-1 P1/D-2·D-3 P2，批内收敛关闭——force-include 删除、None 可选参清洗、handler→`dispatch_tool` + 拒类校验） | **A4-10** | `researchclaw/mcp/registry_adapter.py`、`server/routes/tools.py`、`tests/test_mcp_dynamic_tools.py` |
 | M3 | **P-104**（原 P-103） | tool 事件 + orphan_call + 审批门 | **A4-4/A4-5** | `researchclaw/tools/invoker.py`、`runtime/event_log.py` 接线、`tests/test_tool_events.py` |
 | M4 | **P-105**（原 P-104） | 沙箱配额/TTL/137 + 四类逃逸 | **A4-2/A4-3/A4-6** | `experiment/docker_sandbox.py`、`tests/test_sandbox_boundary.py` |
 | M5 | **P-106**（原 P-105） | env/safe_join 全覆盖 + HostProfile | **A4-7/A4-8/A4-9** | `utils/`、`researchclaw/runtime/host_profile.py`、`tests/test_boundary_coverage.py` |

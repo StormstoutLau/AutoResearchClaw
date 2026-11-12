@@ -25,6 +25,11 @@ def _make_call(dispatcher: Dispatcher, name: str,
     keyword-only parameter (required keys without a default) so the SDK passes
     arguments through normally; the authoritative schema is injected verbatim
     afterwards (path B), which allows richer shapes such as ``anyOf``.
+
+    Optional parameters the client omitted arrive as ``None`` (pydantic fills
+    the signature defaults); they are dropped before dispatch so handler-side
+    defaults stay authoritative (P-103 review D-2: an optional boolean flag
+    would otherwise flip from ``True`` to ``bool(None)``).
     """
     properties = schema.get("properties") or {}
     required = set(schema.get("required") or [])
@@ -38,7 +43,9 @@ def _make_call(dispatcher: Dispatcher, name: str,
     ]
 
     async def _call(**kwargs: Any) -> Any:
-        return await dispatcher(name, kwargs)
+        cleaned = {k: v for k, v in kwargs.items()
+                   if v is not None or k in required}
+        return await dispatcher(name, cleaned)
 
     _call.__name__ = name
     _call.__signature__ = inspect.Signature(parameters=params)
@@ -68,12 +75,13 @@ def register_from_registry(server: Any, registry: Registry,
 
 
 def _register_one(server: Any, spec: ToolSpec, dispatcher: Dispatcher) -> None:
-    handler = spec.resolve()
+    # Strict resolution keeps startup fail-closed even if the registry was
+    # loaded non-strict; the dispatch itself goes through the dispatcher seam
+    # (the M3 invoker replaces it and binds the resolved handler itself).
+    spec.resolve()
     call = _make_call(dispatcher, spec.name, spec.input_schema)
 
     async def _entry(**kwargs: Any) -> Any:
-        # ``handler`` exists so strict resolution covers the import; the actual
-        # dispatch goes through the invoker seam (M3 replaces the dispatcher).
         return await call(**kwargs)
 
     _entry.__signature__ = call.__signature__
@@ -84,8 +92,6 @@ def _register_one(server: Any, spec: ToolSpec, dispatcher: Dispatcher) -> None:
     server.add_tool(_entry, name=spec.name, description=spec.description,
                     structured_output=False)
     _inject_schema(server, spec.name, spec.input_schema)
-    # bind the resolved handler so strict resolution is meaningful at runtime
-    setattr(_entry, "__registry_handler__", handler)
 
 
 def refresh_from_registry(server: Any, old_registry: Registry,

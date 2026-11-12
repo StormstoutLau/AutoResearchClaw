@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.resources
+import inspect
 import os
 import re
 import types
@@ -102,13 +103,23 @@ class ToolSpec:
         module_name, _, attr = self.handler.partition(":")
         try:
             module = importlib.import_module(module_name)
-            return getattr(module, attr)
+            obj = getattr(module, attr)
         except (ImportError, AttributeError) as exc:
             raise RegistryError(
                 E_REGISTRY_HANDLER_UNRESOLVED,
                 f"handler '{self.handler}' is not importable: {exc}",
                 tool=self.name,
             ) from exc
+        # P-103 review D-3: resolvable is not callable-safe. A class would be
+        # *constructed* (not invoked) by an invoker call; reject non-functions.
+        if inspect.isclass(obj) or not callable(obj):
+            raise RegistryError(
+                E_REGISTRY_HANDLER,
+                f"handler '{self.handler}' must resolve to a callable function, "
+                f"got {type(obj).__name__}",
+                tool=self.name,
+            )
+        return obj
 
 
 @dataclass(frozen=True)
