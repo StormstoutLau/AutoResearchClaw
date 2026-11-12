@@ -1,14 +1,14 @@
 ---
 id: arc-master-roadmap
 type: design
-version: 1.3r
+version: 1.3s
 status: draft
 date: 2026-11-11
 depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-textbook, clawsgo-cleanroom-arc]
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.3r）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.3s）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -74,6 +74,8 @@ upstream: arb-v2-decisions
 > **修订**：v1.3q（2026-11-12，P-079）**G3 M2 复核通过（零缺陷）**：独立异构复核 V-1..V-12 全过——30 passed 双环境复跑、回归 99、接线顺序、边界诚实登记全部属实。11 组探针：伪锚两形态均判红、**同域一致重写绕过证实 DESIGN §4.2 边界声明准确**、8 线程并发零丢失、无 id 结果集同构确认实施批 P3-2、豁免轮穿插语义正确；初判 2 项 FAIL 复判均为探针构造偏差（撤回）。O-1..O-4 登记（torn tail 单行语义与 EventLog 不一致、window 无下界、并发零丢失非契约保证）。**编号再顺延**：本复核占用 P-079，M3/M4/M5 = **P-080/P-081/P-082**。**106 计数不变**。依据：[P-079 复核](docs/arc-g3-m2-review-20261112.md)。
 >
 > **修订**：v1.3r（2026-11-12，P-080）**G3 M1/M2 修复批**：新增 `runtime/filelock.py`（stdlib 跨平台 advisory 锁，`msvcrt.LK_NBLCK` / `fcntl.LOCK_NB` + 轮询 + 超时）——**D-1 并发注册丢节点**（barrier 探针 150/150 复现、40 轮 `PermissionError`）修复后 **150 轮 0 丢失 0 异常**；跨进程探针 PASS；`os.replace` 增 3×10 ms 瞬时冲突重试。P-079 O-1..O-3 全部关闭（账本尾部连续坏行容忍、`window<1` 显式拒绝、事件追加跨进程互斥）。**P-077 D-3 撤回**：locator 已含 stage 前缀，跨 stage 同内容节点本就 id 不同（Nix input-addressing 等价语义），探针复验 2 节点均保留，故不改 `node_id` 公式。实测：套件 52 passed（3.13.5 与 3.11.15）、回归 109 passed、200 次注册 169.8 ms。M1/M2 DESIGN 升 v1.1。**M3/M4/M5 = P-081/P-082/P-083**。**106 计数不变**。依据：[P-080 实施](spec/arc-g3-fix-batch/IMPLEMENTATION.md)、[P-077 复核](docs/arc-g3-m1-review-20261112.md)、[P-079 复核](docs/arc-g3-m2-review-20261112.md)。
+>
+> **修订**：v1.3s（2026-11-12，P-081）**Spec 门禁加固**：P-080 后的强制力审计发现两处缺口——① CI 只有 `pre-commit --all-files`，`step_enforce` 本地模式取 `_local_changed()`，CI checkout 干净时为空集 → **空转**（实测 exit 0）；② `FEATURE_RE` 只匹配已存在四文档，**四文档齐全无判据**。加固：`spec-gates` 增 range 兜底（`fetch-depth: 0`、`BASE=before 或 pull_request.base.sha`、全 0/不可达显式跳过、`--base` + 变更集、`rev-list --merges` 逐个 `--check-merge`）；`spec_map` 增 P 行 `basis` 与 `row_tier`；`step_enforce` 对 **P≥81** 的 T1 批次强制四文档齐全，T3 跳过，缺档位判红（阈值从本批起生效，不回溯）。实测：红 8 failed → 绿 16 passed；`--base HEAD~1`（29 路径 / 3 P / 3 session）exit 0。**M3/M4/M5 = P-082/P-083/P-084**。**106 计数不变**。依据：[P-081 实施](spec/arc-spec-gate-hardening/IMPLEMENTATION.md)。
 
 ---
 

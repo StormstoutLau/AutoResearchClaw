@@ -49,6 +49,9 @@ SESSION_RE = re.compile(
 BRANCH_RE = re.compile(r"(?:^|[/_-])p(\d{3})(?:$|[/_-])", re.I)
 STEP_SEQUENCE = ("research", "design", "implement", "verify", "finalize")
 BATCH_BINDING_MIN_P = 129
+# P-081：T1 批次四文档齐全从本批起生效（棘轮不回溯历史）
+DOC_COMPLETENESS_MIN_P = 81
+REQUIRED_DOCS = ("RESEARCH.md", "DESIGN.md", "IMPLEMENTATION.md", "CHECKLIST.md")
 # U-10 C（P-137）：**内容 digest 绑定**过渡边界（独立常量，不与 129 / FINALIZE_IMPACT_MIN_P 合并）。
 # 推导（预注册 §10 U-10 行 + 附录 E.1 提案 135 已被占用）：135 → 136 → **137 = 实施批自身**
 # （同 P-092 `FINALIZE_IMPACT_MIN_P=92` 先例：边界取实施批编号，本批吃狗粮自证）。
@@ -376,6 +379,23 @@ def check_merge(sha: str) -> int:
     return 1
 
 
+def _missing_docs(feature: str) -> list[str]:
+    """T1 批次四文档齐全检查（P-081）：返回缺失文件名。
+
+    ``CHECKLIST_FUNC.md`` 是历史变体（``FEATURE_RE`` 同口径），任一存在即视为齐全。
+    """
+    base = ROOT / "spec" / feature
+    missing: list[str] = []
+    for name in REQUIRED_DOCS:
+        if name == "CHECKLIST.md":
+            if (base / "CHECKLIST.md").is_file() or (base / "CHECKLIST_FUNC.md").is_file():
+                continue
+            missing.append(name)
+        elif not (base / name).is_file():
+            missing.append(name)
+    return missing
+
+
 def _resolve_declared(d: Decision, docs_features: set[str], rows: dict) -> None:
     allowed: set[str] = set()
     for pid in d.pids:
@@ -397,6 +417,29 @@ def _resolve_declared(d: Decision, docs_features: set[str], rows: dict) -> None:
         d.errors.append("变更 feature 未被声明 P 覆盖: " + ", ".join(missing))
         return
     d.features = allowed
+    # P-081：T1 四文档齐全（按 feature 的所属 P 档位判定；T3 轻批合法无四文档）
+    for feature in sorted(docs_features):
+        owners = [
+            pid for pid in d.pids
+            if rows.get(pid)
+            and feature in rows[pid]["features"]
+            and _pid_num(pid) >= DOC_COMPLETENESS_MIN_P
+        ]
+        if not owners:
+            continue
+        tier = spec_map.row_tier(rows[max(owners, key=_pid_num)])
+        if tier is None:
+            d.errors.append(
+                "P 行缺批次档位（依据列须含 T1 或 T3）: " + ", ".join(owners))
+            continue
+        if tier == "T3":
+            continue
+        lacking = _missing_docs(feature)
+        if lacking:
+            d.errors.append(
+                f"T1 批次四文档不全: spec/{feature}/ 缺 {', '.join(lacking)}")
+    if d.errors:
+        return
     for pid in d.pids:
         sids = _sessions_for_pid(pid)
         if not sids:

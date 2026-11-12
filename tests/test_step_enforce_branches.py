@@ -30,9 +30,14 @@ def progress(*rows: str) -> str:
     return HEADER + "".join(r + "\n" for r in rows)
 
 
-def row(pid: str, feature: str | None) -> str:
-    dep = "| [spec/%s/](../spec/%s/) " % (feature, feature) if feature else "| — "
-    return "| %s | 事项 | %s| done | P0 | ok |" % (pid, dep)
+def row(pid: str, feature: str | None, tier: str | None = "T3") -> str:
+    parts = []
+    if feature:
+        parts.append("[spec/%s/](../spec/%s/)" % (feature, feature))
+    if tier:
+        parts.append(tier)
+    dep = " ".join(parts) or "—"
+    return "| %s | 事项 | %s | done | P0 | ok |" % (pid, dep)
 
 
 @pytest.fixture(autouse=True)
@@ -115,3 +120,49 @@ def test_session_completeness_not_relaxed(monkeypatch):
     new = progress(row("P-024", "feat-a"), row("P-025", None))
     d = _batch_resolve(old, new)
     assert any("无 session" in e for e in d.errors), d.errors
+
+
+# ---------------------------------------------------------------- T-6 四文档齐全（P-081）
+
+def test_t1_missing_doc_errors(monkeypatch):
+    """T1 批次缺任一四文档 → 红。"""
+    monkeypatch.setattr(se, "_missing_docs", lambda feat: ["CHECKLIST.md"])
+    old = progress()
+    new = progress(row("P-200", "feat-a", "T1"))
+    d = _batch_resolve(old, new)
+    assert any("四文档不全" in e for e in d.errors), d.errors
+
+
+def test_t1_complete_docs_passes(monkeypatch):
+    monkeypatch.setattr(se, "_missing_docs", lambda feat: [])
+    old = progress()
+    new = progress(row("P-200", "feat-a", "T1"))
+    d = _batch_resolve(old, new)
+    assert not [e for e in d.errors if "四文档" in e], d.errors
+
+
+def test_t3_skips_doc_completeness(monkeypatch):
+    """T3 轻批合法无四文档：缺文件也不得报错。"""
+    monkeypatch.setattr(se, "_missing_docs", lambda feat: ["RESEARCH.md"])
+    old = progress()
+    new = progress(row("P-200", "feat-a", "T3"))
+    d = _batch_resolve(old, new)
+    assert not [e for e in d.errors if "四文档" in e], d.errors
+
+
+def test_missing_tier_errors(monkeypatch):
+    """P ≥ 阈值但依据列无 T1/T3 → 红（不默认 T1 以免历史大面积误报）。"""
+    monkeypatch.setattr(se, "_missing_docs", lambda feat: [])
+    old = progress()
+    new = progress(row("P-200", "feat-a", None))
+    d = _batch_resolve(old, new)
+    assert any("缺批次档位" in e for e in d.errors), d.errors
+
+
+def test_low_pid_is_not_gated(monkeypatch):
+    """低于阈值的 P 行不受四文档/档位约束（棘轮不回溯）。"""
+    monkeypatch.setattr(se, "_missing_docs", lambda feat: ["RESEARCH.md"])
+    old = progress()
+    new = progress(row("P-024", "feat-a", None))
+    d = _batch_resolve(old, new)
+    assert not [e for e in d.errors if "四文档" in e or "缺批次档位" in e], d.errors

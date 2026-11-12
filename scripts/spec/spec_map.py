@@ -107,10 +107,12 @@ def is_historical_exempt(pid: str) -> bool:
 P_ROW_RE = re.compile(
     r"^\|\s*(P-\d{3})\s*\|([^|]*)\|([^|]*)\|\s*([^|]*)\|")
 SPEC_LINK_RE = re.compile(r"spec/([a-z0-9-]+)/")
+# 批次档位词（P-081）：只认独立的 T1 / T3，避免 T10 / T31 误匹配
+TIER_RE = re.compile(r"\bT([13])\b")
 
 
 def parse_progress_rows(text: str) -> dict[str, dict]:
-    """P-xxx -> {"status": str, "features": tuple[str, ...]}（保序去重）。"""
+    """P-xxx -> {"status", "features", "basis"}（保序去重；basis = 依据列原文）。"""
     rows = {}
     for line in text.splitlines():
         m = P_ROW_RE.match(line)
@@ -119,8 +121,18 @@ def parse_progress_rows(text: str) -> dict[str, dict]:
         pid = m.group(1)
         status = m.group(4).replace("*", "").strip()
         features = tuple(dict.fromkeys(SPEC_LINK_RE.findall(line)))
-        rows[pid] = {"status": status, "features": features}
+        rows[pid] = {
+            "status": status,
+            "features": features,
+            "basis": m.group(3).strip(),
+        }
     return rows
+
+
+def row_tier(row: dict) -> str | None:
+    """P 行批次档位（T1 / T3 / None）——档位判定的唯一实现（I-10）。"""
+    m = TIER_RE.search(str(row.get("basis") or ""))
+    return f"T{m.group(1)}" if m else None
 
 
 def changed_pids(old_text: str, new_text: str) -> list[str]:
