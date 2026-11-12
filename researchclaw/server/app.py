@@ -127,6 +127,10 @@ def create_app(
     app.include_router(pipeline_router)
     app.include_router(projects_router)
     app.include_router(events_router)
+    from researchclaw.server.routes.tools import get_registry as _get_tools_registry
+    from researchclaw.server.routes.tools import router as tools_router
+    app.include_router(tools_router)
+    _get_tools_registry()  # fail-closed: bad registry aborts server startup (A4-1)
 
     if not dashboard_only:
         from researchclaw.server.routes.chat import router as chat_router, set_chat_manager

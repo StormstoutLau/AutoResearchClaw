@@ -160,13 +160,13 @@ class HostProfile:
 | 批次 | 编号 | 交付 | 验收 | 主要文件 |
 |---|---|---|---|---|
 | M0 | **P-099** | 设计冻结（已完成；P-100 复核 2 P2 + 5 P3） | DC + 门禁 | 本 feature 四文档 |
-| M1 | **P-101**（原 P-100，P-100 让位于复核批） | 注册表 + 启动校验 | **A4-1** | `tools/registry.yaml`、`researchclaw/tools/registry.py`、`tests/test_tool_registry.py` |
-| M2 | **P-102**（原 P-101） | MCP 动态注册 + listChanged + `GET /api/tools` | **A4-10** | `researchclaw/mcp/registry_adapter.py`、`server/routes/tools.py`、`tests/test_mcp_dynamic_tools.py` |
-| M3 | **P-103**（原 P-102） | tool 事件 + orphan_call + 审批门 | **A4-4/A4-5** | `researchclaw/tools/invoker.py`、`runtime/event_log.py` 接线、`tests/test_tool_events.py` |
-| M4 | **P-104**（原 P-103） | 沙箱配额/TTL/137 + 四类逃逸 | **A4-2/A4-3/A4-6** | `experiment/docker_sandbox.py`、`tests/test_sandbox_boundary.py` |
-| M5 | **P-105**（原 P-104） | env/safe_join 全覆盖 + HostProfile | **A4-7/A4-8/A4-9** | `utils/`、`researchclaw/runtime/host_profile.py`、`tests/test_boundary_coverage.py` |
+| M1 | **P-101**（原 P-100，P-100 让位于复核批） | 注册表 + 启动校验（已完成；P-102 复核 1 P2 + 2 P3 → **M2 批内先修 D-1/D-2/D-3，已随 P-103 落地**） | **A4-1** | `tools/registry.yaml`、`researchclaw/tools/registry.py`、`tests/test_tool_registry.py` |
+| M2 | **P-103**（原 P-102） | MCP 动态注册 + listChanged + `GET /api/tools`（实施中；前置 spike 已定案路径 B） | **A4-10** | `researchclaw/mcp/registry_adapter.py`、`server/routes/tools.py`、`tests/test_mcp_dynamic_tools.py` |
+| M3 | **P-104**（原 P-103） | tool 事件 + orphan_call + 审批门 | **A4-4/A4-5** | `researchclaw/tools/invoker.py`、`runtime/event_log.py` 接线、`tests/test_tool_events.py` |
+| M4 | **P-105**（原 P-104） | 沙箱配额/TTL/137 + 四类逃逸 | **A4-2/A4-3/A4-6** | `experiment/docker_sandbox.py`、`tests/test_sandbox_boundary.py` |
+| M5 | **P-106**（原 P-105） | env/safe_join 全覆盖 + HostProfile | **A4-7/A4-8/A4-9** | `utils/`、`researchclaw/runtime/host_profile.py`、`tests/test_boundary_coverage.py` |
 
-**编号顺延依据**：P-100 复核批让位（P-084/P-086 先例）。**D-3 修正输入（M4）**：137 仅 memory/pids（cpus 是 throttling）；**D-4 修正输入（M4）**：TTL kill 产物未必落盘（`reason=ttl_timeout`）；**D-5 修正输入（M2）**：SDK schema 注入须先 spike；**D-6 修正输入（M5）**：AST 守卫改注册制白名单 + 兜底扫描。
+**编号顺延依据**：P-100 复核批、P-102 复核批先后让位（P-084/P-086 先例），M2..M5 = **P-103..P-106**。**D-3 修正输入（M4）**：137 仅 memory/pids（cpus 是 throttling）；**D-4 修正输入（M4）**：TTL kill 产物未必落盘（`reason=ttl_timeout`）；**D-5 已定案（P-103 落地）**：路径 B 注入 + deep equality 守卫；**D-6 修正输入（M5）**：AST 守卫改注册制白名单 + 兜底扫描。
 
 **依赖顺序**：M1 → M2（注册表先行）；M3 可与 M2 并行（只依赖 M1）；M4 独立；M5 最后（覆盖扫描需要 M1-M4 的落点）。
 

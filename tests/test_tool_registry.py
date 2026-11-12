@@ -82,12 +82,13 @@ def test_registry_schemas_match_hardcoded_definitions() -> None:
     # primary env install [mcp] and run it for real.
     pytest.importorskip("mcp")
     from researchclaw.mcp.tools import get_tool_schema
+    from researchclaw.tools.registry import unfreeze
 
     registry = load_registry()
     for spec in registry.tools:
         legacy = get_tool_schema(spec.name)
         assert legacy is not None, spec.name
-        assert spec.input_schema == legacy["inputSchema"], spec.name
+        assert unfreeze(spec.input_schema) == legacy["inputSchema"], spec.name
         assert spec.description == legacy["description"], spec.name
 
 
@@ -242,3 +243,57 @@ def test_shipped_registry_is_v8_self_consistent() -> None:
     for spec in registry.tools:
         if spec.risk == "high":
             assert spec.approval in {"always", "high_only"}
+
+
+# ── P-103: P-102 D-1/D-2/D-3 fixes ───────────────────────────────
+
+
+def test_package_resource_matches_repo_root() -> None:
+    # T-R1 (P-102 D-1): package copy must not drift from the repo-root source.
+    import importlib.resources
+
+    import yaml
+
+    res = importlib.resources.files("researchclaw.tools").joinpath("registry.yaml")
+    packaged = yaml.safe_load(res.read_text(encoding="utf-8"))
+    repo = Path(__file__).resolve().parents[1] / "tools" / "registry.yaml"
+    source = yaml.safe_load(repo.read_text(encoding="utf-8"))
+    assert packaged == source
+
+
+def test_frozen_nested_containers() -> None:
+    # T-R3 (P-102 D-2): nested containers must be read-only.
+    registry = load_registry()
+    with pytest.raises(TypeError):
+        registry.sandbox_profiles["default"]["cpu"] = 99  # type: ignore[index]
+    spec = registry.tools[0]
+    with pytest.raises(TypeError):
+        spec.input_schema["type"] = "array"  # type: ignore[index]
+
+
+def test_missing_file_has_dedicated_code(tmp_path: Path) -> None:
+    from researchclaw.tools.registry import E_REGISTRY_UNREADABLE
+
+    with pytest.raises(RegistryError) as exc:
+        load_registry(tmp_path / "nope.yaml")
+    assert exc.value.code == E_REGISTRY_UNREADABLE
+
+
+def test_bad_yaml_has_dedicated_code(tmp_path: Path) -> None:
+    from researchclaw.tools.registry import E_REGISTRY_PARSE
+
+    path = tmp_path / "broken.yaml"
+    path.write_text("version: 1\n  bad indent: [", encoding="utf-8")
+    with pytest.raises(RegistryError) as exc:
+        load_registry(path)
+    assert exc.value.code == E_REGISTRY_PARSE
+
+
+def test_non_mapping_payload_has_dedicated_code(tmp_path: Path) -> None:
+    from researchclaw.tools.registry import E_REGISTRY_PARSE
+
+    path = tmp_path / "list.yaml"
+    path.write_text("- a\n- b\n", encoding="utf-8")
+    with pytest.raises(RegistryError) as exc:
+        load_registry(path)
+    assert exc.value.code == E_REGISTRY_PARSE

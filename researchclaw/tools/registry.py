@@ -4,13 +4,19 @@
 fail-closed: any invalid entry raises :class:`RegistryError` and the caller
 (server / MCP / invoker entry points) decides to abort startup. A pure
 pipeline CLI does not load the registry at all (P-099 Q-3).
+
+P-103 (D-1/D-2/D-3): the registry ships as an in-package resource so wheel
+installs work; nested containers are read-only; unreadable vs. malformed
+files have dedicated error codes.
 """
 from __future__ import annotations
 
 import importlib
+import importlib.resources
 import os
 import re
-from dataclasses import dataclass, field
+import types
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +34,8 @@ E_REGISTRY_HANDLER_UNRESOLVED = "E_REGISTRY_HANDLER_UNRESOLVED"
 E_REGISTRY_PROFILE = "E_REGISTRY_PROFILE"
 E_REGISTRY_PROFILE_INVALID = "E_REGISTRY_PROFILE_INVALID"
 E_REGISTRY_APPROVAL = "E_REGISTRY_APPROVAL"
+E_REGISTRY_UNREADABLE = "E_REGISTRY_UNREADABLE"
+E_REGISTRY_PARSE = "E_REGISTRY_PARSE"
 
 _NAME_RE = re.compile(r"^[a-z][a-z0-9_]{2,63}$")
 _HANDLER_FORMAT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$")
@@ -37,7 +45,7 @@ _APPROVALS = {"never", "always", "high_only"}
 _SCOPES = {"run", "global"}
 _NETWORKS = {"none", "setup_only", "full"}
 
-_DEFAULT_REGISTRY_NAME = "tools/registry.yaml"
+_DEFAULT_REGISTRY_NAME = "registry.yaml"
 
 
 class RegistryError(ValueError):
@@ -50,6 +58,30 @@ class RegistryError(ValueError):
         self.message = message
         self.tool = tool
         self.path = path
+
+
+def _freeze(obj: Any) -> Any:
+    """Recursively wrap containers read-only (P-103 / D-2)."""
+    if isinstance(obj, dict):
+        return types.MappingProxyType({k: _freeze(v) for k, v in obj.items()})
+    if isinstance(obj, list):
+        return tuple(_freeze(v) for v in obj)
+    return obj
+
+
+def unfreeze(obj: Any) -> Any:
+    """Recursively restore plain containers (for JSON serialization seams).
+
+    ``MappingProxyType`` breaks pydantic serialization when a schema crosses the
+    in-memory JSON-RPC boundary, so SDK injection and REST output must unwrap.
+    """
+    if isinstance(obj, types.MappingProxyType):
+        return {k: unfreeze(v) for k, v in obj.items()}
+    if isinstance(obj, dict):
+        return {k: unfreeze(v) for k, v in obj.items()}
+    if isinstance(obj, tuple):
+        return [unfreeze(v) for v in obj]
+    return obj
 
 
 @dataclass(frozen=True)
@@ -84,7 +116,7 @@ class Registry:
     version: int
     tools: tuple[ToolSpec, ...]
     sandbox_profiles: dict[str, dict[str, Any]]
-    source_path: Path
+    source_path: Any
 
     def get(self, name: str) -> ToolSpec | None:
         for spec in self.tools:
@@ -104,16 +136,28 @@ class Registry:
         return load_registry(self.source_path)
 
 
-def _default_registry_path() -> Path:
+def _default_registry_path() -> Any:
+    """Resolve the bundled registry resource; wheel installs read from the package."""
     env = os.environ.get("RC_TOOL_REGISTRY")
     if env:
         return Path(env)
-    return Path(__file__).resolve().parents[2] / _DEFAULT_REGISTRY_NAME
+    # P-103 / D-1: prefer the in-package resource so wheel installs work.
+    try:
+        return importlib.resources.files("researchclaw.tools").joinpath("registry.yaml")
+    except (ModuleNotFoundError, TypeError):
+        return Path(__file__).resolve().parents[2] / "tools" / _DEFAULT_REGISTRY_NAME
 
 
 def _fail(code: str, message: str, *, tool: str | None = None,
-          path: Path) -> RegistryError:
+          path: Any) -> RegistryError:
     return RegistryError(code, message, tool=tool, path=str(path))
+
+
+def _read_text(source: Any) -> str:
+    read = getattr(source, "read_text", None)
+    if callable(read):
+        return read(encoding="utf-8")
+    return Path(source).read_text(encoding="utf-8")
 
 
 def _check_json_schema(schema: Any, *, tool: str, path: Path) -> None:
@@ -133,15 +177,15 @@ def _check_json_schema(schema: Any, *, tool: str, path: Path) -> None:
                     tool=tool, path=path)
 
 
-def _load_payload(path: Path) -> dict[str, Any]:
+def _load_payload(source: Any) -> dict[str, Any]:
     try:
-        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        raw = yaml.safe_load(_read_text(source))
     except OSError as exc:
-        raise _fail(E_REGISTRY_VERSION, f"registry file unreadable: {exc}", path=path) from exc
+        raise _fail(E_REGISTRY_UNREADABLE, f"registry file unreadable: {exc}", path=source) from exc
     except yaml.YAMLError as exc:
-        raise _fail(E_REGISTRY_VERSION, f"registry YAML invalid: {exc}", path=path) from exc
+        raise _fail(E_REGISTRY_PARSE, f"registry YAML invalid: {exc}", path=source) from exc
     if not isinstance(raw, dict):
-        raise _fail(E_REGISTRY_VERSION, "registry file must be a mapping", path=path)
+        raise _fail(E_REGISTRY_PARSE, "registry file must be a mapping", path=source)
     return raw
 
 
@@ -206,8 +250,8 @@ def _validate_tool(tool: Any, path: Path) -> ToolSpec:
         name=name,
         version=version,
         description=description,
-        input_schema=tool["inputSchema"],
-        output_schema=output_schema,
+        input_schema=_freeze(tool["inputSchema"]),
+        output_schema=_freeze(output_schema) if output_schema is not None else None,
         scope=scope,
         risk=risk,
         approval=approval,
@@ -246,7 +290,7 @@ def _validate_profiles(profiles: Any, path: Path) -> dict[str, dict[str, Any]]:
                             f"profile '{pname}'.{size_key} must match {value!r} pattern "
                             f"{_SIZE_RE.pattern}", path=path)
         checked[str(pname)] = dict(pdata)
-    return checked
+    return _freeze(checked)
 
 
 def load_registry(path: str | Path | None = None, *,

@@ -34,6 +34,7 @@ from researchclaw import __version__
 from researchclaw.adapters import AdapterBundle
 from researchclaw.config import RCConfig, resolve_config_path
 from researchclaw.literature.search import search_papers
+from researchclaw.mcp.registry_adapter import register_from_registry
 from researchclaw.mcp.tools import TOOL_DEFINITIONS
 from researchclaw.pipeline.review_service import (
     ReviewConfigError,
@@ -42,6 +43,7 @@ from researchclaw.pipeline.review_service import (
 )
 from researchclaw.pipeline.runner import execute_pipeline
 from researchclaw.run_state import read_run_state
+from researchclaw.tools.registry import load_registry
 
 logger = logging.getLogger(__name__)
 
@@ -194,85 +196,20 @@ class ResearchClawMCPServer:
     # ── tool registration ────────────────────────────────────────
 
     def _register_tools(self) -> None:
-        mcp = self._mcp
+        # G4-M2 (A4-10): the registry is the single source of truth. Schemas are
+        # injected verbatim from tools/registry.yaml (P-100 D-5 path B); tool
+        # names are never hard-coded here. stdio has a single blocking session,
+        # so the listChanged notifier seam stays unbound (P-103 blocker).
+        registry = load_registry(strict_handlers=True)
+        register_from_registry(self._mcp, registry, self._dispatch_tool)
 
-        @mcp.tool(name="run_pipeline", description=self._tool_description("run_pipeline"))
-        async def _run_pipeline(
-            topic: str,
-            config_path: str | None = None,
-            auto_approve: bool = True,
-        ) -> CallToolResult:
-            return self._as_result(
-                await self.handle_tool_call(
-                    "run_pipeline",
-                    {
-                        "topic": topic,
-                        "config_path": config_path,
-                        "auto_approve": auto_approve,
-                    },
-                )
-            )
+    async def _dispatch_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        # G4-M2: return the bare payload — the SDK wraps it into CallToolResult
+        # (content + structured_content) itself; returning a pre-built
+        # CallToolResult here crashes serialization (observed P-103).
+        return await self.handle_tool_call(name, arguments)
 
-        @mcp.tool(
-            name="get_pipeline_status",
-            description=self._tool_description("get_pipeline_status"),
-        )
-        async def _get_pipeline_status(run_id: str) -> CallToolResult:
-            return self._as_result(
-                await self.handle_tool_call("get_pipeline_status", {"run_id": run_id})
-            )
-
-        @mcp.tool(
-            name="get_experiment_results",
-            description=self._tool_description("get_experiment_results"),
-        )
-        async def _get_experiment_results(
-            run_id: str, stage: str | None = None
-        ) -> CallToolResult:
-            return self._as_result(
-                await self.handle_tool_call(
-                    "get_experiment_results", {"run_id": run_id, "stage": stage}
-                )
-            )
-
-        @mcp.tool(
-            name="search_literature",
-            description=self._tool_description("search_literature"),
-        )
-        async def _search_literature(
-            query: str, max_results: int = 10
-        ) -> CallToolResult:
-            return self._as_result(
-                await self.handle_tool_call(
-                    "search_literature", {"query": query, "max_results": max_results}
-                )
-            )
-
-        @mcp.tool(
-            name="review_paper",
-            description=self._tool_description("review_paper"),
-        )
-        async def _review_paper(
-            paper_path: str | None = None, run_id: str | None = None
-        ) -> CallToolResult:
-            return self._as_result(
-                await self.handle_tool_call(
-                    "review_paper", {"paper_path": paper_path, "run_id": run_id}
-                )
-            )
-
-        @mcp.tool(name="get_paper", description=self._tool_description("get_paper"))
-        async def _get_paper(
-            run_id: str, format: Literal["markdown", "latex"] = "markdown"
-        ) -> CallToolResult:
-            return self._as_result(
-                await self.handle_tool_call(
-                    "get_paper", {"run_id": run_id, "format": format}
-                )
-            )
-
-    @staticmethod
-    def _tool_description(name: str) -> str:
+    def _tool_description(self, name: str) -> str:
         for tool in TOOL_DEFINITIONS:
             if tool["name"] == name:
                 return str(tool["description"])

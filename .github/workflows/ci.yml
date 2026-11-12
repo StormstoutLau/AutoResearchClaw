@@ -56,6 +56,10 @@ jobs:
           python -m pip install dist/*.whl
           researchclaw --help
 
+      - name: Registry smoke on installed wheel (P-103 D-1)
+        run: |
+          python -c "from researchclaw.tools.registry import load_registry; r = load_registry(); print('registry OK:', len(r.tools), 'tools')"
+
   extras:
     name: Extras import
     runs-on: ubuntu-latest
@@ -131,6 +135,7 @@ jobs:
             tests/test_k5_refs.py \
             tests/test_k5_wiring.py \
             tests/test_tool_registry.py \
+            tests/test_mcp_dynamic_tools.py \
             tests/test_stage_claim_hooks.py \
             tests/test_offline_audit.py \
             tests/test_artifact_node.py \

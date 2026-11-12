@@ -1,0 +1,142 @@
+version: 1
+tools:
+  - name: run_pipeline
+    version: "1.0"
+    description: "Start an autonomous research pipeline run on a given topic."
+    inputSchema:
+      type: object
+      properties:
+        topic:
+          type: string
+          description: "The research topic"
+        config_path:
+          type: string
+          description: "Path to config YAML (optional)"
+        auto_approve:
+          type: boolean
+          description: "Auto-approve gate stages"
+      required:
+        - topic
+    outputSchema:
+      type: object
+    scope: global
+    risk: medium
+    approval: never
+    sandbox_profile: default
+    handler: "researchclaw.mcp.server:ResearchClawMCPServer"
+  - name: get_pipeline_status
+    version: "1.0"
+    description: "Get the current status of a pipeline run."
+    inputSchema:
+      type: object
+      properties:
+        run_id:
+          type: string
+          description: "The pipeline run ID"
+      required:
+        - run_id
+    outputSchema:
+      type: object
+    scope: run
+    risk: low
+    approval: never
+    sandbox_profile: default
+    handler: "researchclaw.mcp.server:ResearchClawMCPServer"
+  - name: get_experiment_results
+    version: "1.0"
+    description: "Get experiment results from a completed or running pipeline."
+    inputSchema:
+      type: object
+      properties:
+        run_id:
+          type: string
+          description: "The pipeline run ID"
+        stage:
+          type: string
+          description: "Specific stage name (optional)"
+      required:
+        - run_id
+    outputSchema:
+      type: object
+    scope: run
+    risk: low
+    approval: never
+    sandbox_profile: default
+    handler: "researchclaw.mcp.server:ResearchClawMCPServer"
+  - name: search_literature
+    version: "1.0"
+    description: "Search academic papers on a topic using Semantic Scholar and arXiv."
+    inputSchema:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "Search query"
+        max_results:
+          type: integer
+          description: "Max results (default 10)"
+      required:
+        - query
+    outputSchema:
+      type: object
+    scope: global
+    risk: low
+    approval: never
+    sandbox_profile: default
+    handler: "researchclaw.mcp.server:ResearchClawMCPServer"
+  - name: review_paper
+    version: "1.0"
+    description: "Run AI peer review on a paper draft (by paper_path or run_id)."
+    inputSchema:
+      type: object
+      properties:
+        paper_path:
+          type: string
+          description: "Path to a .md or .tex file inside artifacts/"
+        run_id:
+          type: string
+          description: "Run whose paper should be reviewed"
+      anyOf:
+        - required:
+            - paper_path
+        - required:
+            - run_id
+    outputSchema:
+      type: object
+    scope: run
+    risk: medium
+    approval: never
+    sandbox_profile: default
+    handler: "researchclaw.mcp.server:ResearchClawMCPServer"
+  - name: get_paper
+    version: "1.0"
+    description: "Get the generated paper from a pipeline run."
+    inputSchema:
+      type: object
+      properties:
+        run_id:
+          type: string
+          description: "The pipeline run ID"
+        format:
+          type: string
+          enum:
+            - markdown
+            - latex
+          description: "Output format"
+      required:
+        - run_id
+    outputSchema:
+      type: object
+    scope: run
+    risk: low
+    approval: never
+    sandbox_profile: default
+    handler: "researchclaw.mcp.server:ResearchClawMCPServer"
+sandbox_profiles:
+  default:
+    network: none
+    cpu: 2
+    memory: 4g
+    pids: 512
+    disk: 10g
+    ttl_sec: 1800
