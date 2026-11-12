@@ -487,3 +487,18 @@ def test_export_reports_unpublished_claim_in_nested_list(tmp_path: Path) -> None
     _write_paper(tmp_path, "## Results\n\n- finding [c-11111111]\n    - nested [c-22222222]\n")
     result = export_claim_labels(tmp_path)
     assert {"claim_id": "c-22222222", "reason": "unpublished_claim_cited"} in result["errors"]
+
+
+# ── P-098: P-097 O-1 tab-prefix normalization ────────────────────
+
+
+def test_extract_markers_skips_tab_whitespace_prefix() -> None:
+    for line in ("\t\t[c-11111111] deep tab", "\t [c-11111111] tab+space",
+                 "\t \t[c-11111111] mixed", "\t\t- [c-22222222] tab list"):
+        text = f"## R\n\n{line}\n\nReal [c-33333333].\n"
+        assert extract_claim_markers(text) == {"c-33333333": ["§R"]}, line
+
+
+def test_extract_markers_tab_list_item_stays_list() -> None:
+    text = "## R\n\n\t- [c-11111111]\n"
+    assert extract_claim_markers(text) == {"c-11111111": ["§R"]}

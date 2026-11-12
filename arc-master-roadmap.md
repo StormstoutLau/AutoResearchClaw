@@ -8,7 +8,7 @@ depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.4h）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.4j）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -106,6 +106,10 @@ upstream: arb-v2-decisions
 > **修订**：v1.4g（2026-11-13，P-095）**P-094 独立异构复评（六项目标修复成立，新增 1 项 P3）**：异构基座 **DeepSeek-V4.1-Flash（复评）vs GLM-5.3-Flash（实施）**，V-1..V-12 一手复验全真（双环境 125×2、十文件 199、扩展组 348、collect 25、两 session digest 逐字节匹配 HEAD、ci.yml 断言形式）；44 组对抗探针 4 组异常同根——**D-1 P3**：缩进块启发式**无列表上下文**，4 空格嵌套列表/数字列表/悬挂缩进中的真实 `[c-…]` 被当示例丢弃（K1 实证：未发布 claim 仅在嵌套列表被引用时 `export_claim_labels` 不报 `unpublished_claim_cited`、trace 仍 `ok=True`，属 **fail-open 回归**），且 **tab 不等价 4 空格**（tab 缩进示例块内标记仍提取，D-1 误阻断路径残留面）；O-1..O-7 七项观察（派生视图未列边界、标题内标记、bool/float count、空修订稿遮蔽、HTML 注释、CI 版本解析边界）。**结论：P-094 六项目标修复（D-3/D-4/D-5/D-6/O-2/O-3）全部真实关闭，G3 验收不受影响；「全部单向 fail-closed」声明不完全成立**。建议 **P-096** 收敛 D-1（约 10 行 + 4 项测试，含 CommonMark「缩进块不得中断段落」对齐与列表项排除）→ **P-097** 复评闭环；若延后须显式登记为遗留 P3，不得按「零缺口」叙述。**106 计数不变**。依据：[P-095 复评](docs/arc-g3-p3-cleanup-review-20261113.md)。
 >
 > **修订**：v1.4h（2026-11-13，P-096）**D-1 收敛（用户裁决）**：缩进块判定改**上下文感知**——① `_NESTED_LIST_RE` 使 4 空格嵌套 bullet/数字列表属列表内容而非代码（F-1/F-2）；② 按 CommonMark「缩进代码块不得中断段落」，`prev_kind ∈ {para,list,code}` 时的 4 空格行为续行并恢复提取（F-3，修悬挂缩进）；③ `_INDENT_CODE_RE` 纳入 `^\t`（tab 等价 4 空格，F-4）；④ 下游 K1 恢复 `unpublished_claim_cited`（F-5）；⑤ 围栏优先/空行不断块/低缩进闭块/块内伪标题（P-085+P-094 语义）零回退（F-6）。实测：新增 6 项（claim spine 25→31），红 **5 failed/26 passed** → 绿 **31 passed**，双环境 **131×2**、十文件 **205** + 扩展组 **348 passed**，E2 八形态对照迁移表全通过。剩余为行级启发式固有边界（列表项内 6+ 空格续行等）已显式声明。建议 **P-097** 复评（由 GLM 基座执行以保持 RULE-5 交叉）。**106 计数不变**。依据：[P-096 实施](spec/arc-g3-indent-context/IMPLEMENTATION.md)。
+>
+> **修订**：v1.4i（2026-11-13，P-097）**P-096 独立异构复评通过（零 D 级，G3 提取器验收闭环）**：异构基座 **GLM-5.3-Flash（复评）vs DeepSeek-V4.1-Flash（实施）**，与 P-095 形成 RULE-5 双向交叉。V-1..V-10 一手复验全真（双环境 131×2、十文件 205、扩展组 348、collect 31、两 session digest 逐字节匹配 HEAD）；**33 组对抗探针**（26 迁移表证伪 + 7 tab 边界扫描）**零 D 级**——列表上下文四形态与单 tab 等价全部关闭、K1 下游 `unpublished_claim_cited` + trace 判红恢复、P-085/P-094 零回退；O-1 tab+空白边界（`\t\t`/`\t `/`\t \t` 前缀多提取，**误阻断假阳性方向非漏检**，非本批回归，修复约 3 行）、O-2 块内深缩进围栏翻转（`_FENCE_RE=^\s*` P-085 沿袭，少提取方向）；M2e 探针笔误如实修正（实现与 CommonMark 一致）。**P-085 D-1「示例误阻断」家族收敛：主路径全部闭合，残留仅 O-1（无漏检）**。**G3 claim spine 提取器验收闭环；G4 可开工（无阻断）**。O-1 修复待用户裁决（可与 G4 前置合并）。**106 计数不变**。依据：[P-097 复评](docs/arc-g3-indent-context-review-20261113.md)。
+>
+> **修订**：v1.4j（2026-11-14，P-098）**O-1 收敛（用户裁决先行小修）**：`_INDENT_CODE_RE` tab 分支 `\t` → `\t[ \t]*`——行首 tab 起始缩进必 ≥4 列（CommonMark tab stop），穷尽全部 tab 前缀形态；`\t\t`/`\t `/`\t \t` 三前缀不再多提取（T2/T3/T4 关闭），`\t\t- x` 修复后按 CommonMark 判代码（8 列无外层列表非列表项）；`_NESTED_LIST_RE` 有意不改（`\t- x` 列表内容 M1d 保持提取）；状态机/围栏/行内码零改动。实测：新增 2 项（claim spine 31→33），红 **1 failed/32 passed** → 绿 **33 passed**，双环境 **133×2**、十文件 **207** + 扩展组 **348 passed**，E2 **15 形态全过**（tab 扫描 T1-T7 + `\t\t-` + M1d + 迁移表 6 护栏）。**P-085 D-1「示例误阻断」家族全部闭合（含 O-1）**；剩余 O-2（块内深缩进围栏，少提取方向）与 P-095 O 表维持登记。建议 **P-099** 由 DeepSeek 基座复评（RULE-5 交叉）或直接裁决 G4 开工。**106 计数不变**。依据：[P-098 实施](spec/arc-g3-tab-normalize/IMPLEMENTATION.md)。
 
 ---
 

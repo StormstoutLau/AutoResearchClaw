@@ -30,8 +30,10 @@ _NUMBERED_HEADING_RE = re.compile(r"^(\d+(?:\.\d+)*)")
 _CLAIM_ID_RE = re.compile(r"^c-[0-9a-f]{8}$")
 _VERSION_RE = re.compile(r"_v(\d+)$")
 _FENCE_RE = re.compile(r"^\s*(```|~~~)")
-# P-096 / D-1: a tab counts as four columns of indentation (CommonMark).
-_INDENT_CODE_RE = re.compile(r"^(?:\t| {4,})\S")
+# P-096 / D-1 + P-098 / O-1: a leading tab counts as indentation (CommonMark
+# tab stop = 4 columns) even when followed by more whitespace, so every
+# tab-prefixed line is an indented-code candidate.
+_INDENT_CODE_RE = re.compile(r"^(?:\t[ \t]*| {4,})\S")
 # P-096 / D-1: an indented list item is list content, never a code block.
 _NESTED_LIST_RE = re.compile(r"^(?:\t| {4,})(?:[-*+]|\d{1,9}[.)])\s+\S")
 _LIST_ITEM_RE = re.compile(r"^ {0,3}(?:[-*+]|\d{1,9}[.)])\s+\S")
