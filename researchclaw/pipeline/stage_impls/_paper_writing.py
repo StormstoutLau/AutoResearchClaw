@@ -38,6 +38,23 @@ from researchclaw.prompts import PromptManager
 logger = logging.getLogger(__name__)
 
 
+def _write_blocked_handback(stage_dir: Path, reason: str) -> None:
+    """P-089/A3-8: emit a handback for a paused paper-draft stage."""
+    try:
+        from researchclaw.runtime.mandate import StageHandback, write_handback_file
+
+        write_handback_file(
+            stage_dir,
+            StageHandback(
+                reason=reason,
+                evidence=("paper_meta.json",),
+                requested_scope=("stage:12-14",),
+            ),
+        )
+    except Exception as _hb_exc:  # noqa: BLE001 - handback is best-effort
+        logger.warning("Stage 17: handback write failed: %s", _hb_exc)
+
+
 def _topic_is_literature_first(config: RCConfig) -> bool:
     """Return True when the topic is a survey/review or the project uses docs-first mode.
 
@@ -365,7 +382,7 @@ def _write_paper_sections(
         _writing_structure = ""
 
     _overlay = _get_evolution_overlay(run_dir, "paper_draft")
-    system = pm.for_stage(
+    _paper_prompt = pm.for_stage(
         "paper_draft",
         evolution_overlay=_overlay,
         preamble=preamble,
@@ -375,7 +392,8 @@ def _write_paper_sections(
         writing_structure=_writing_structure,
         outline=outline,
         venue_guidance=venue_guidance,
-    ).system
+    )
+    system = _paper_prompt.system
 
     sections: list[str] = []
 
@@ -667,7 +685,7 @@ def _write_paper_sections(
     total_words = len(draft.split())
     logger.info("Stage 17: Full draft — %d chars, ~%d words", len(draft), total_words)
 
-    return draft
+    return draft, _paper_prompt.version
 
 
 # ---------------------------------------------------------------------------
@@ -1735,6 +1753,7 @@ def _execute_paper_draft(
             ),
             encoding="utf-8",
         )
+        _write_blocked_handback(stage_dir, "blocked_simulated_data")
         return StageResult(
             stage=Stage.PAPER_DRAFT,
             status=StageStatus.PAUSED,
@@ -1793,6 +1812,7 @@ def _execute_paper_draft(
                 ),
                 encoding="utf-8",
             )
+            _write_blocked_handback(stage_dir, "blocked_no_metrics")
             return StageResult(
                 stage=Stage.PAPER_DRAFT,
                 status=StageStatus.PAUSED,
@@ -2195,6 +2215,7 @@ def _execute_paper_draft(
     # --- Venue label derived from the active prompt bank ---
     # Domain-specific venue prose now lives in the prompt bank itself; here we
     # only need the short label and the HEP flag for paper section structuring.
+    _paper_prompt_version = ""
     if llm is not None:
         _pm = prompts or PromptManager()
         topic_constraint = _pm.block("topic_constraint", topic=config.research.topic)
@@ -2203,7 +2224,7 @@ def _execute_paper_draft(
         _paper_venue_guidance = ""
 
         # --- Section-by-section writing (3 calls) for conference-grade depth ---
-        draft = _write_paper_sections(
+        draft, _paper_prompt_version = _write_paper_sections(
             llm=llm,
             pm=_pm,
             run_dir=run_dir,
@@ -2324,9 +2345,32 @@ Generated: {_utcnow_iso()}
     except Exception:
         pass
 
+    # G3 P-089 (A3-7): persist the prompt version used for claim generation.
+    _artifacts = ["paper_draft.md"]
+    if _paper_prompt_version:
+        try:
+            from researchclaw.evidence.claim_spine import extract_claim_markers
+
+            _final_draft = (stage_dir / "paper_draft.md").read_text(encoding="utf-8")
+            _claim_ids = sorted(extract_claim_markers(_final_draft))
+            (stage_dir / "claim_prompt_versions.json").write_text(
+                json.dumps(
+                    {
+                        "prompt_version": _paper_prompt_version,
+                        "claims": _claim_ids,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            _artifacts.append("claim_prompt_versions.json")
+        except Exception as _ver_exc:  # noqa: BLE001 - traceability is non-fatal
+            logger.warning("Stage 17: claim prompt version write failed: %s", _ver_exc)
+
     return StageResult(
         stage=Stage.PAPER_DRAFT,
         status=StageStatus.DONE,
-        artifacts=("paper_draft.md",),
-        evidence_refs=("stage-17/paper_draft.md",),
+        artifacts=tuple(_artifacts),
+        evidence_refs=tuple(f"stage-17/{a}" for a in _artifacts),
     )

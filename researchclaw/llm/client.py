@@ -286,6 +286,9 @@ class LLMClient:
         Returns:
             LLMResponse with content and metadata.
         """
+        from researchclaw.runtime.prompt_context import log_prompt_version
+
+        log_prompt_version(model or "")
         if system:
             messages = [{"role": "system", "content": system}] + messages
 

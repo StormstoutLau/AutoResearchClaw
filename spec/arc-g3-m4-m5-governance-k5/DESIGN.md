@@ -115,7 +115,7 @@ Stage 23 ──> _k5_refs_report ──> k5_refs.json；未解析 => FAILED
 | 验收 ID | 落点 |
 |---|---|
 | A3-6 RunMandate | F-1/F-2 |
-| A3-7 StageHandback | F-3/F-4 |
-| A3-8 prompt_version | F-5/F-6 |
+| A3-7 prompt_version | F-5/F-6 |
+| A3-8 StageHandback | F-3/F-4 |
 | A3-4 K5 | F-7..F-10 |
 | A3-5 retrieval | F-11/F-12 |

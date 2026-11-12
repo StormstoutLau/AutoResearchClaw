@@ -250,6 +250,9 @@ class PromptManager:
             prompt_bank_version=PROMPT_BANK_VERSION,
         )
         logger.info("prompt_version stage=%s version=%s", stage, version)
+        from researchclaw.runtime.prompt_context import set_prompt_version
+
+        set_prompt_version(version)
         return RenderedPrompt(
             system=system_text,
             user=user_text,

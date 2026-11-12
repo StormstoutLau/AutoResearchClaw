@@ -8,7 +8,7 @@ depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.3y）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.4a）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -88,6 +88,10 @@ upstream: arb-v2-decisions
 > **修订**：v1.3x（2026-11-12，P-086）**G3 M3 修复复审通过（零 D 级）**：独立异构复审 V-1..V-10（双环境 118×2、回归 181、测试计数 18=14+4 读数准确、`c-1a2b3c4d` 代码零残留、`CLAIM_MARKER_RE` 未改）全过；8 组新角度探针确证 ①+② 真实关闭误阻断链（E2 端到端：占位符 + 围栏示例 + 正常 claim → `trace_ok=True`），fail-closed 未退化；零 D 级缺陷，O-1..O-3 三项 P3 静默面（标题内标记丢弃/缩进代码块不跳过/未闭合行内码提取）登记为加固候选。**M4/M5 = P-087/P-088**。**106 计数不变**。依据：[P-086 复审](docs/arc-g3-m3-claim-fixes-review-20261112.md)。
 >
 > **修订**：v1.3y（2026-11-13，P-087）**G3 M4+M5 合并交付（用户裁决）**：M4 新增 `runtime/mandate.py`——`RunMandate` 在 `execute_pipeline` 前幂等写入且不可变（run_id 不一致拒绝）、`StageHandback` scope 子集校验（越界 `E_HANDBACK_SCOPE`，runner 将暂停结果改 FAILED）、`prompt_version` 在 `for_stage` 渲染点计算并随 `RenderedPrompt.version` 返回 + INFO 日志；M5 新增 `knowledge/k5_refs.py`——`tb:`/`paper:` 文法（键末字符收紧，句末句号不入键）、KB 文件名/BibTeX key 解析、Stage 22 预检 + Stage 23 终检双阻断 `E_K5_UNRESOLVED_REF`；`pipeline_summary.retrieval_degraded` 字段 + Stage 22 论文注记与报告。实测：新增 **17 passed 双环境**、相关回归 **401 passed**、红 4 failed → 绿 17 passed；ADD 42/42、3 项 P3。**106 计数不变**。依据：[P-087 实施](spec/arc-g3-m4-m5-governance-k5/IMPLEMENTATION.md)。
+>
+> **修订**：v1.3z（2026-11-13，P-088）**G3 收口复核（不可直接收口）**：独立异构复核 17 项验收（A3-1..8、AN-1..6、FC-1..3），G3 相关 11 文件 **185 passed**；15 项可判绿，**2 项 P2 阻断**——A3-7 仅在 `for_stage` 渲染点记录 `prompt_version`，直连 `_chat_with_prompt`/`llm.chat` 不记录且 claim 无版本字段；A3-8 的 `write_handback` 只有定义与单测、无生产阶段生产者/交回路由。另 O-1 AN-1 materialized 原始产物漂移不检测（blob 为 canonical）、O-2 A3-6 缺配置变更对照、D-3 P3 总纲与 P-087 文档的 A3-7/A3-8 编号互换。建议 **P-089 修复 + P-090 复评**后再决定 G4/G5/G8a。**106 计数不变**。依据：[P-088 复核](docs/arc-g3-closure-review-20261113.md)。
+>
+> **修订**：v1.4a（2026-11-13，P-089）**G3 收口修复**：① A3-7 请求级追踪——新增 `runtime/prompt_context.py`（ContextVar），`PromptManager.for_stage` 写入版本、`LLMClient.chat` 每次请求记录 `llm.request prompt_version=...`；Stage 17 写 `claim_prompt_versions.json`，Stage 22 `claim_export.json` 每条附加 `prompt_version`；② A3-8 handback 生产——Stage 17 两个阻断分支写 `handback.json`，runner 抽出 `_apply_handback_guard`，越界转 FAILED；③ A3-6 补配置变更对照；④ A3-7/A3-8 编号按总纲统一（P-087 文档受控回边）。实测：新增 4 项、修改 3 项，双环境 31/30 passed，相关回归 **357 passed**；ADD 34/34、3 项 P3。**106 计数不变**。依据：[P-089 实施](spec/arc-g3-closure-fixes/IMPLEMENTATION.md)。
 
 ---
 

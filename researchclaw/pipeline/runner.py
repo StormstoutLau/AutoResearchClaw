@@ -126,6 +126,42 @@ def _emit_summary_anchor(
         logger.warning("pipeline.summary anchor append failed", exc_info=True)
 
 
+def _apply_handback_guard(
+    run_dir: Path,
+    stage_num: int,
+    result: StageResult,
+    mandate: object | None,
+) -> StageResult:
+    """G3 M4/M5: validate a paused/blocked stage handback (A3-8)."""
+    if mandate is None or result.status not in (
+        StageStatus.PAUSED,
+        StageStatus.BLOCKED_APPROVAL,
+    ):
+        return result
+    try:
+        from researchclaw.runtime.mandate import (
+            HandbackScopeError,
+            read_handback,
+            validate_handback,
+        )
+
+        handback = read_handback(run_dir / f"stage-{stage_num:02d}")
+        if handback is not None:
+            validate_handback(handback, mandate)  # type: ignore[arg-type]
+    except HandbackScopeError as exc:
+        logger.error("Stage %s handback out of scope: %s", result.stage.name, exc)
+        return StageResult(
+            stage=result.stage,
+            status=StageStatus.FAILED,
+            artifacts=result.artifacts,
+            error=str(exc),
+            decision="handback_scope",
+        )
+    except Exception:  # noqa: BLE001 - validation must not break the run
+        logger.warning("stage handback validation failed", exc_info=True)
+    return result
+
+
 def _write_checkpoint(
     run_dir: Path, stage: Stage, run_id: str,
     adapters: "AdapterBundle | None" = None,
@@ -766,32 +802,8 @@ def execute_pipeline(
         )
         elapsed = _time.monotonic() - t0
 
-        # G3 M4: a paused/blocked stage may hand back, but never widen scope (A3-7).
-        if mandate is not None and result.status in (
-            StageStatus.PAUSED,
-            StageStatus.BLOCKED_APPROVAL,
-        ):
-            try:
-                from researchclaw.runtime.mandate import (
-                    HandbackScopeError,
-                    read_handback,
-                    validate_handback,
-                )
-
-                handback = read_handback(run_dir / f"stage-{stage_num:02d}")
-                if handback is not None:
-                    validate_handback(handback, mandate)
-            except HandbackScopeError as exc:
-                logger.error("Stage %s handback out of scope: %s", stage.name, exc)
-                result = StageResult(
-                    stage=stage,
-                    status=StageStatus.FAILED,
-                    artifacts=result.artifacts,
-                    error=str(exc),
-                    decision="handback_scope",
-                )
-            except Exception:  # noqa: BLE001 - validation must not break the run
-                logger.warning("stage handback validation failed", exc_info=True)
+        # G3 M4: a paused/blocked stage may hand back, but never widen scope (A3-8).
+        result = _apply_handback_guard(run_dir, stage_num, result, mandate)
 
         # ── G3 M2: literature loop guard (FC-1..FC-3) ──
         # Evaluated before the DONE side effects so a paused round neither

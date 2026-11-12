@@ -1893,7 +1893,7 @@ class TestWritePaperSections:
         from researchclaw.prompts import PromptManager
         pm = PromptManager()
 
-        draft = rc_executor._write_paper_sections(
+        draft, prompt_version = rc_executor._write_paper_sections(
             llm=llm,
             pm=pm,
             preamble="Test preamble",
@@ -1905,6 +1905,7 @@ class TestWritePaperSections:
 
         assert llm.calls is not None
         assert len(llm.calls) == 3
+        assert prompt_version.startswith("sha256:")
         assert "## Abstract" in draft
         assert "## Method" in draft
         assert "## Results" in draft
@@ -2704,6 +2705,9 @@ class TestDataIntegrityBlock:
         assert "Blocked" in draft or "BLOCKED" in draft or "no metrics" in draft.lower()
         meta = json.loads((stage_dir / "paper_meta.json").read_text(encoding="utf-8"))
         assert meta["outcome"] == "blocked_no_metrics"
+        handback = json.loads((stage_dir / "handback.json").read_text(encoding="utf-8"))
+        assert handback["reason"] == "blocked_no_metrics"
+        assert handback["requested_scope"] == ["stage:12-14"]
         # LLM should NOT have been called
         assert len(llm.calls) == 0
 
@@ -2742,6 +2746,9 @@ class TestDataIntegrityBlock:
         meta = json.loads((stage_dir / "paper_meta.json").read_text(encoding="utf-8"))
         assert meta["outcome"] == "blocked_simulated_data"
         assert meta.get("is_literature_first_topic") is False
+        handback = json.loads((stage_dir / "handback.json").read_text(encoding="utf-8"))
+        assert handback["reason"] == "blocked_simulated_data"
+        assert handback["requested_scope"] == ["stage:12-14"]
         # LLM should NOT have been called
         assert len(llm.calls) == 0
 

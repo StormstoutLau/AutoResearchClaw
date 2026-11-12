@@ -268,6 +268,18 @@ def test_export_maps_citation_label_and_cap_reasons(tmp_path: Path) -> None:
     assert entry["paragraph_refs"] == ["§4.2"]
     assert entry["deliverable"] is True
     assert entry["cap_reasons"] == ["AR-06:latex_verified"]
+    assert "prompt_version" not in entry
+
+
+def test_export_includes_stage17_prompt_version(tmp_path: Path) -> None:
+    _write_gate(tmp_path, {"c-11111111": _decision()})
+    _write_paper(tmp_path, "## Results\n\n[c-11111111]\n")
+    _write_json(
+        tmp_path / "stage-17" / "claim_prompt_versions.json",
+        {"prompt_version": "sha256:abc", "claims": ["c-11111111"]},
+    )
+    entry = export_claim_labels(tmp_path)["claims"]["c-11111111"]
+    assert entry["prompt_version"] == "sha256:abc"
 
 
 def test_export_reports_unpublished_citation(tmp_path: Path) -> None:

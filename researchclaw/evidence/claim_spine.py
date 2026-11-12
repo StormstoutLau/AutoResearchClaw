@@ -325,11 +325,24 @@ def _paper_text(run_dir: Path) -> str:
     return ""
 
 
+def _claim_prompt_version(run_dir: Path) -> str:
+    """P-089/A3-7: read the Stage 17 prompt version used for claim generation."""
+    path = run_dir / "stage-17" / "claim_prompt_versions.json"
+    if not path.is_file():
+        return ""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    return str(data.get("prompt_version", "")) if isinstance(data, dict) else ""
+
+
 def export_claim_labels(run_dir: Path) -> dict:
     """Write the publishable claim export; return claims plus trace errors."""
     run_dir = Path(run_dir)
     decisions = _load_decisions(run_dir)
     markers = extract_claim_markers(_paper_text(run_dir))
+    prompt_version = _claim_prompt_version(run_dir)
     claims: dict[str, dict] = {}
     errors: list[dict] = []
     for claim_id in sorted(decisions):
@@ -339,13 +352,16 @@ def export_claim_labels(run_dir: Path) -> dict:
                 errors.append({"claim_id": claim_id, "reason": "unpublished_claim_cited"})
             continue
         status = decision.get("status")
-        claims[claim_id] = {
+        entry = {
             "status": status,
             "citation_label": status,
             "paragraph_refs": list(markers.get(claim_id, [])),
             "deliverable": True,
             "cap_reasons": list(decision.get("cap_reasons") or []),
         }
+        if prompt_version:
+            entry["prompt_version"] = prompt_version
+        claims[claim_id] = entry
     for claim_id in markers:
         if claim_id not in decisions:
             errors.append({"claim_id": claim_id, "reason": "unknown_claim_marker"})

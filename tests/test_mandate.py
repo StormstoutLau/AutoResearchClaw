@@ -6,6 +6,9 @@ from pathlib import Path
 
 import pytest
 
+from researchclaw.pipeline.runner import _apply_handback_guard
+from researchclaw.pipeline.stages import Stage, StageStatus
+from researchclaw.pipeline._helpers import StageResult
 from researchclaw.prompts import PromptManager
 from researchclaw.runtime.mandate import (
     E_HANDBACK_SCOPE,
@@ -16,7 +19,9 @@ from researchclaw.runtime.mandate import (
     prompt_version,
     read_handback,
     write_handback,
+    write_handback_file,
 )
+from researchclaw.runtime.prompt_context import get_prompt_version
 
 
 def test_mandate_is_written_once_and_immutable(tmp_path: Path) -> None:
@@ -93,3 +98,35 @@ def test_rendered_prompt_carries_version() -> None:
     assert first.version == second.version
     # Version identifies the template/role, not the interpolated variables.
     assert pm.for_stage("export_publish", revised="other").version == first.version
+
+
+def test_for_stage_sets_request_context_version() -> None:
+    pm = PromptManager()
+    rendered = pm.for_stage("export_publish", revised="draft")
+    assert get_prompt_version() == rendered.version
+
+
+def test_mandate_survives_config_change(tmp_path: Path) -> None:
+    first = ensure_run_mandate(
+        tmp_path, run_id="run-a", created_at="2026-11-13T00:00:00+00:00"
+    )
+    (tmp_path / "config.yaml").write_text(
+        "experiment:\n  mode: docker\n", encoding="utf-8"
+    )
+    assert ensure_run_mandate(tmp_path, run_id="run-a") == first
+
+
+def test_runner_guard_rejects_out_of_scope_handback(tmp_path: Path) -> None:
+    mandate = ensure_run_mandate(tmp_path, run_id="run-a")
+    stage_dir = tmp_path / "stage-01"
+    stage_dir.mkdir()
+    write_handback_file(
+        stage_dir,
+        StageHandback(reason="needs shell", requested_scope=("tool:shell",)),
+    )
+    result = StageResult(
+        stage=Stage.TOPIC_INIT, status=StageStatus.PAUSED, artifacts=()
+    )
+    guarded = _apply_handback_guard(tmp_path, 1, result, mandate)
+    assert guarded.status == StageStatus.FAILED
+    assert E_HANDBACK_SCOPE in (guarded.error or "")

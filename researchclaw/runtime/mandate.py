@@ -167,6 +167,11 @@ def write_handback(
 ) -> Path:
     """Validate and persist a stage handback."""
     validate_handback(handback, mandate)
+    return write_handback_file(stage_dir, handback)
+
+
+def write_handback_file(stage_dir: Path, handback: StageHandback) -> Path:
+    """Persist a handback without scope validation (runner validates it)."""
     path = Path(stage_dir) / HANDBACK_NAME
     _atomic_write_text(
         path, json.dumps(handback.as_dict(), ensure_ascii=False, indent=2) + "\n"
