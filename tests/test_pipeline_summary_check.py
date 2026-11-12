@@ -1,6 +1,7 @@
-"""G3 M1 (P-075): pipeline_summary canonical form and sidecar check."""
+"""G3 M1/M2 (P-075, P-078): pipeline_summary canonical form and sidecar check."""
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -13,6 +14,21 @@ from researchclaw.evidence.summary_check import (
     write_summary,
 )
 from researchclaw.pipeline.runner import _write_pipeline_summary
+from researchclaw.runtime.event_log import canonical_json
+
+
+def _anchor_line(digest: str, *, generated: str = "2026-11-11T00:00:00+00:00") -> str:
+    """Runtime-shaped ``pipeline.summary`` line (payload_sha256 included)."""
+    payload = {"digest": digest, "generated": generated}
+    return json.dumps(
+        {
+            "type": "pipeline.summary",
+            "payload": payload,
+            "payload_sha256": hashlib.sha256(
+                canonical_json(payload).encode("utf-8")
+            ).hexdigest(),
+        }
+    )
 
 
 def _summary() -> dict:
@@ -87,7 +103,7 @@ def test_require_event_with_matching_anchor(tmp_path: Path) -> None:
     write_summary(tmp_path, _summary())
     digest = summary_digest(_summary())
     (tmp_path / "events.jsonl").write_text(
-        json.dumps({"type": "pipeline.summary", "payload": {"digest": digest}}) + "\n",
+        _anchor_line(digest) + "\n",
         encoding="utf-8",
     )
     result = verify_summary(tmp_path, require_event=True)
@@ -97,12 +113,55 @@ def test_require_event_with_matching_anchor(tmp_path: Path) -> None:
 def test_require_event_with_mismatched_anchor(tmp_path: Path) -> None:
     write_summary(tmp_path, _summary())
     (tmp_path / "events.jsonl").write_text(
-        json.dumps({"type": "pipeline.summary", "payload": {"digest": "sha256:" + "0" * 64}}) + "\n",
+        _anchor_line("sha256:" + "0" * 64) + "\n",
         encoding="utf-8",
     )
     result = verify_summary(tmp_path, require_event=True)
     assert result["ok"] is False
     assert any(e["code"] == "E_SUMMARY_TAMPERED" for e in result["errors"])
+
+
+def test_second_anchor_in_same_segment_is_rejected(tmp_path: Path) -> None:
+    """D-2 (P-077 X-5): appending a forged anchor must not overwrite the real one."""
+    write_summary(tmp_path, _summary())
+    digest = summary_digest(_summary())
+    (tmp_path / "events.jsonl").write_text(
+        _anchor_line(digest) + "\n" + _anchor_line("sha256:" + "f" * 64) + "\n",
+        encoding="utf-8",
+    )
+    result = verify_summary(tmp_path, require_event=True)
+    assert result["ok"] is False
+    assert any(
+        e["code"] == "E_SUMMARY_TAMPERED" and e.get("field") == "events.jsonl:duplicate_anchor"
+        for e in result["errors"]
+    )
+
+
+def test_anchor_payload_tamper_is_detected(tmp_path: Path) -> None:
+    write_summary(tmp_path, _summary())
+    digest = summary_digest(_summary())
+    line = _anchor_line(digest)
+    tampered = line.replace(digest, "sha256:" + "a" * 64)
+    (tmp_path / "events.jsonl").write_text(tampered + "\n", encoding="utf-8")
+    result = verify_summary(tmp_path, require_event=True)
+    assert result["ok"] is False
+    assert any(e["code"] == "E_SUMMARY_TAMPERED" for e in result["errors"])
+
+
+def test_anchor_in_new_segment_is_allowed(tmp_path: Path) -> None:
+    write_summary(tmp_path, _summary())
+    digest = summary_digest(_summary())
+    (tmp_path / "events.jsonl").write_text(
+        _anchor_line("sha256:" + "b" * 64)
+        + "\n"
+        + json.dumps({"type": "run.started", "payload": {}})
+        + "\n"
+        + _anchor_line(digest)
+        + "\n",
+        encoding="utf-8",
+    )
+    result = verify_summary(tmp_path, require_event=True)
+    assert result["ok"] is True, result["errors"]
 
 
 def test_runner_writer_emits_sidecar(tmp_path: Path) -> None:

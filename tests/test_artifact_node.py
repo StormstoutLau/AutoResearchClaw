@@ -1,7 +1,8 @@
-"""G3 M1 (P-075): ArtifactNode v1, lineage and projection."""
+"""G3 M1/M2 (P-075, P-080): ArtifactNode v1, lineage, projection and concurrency."""
 from __future__ import annotations
 
 import dataclasses
+import threading
 from pathlib import Path
 
 from researchclaw.evidence.artifact_node import (
@@ -142,3 +143,49 @@ def test_register_stage_artifacts_is_idempotent(tmp_path: Path) -> None:
 def test_register_skips_missing_artifact(tmp_path: Path) -> None:
     assert register_stage_artifacts(tmp_path, 1, "TOPIC_INIT", ("missing.txt",)) == []
     assert load_nodes(tmp_path) == []
+
+
+def test_register_concurrent_threads_no_loss(tmp_path: Path) -> None:
+    """P-077 D-1: barrier-synchronised concurrent registration must not lose nodes."""
+    _write(tmp_path, "stage-01/a.txt", b"one\n")
+    _write(tmp_path, "stage-02/b.txt", b"two\n")
+    rounds = 20
+    for _ in range(rounds):
+        run_dir = tmp_path / f"run-{_}"
+        _write(run_dir, "stage-01/a.txt", b"one\n")
+        _write(run_dir, "stage-02/b.txt", b"two\n")
+        barrier = threading.Barrier(2)
+        errors: list[str] = []
+
+        def worker(stage: int, name: str, artifact: str) -> None:
+            try:
+                barrier.wait()
+                register_stage_artifacts(run_dir, stage, name, (artifact,))
+            except Exception as exc:  # noqa: BLE001
+                errors.append(repr(exc))
+
+        threads = [
+            threading.Thread(target=worker, args=(1, "TOPIC_INIT", "a.txt")),
+            threading.Thread(target=worker, args=(2, "PROBLEM_DECOMPOSE", "b.txt")),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        assert errors == []
+        assert len(load_nodes(run_dir)) == 2
+        assert verify_tree(run_dir) == []
+
+
+def test_cross_stage_same_content_keeps_both_nodes(tmp_path: Path) -> None:
+    """P-077 D-3 retraction: locator carries the stage prefix, so ids differ."""
+    _write(tmp_path, "stage-01/same.txt", b"hello\n")
+    _write(tmp_path, "stage-03/same.txt", b"hello\n")
+    first = register_stage_artifacts(tmp_path, 1, "TOPIC_INIT", ("same.txt",))
+    third = register_stage_artifacts(tmp_path, 3, "SEARCH_STRATEGY", ("same.txt",))
+    assert len(first) == 1 and len(third) == 1
+    assert first[0].node_id != third[0].node_id
+    assert {node.locator for node in load_nodes(tmp_path)} == {
+        "stage-01/same.txt",
+        "stage-03/same.txt",
+    }

@@ -10,10 +10,13 @@ import hashlib
 import json
 import os
 import tempfile
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
+
+from researchclaw.runtime.filelock import LOCK_DIR_NAME, exclusive_lock
 
 NODES_FILE = "artifacts/nodes.jsonl"
 BLOBS_DIR = "artifacts/blobs"
@@ -40,13 +43,25 @@ def _sha256_text(text: str) -> str:
     return _sha256_bytes(text.encode("utf-8"))
 
 
+def _replace_with_retry(src: str, dst: Path, *, attempts: int = 3, delay: float = 0.01) -> None:
+    """``os.replace`` with a short retry for Windows transient sharing conflicts."""
+    for attempt in range(attempts):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if attempt + 1 >= attempts:
+                raise
+            time.sleep(delay)
+
+
 def _atomic_write(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".", suffix=".tmp")
     try:
         with os.fdopen(fd, "wb") as handle:
             handle.write(data)
-        os.replace(tmp, path)
+        _replace_with_retry(tmp, path)
     except BaseException:
         try:
             os.unlink(tmp)
@@ -198,39 +213,44 @@ def register_stage_artifacts(
     *,
     attempt: int = 1,
 ) -> list[ArtifactNode]:
-    """Register a DONE stage's artifacts; linear parent = latest earlier stage."""
+    """Register a DONE stage's artifacts; linear parent = latest earlier stage.
+
+    The read-modify-write sequence holds an advisory lock: without it two
+    concurrent registrations overwrite each other (P-077 D-1).
+    """
     run_dir = Path(run_dir)
-    existing = load_nodes(run_dir)
-    by_id = {node.node_id: node for node in existing}
-    earlier = [n for n in existing if int(n.producer.get("stage", -1)) < int(stage)]
-    if earlier:
-        latest_stage = max(int(n.producer.get("stage", -1)) for n in earlier)
-        parents = [n for n in earlier if int(n.producer.get("stage", -1)) == latest_stage]
-    else:
-        parents = []
-    producer = {"stage": int(stage), "stage_name": stage_name, "attempt": int(attempt)}
-    added: list[ArtifactNode] = []
-    for name in artifacts:
-        locator = f"stage-{int(stage):02d}/{name}"
-        if (run_dir / locator).is_file() is False:
-            continue
-        node = build_node(
-            run_dir,
-            locator,
-            parent_nodes=parents,
-            producer=producer,
-        )
-        if node.node_id in by_id:
-            continue
-        by_id[node.node_id] = node
-        added.append(node)
-    if added:
-        path = run_dir / NODES_FILE
-        lines = "".join(
-            _canonical_json(node.as_dict()) + "\n" for node in by_id.values()
-        )
-        _atomic_write(path, lines.encode("utf-8"))
-    return added
+    with exclusive_lock(run_dir / LOCK_DIR_NAME / "artifacts.lock"):
+        existing = load_nodes(run_dir)
+        by_id = {node.node_id: node for node in existing}
+        earlier = [n for n in existing if int(n.producer.get("stage", -1)) < int(stage)]
+        if earlier:
+            latest_stage = max(int(n.producer.get("stage", -1)) for n in earlier)
+            parents = [n for n in earlier if int(n.producer.get("stage", -1)) == latest_stage]
+        else:
+            parents = []
+        producer = {"stage": int(stage), "stage_name": stage_name, "attempt": int(attempt)}
+        added: list[ArtifactNode] = []
+        for name in artifacts:
+            locator = f"stage-{int(stage):02d}/{name}"
+            if (run_dir / locator).is_file() is False:
+                continue
+            node = build_node(
+                run_dir,
+                locator,
+                parent_nodes=parents,
+                producer=producer,
+            )
+            if node.node_id in by_id:
+                continue
+            by_id[node.node_id] = node
+            added.append(node)
+        if added:
+            path = run_dir / NODES_FILE
+            lines = "".join(
+                _canonical_json(node.as_dict()) + "\n" for node in by_id.values()
+            )
+            _atomic_write(path, lines.encode("utf-8"))
+        return added
 
 
 def _cycle_detected(

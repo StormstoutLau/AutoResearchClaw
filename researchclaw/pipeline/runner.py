@@ -32,6 +32,12 @@ def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+# G3 M2 (P-078): stages whose repeated no-progress rounds trip the loop guard.
+_LOOP_TRACKED_STAGES = frozenset(
+    {int(Stage.LITERATURE_COLLECT), int(Stage.LITERATURE_SCREEN)}
+)
+
+
 def _resolve_data_origin(run_dir: Path, config: RCConfig | None) -> str:
     """Classify experiment provenance for ``pipeline_summary.data_origin``."""
     try:
@@ -84,6 +90,24 @@ def _write_pipeline_summary(run_dir: Path, summary: dict[str, object]) -> None:
     from researchclaw.evidence.summary_check import write_summary
 
     write_summary(run_dir, summary)
+
+
+def _emit_summary_anchor(
+    run_dir: Path, summary: dict[str, object], log: object, owns: bool
+) -> None:
+    """Append the ``pipeline.summary`` event anchor (M2, top-level execution only).
+
+    Nested PIVOT/REFINE calls reuse the outer event log; anchoring there would
+    put two anchors in one execution segment and defeat the D-2 check.
+    """
+    if log is None or not owns:
+        return
+    try:
+        from researchclaw.evidence.summary_check import append_summary_event
+
+        append_summary_event(run_dir, summary, log)
+    except Exception:  # noqa: BLE001 - anchoring must not break the run
+        logger.warning("pipeline.summary anchor append failed", exc_info=True)
 
 
 def _write_checkpoint(
@@ -717,6 +741,42 @@ def execute_pipeline(
         )
         elapsed = _time.monotonic() - t0
 
+        # ── G3 M2: literature loop guard (FC-1..FC-3) ──
+        # Evaluated before the DONE side effects so a paused round neither
+        # advances the checkpoint nor registers artifacts.
+        if result.status == StageStatus.DONE and stage_num in _LOOP_TRACKED_STAGES:
+            try:
+                from researchclaw.runtime.stage_events import record_stage_progress
+
+                loop = record_stage_progress(
+                    run_dir, stage_num, stage.name, config=config
+                )
+                if loop.get("action") == "warn":
+                    logger.warning(
+                        "[%s] Stage %s loop warning: %d identical rounds without progress",
+                        run_id, stage.name, loop.get("consecutive", 0),
+                    )
+                    print(
+                        f"{prefix} {stage.name} — LOOP WARNING "
+                        f"({loop.get('consecutive')} identical rounds)"
+                    )
+                elif loop.get("action") == "pause":
+                    result = StageResult(
+                        stage=stage,
+                        status=StageStatus.PAUSED,
+                        artifacts=result.artifacts,
+                        error="E_LOOP_DETECTED",
+                        decision="loop_detected",
+                    )
+                    print(
+                        f"{prefix} {stage.name} — PAUSED — E_LOOP_DETECTED "
+                        f"({loop.get('consecutive')} identical rounds)"
+                    )
+            except Exception:  # noqa: BLE001 - guard must not break the run
+                logger.warning(
+                    "Stage loop guard failed for %s", stage.name, exc_info=True
+                )
+
         # ── ExperimentSpec: validate results against the Stage 10 spec ──
         # (Stage 10 owns generation; duplicating it here produced an empty
         # stage-09/experiment_spec.md that shadowed the real one.)
@@ -1020,6 +1080,7 @@ def execute_pipeline(
         data_origin=_resolve_data_origin(run_dir, config),
     )
     _write_pipeline_summary(run_dir, summary)
+    _emit_summary_anchor(run_dir, summary, _log, _owns)
 
     # --- Runtime event closure (P-027): run.completed / run.failed ---
     _final_status = "run.completed"

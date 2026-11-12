@@ -1,9 +1,9 @@
 ---
 id: arc-g3-m1-artifacts-DESIGN
 type: design
-version: 1.0
+version: 1.1
 status: verified
-date: 2026-11-11
+date: 2026-11-12
 depends: [arc-g3-m1-artifacts-RESEARCH]
 upstream: arc-g3-m1-artifacts-RESEARCH
 ---
@@ -11,6 +11,7 @@ upstream: arc-g3-m1-artifacts-RESEARCH
 # 设计：G3 M1 ArtifactNode 与 summary 校验
 
 > 基于 [RESEARCH.md](RESEARCH.md)。接口沿用 [M0 DESIGN](../arc-g3-m0-design/DESIGN.md) §3/§4。
+> **修订 v1.1（2026-11-12，P-080）**：§2.2 注册改为跨进程互斥（`runtime/filelock.py`），`_atomic_write` 增加 `os.replace` 瞬时冲突重试；修复 P-077 D-1（并发注册丢节点，探针 150/150 轮复现）。D-3 经 barrier 探针复验**不成立，撤回**（locator 已含 stage 前缀）。节点字段集与 `node_id` 公式不变。
 
 ## 1. 模块
 
@@ -44,6 +45,7 @@ build_node(run_dir, locator, *,
 - 跳过不存在的文件（mock/可选产物）。
 - 父节点 = 已注册节点中 `producer.stage < stage` 的最大 stage 全部节点；无则为空。
 - 按 `node_id` 幂等；新增后整体原子重写 `artifacts/nodes.jsonl`。
+- **并发（v1.1）**：读-改-写全程持 `run_dir/.locks/artifacts.lock` 的排他锁；`os.replace` 遇 `PermissionError` 重试 3×10 ms。
 - 注册异常由 runner 捕获并 warning（不阻断 run）。
 
 ### 2.3 校验

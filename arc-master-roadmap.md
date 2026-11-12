@@ -1,14 +1,14 @@
 ---
 id: arc-master-roadmap
 type: design
-version: 1.3o
+version: 1.3r
 status: draft
 date: 2026-11-11
 depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-textbook, clawsgo-cleanroom-arc]
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.3o）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.3r）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -68,6 +68,12 @@ upstream: arb-v2-decisions
 > **修订**：v1.3n（2026-11-11，P-074）**G3 M0 设计冻结**：六组接口定稿——ArtifactNode v1（12 字段/哈希/指针边界）、pipeline_summary（JCS+侧车+M2 事件链）、stage_events/循环（3 次同签名+零新增+网络豁免）、claim 脊柱（vendor CitationLabel 复用、claim_annotations、`[c-xxxxxxxx]`、claim_export、cap_reasons）、治理（RunMandate/StageHandback/prompt_version）、K5/retrieval。20 个验收 ID 映射到 **M1=P-075、M2=P-076、M3=P-077、M4=P-078、M5=P-079**；本批零代码/零测试。**106 计数不变**。依据：[G3 M0 设计包](spec/arc-g3-m0-design/DESIGN.md)。
 >
 > **修订**：v1.3o（2026-11-11，P-075）**G3 M1 交付（ArtifactNode + summary 侧车）**：新增 `evidence/artifact_node.py`（12 字段、content_hash/inputs_digest、blob/指针、`register_stage_artifacts`、`verify_tree`、`project_to_evidence`）与 `evidence/summary_check.py`（canonical compact JSON + `.sha256` 侧车 + 可选事件锚定）；runner DONE 阶段注册节点、summary 改原子写 + 侧车。实测：M1 21 passed（3.13.5 与 3.11.15）、M1+runner 67 passed、runner/checkpoint/kb/report 92 passed；AN-1/2/3 与 A3-2 侧车达标。事件链三向留 M2，AN-4/5/6 导出侧全量留 M3。**106 计数不变**。依据：[P-075 实施](spec/arc-g3-m1-artifacts/IMPLEMENTATION.md)。
+>
+> **修订**：v1.3p（2026-11-12，P-078）**G3 M2 交付（循环护栏 + summary 事件链）**：新增 `runtime/stage_events.py`——`plan_sig` 取 stage-03 计划、`new_rows` 保留冻结行数语义、`row_ids_digest` 识别同计划同结果、`network_error` 取 `retrieval_status.json`；连续 3 轮同签名同结果 → `PAUSED`/`E_LOOP_DETECTED`，2 轮 → WARN，网络错误整轮豁免，坏行末行容忍/中间封闭（O-4 闭合）。**D-2 修复**：`pipeline.summary` 锚点只在顶层执行写一次，验证改为「`payload_sha256` 结构 + 同执行段至多一锚 + 末锚匹配」，追加伪锚即判红；`EVENT_TYPES` 与前端常量同步。实测：M2 套件 30 passed（3.13.5 与 3.11.15）、相关回归 99 passed、性能 200 事件 0.032ms。**编号顺延**：P-077 复核占用原 M3 槽位，M3/M4/M5 顺延为 **P-079/P-080/P-081**；M0 §5.2 的 Stage 5 签名偏移以 DR-2/U-2 登记。**106 计数不变**。依据：[P-078 实施](spec/arc-g3-m2-stage-events/IMPLEMENTATION.md)、[P-077 复核](docs/arc-g3-m1-review-20261112.md)。
+>
+> **修订**：v1.3q（2026-11-12，P-079）**G3 M2 复核通过（零缺陷）**：独立异构复核 V-1..V-12 全过——30 passed 双环境复跑、回归 99、接线顺序、边界诚实登记全部属实。11 组探针：伪锚两形态均判红、**同域一致重写绕过证实 DESIGN §4.2 边界声明准确**、8 线程并发零丢失、无 id 结果集同构确认实施批 P3-2、豁免轮穿插语义正确；初判 2 项 FAIL 复判均为探针构造偏差（撤回）。O-1..O-4 登记（torn tail 单行语义与 EventLog 不一致、window 无下界、并发零丢失非契约保证）。**编号再顺延**：本复核占用 P-079，M3/M4/M5 = **P-080/P-081/P-082**。**106 计数不变**。依据：[P-079 复核](docs/arc-g3-m2-review-20261112.md)。
+>
+> **修订**：v1.3r（2026-11-12，P-080）**G3 M1/M2 修复批**：新增 `runtime/filelock.py`（stdlib 跨平台 advisory 锁，`msvcrt.LK_NBLCK` / `fcntl.LOCK_NB` + 轮询 + 超时）——**D-1 并发注册丢节点**（barrier 探针 150/150 复现、40 轮 `PermissionError`）修复后 **150 轮 0 丢失 0 异常**；跨进程探针 PASS；`os.replace` 增 3×10 ms 瞬时冲突重试。P-079 O-1..O-3 全部关闭（账本尾部连续坏行容忍、`window<1` 显式拒绝、事件追加跨进程互斥）。**P-077 D-3 撤回**：locator 已含 stage 前缀，跨 stage 同内容节点本就 id 不同（Nix input-addressing 等价语义），探针复验 2 节点均保留，故不改 `node_id` 公式。实测：套件 52 passed（3.13.5 与 3.11.15）、回归 109 passed、200 次注册 169.8 ms。M1/M2 DESIGN 升 v1.1。**M3/M4/M5 = P-081/P-082/P-083**。**106 计数不变**。依据：[P-080 实施](spec/arc-g3-fix-batch/IMPLEMENTATION.md)、[P-077 复核](docs/arc-g3-m1-review-20261112.md)、[P-079 复核](docs/arc-g3-m2-review-20261112.md)。
 
 ---
 

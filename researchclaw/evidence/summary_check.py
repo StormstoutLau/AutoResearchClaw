@@ -1,7 +1,8 @@
-"""pipeline_summary integrity check (G3 M1, P-075).
+"""pipeline_summary integrity check (G3 M1/M2, P-075/P-078).
 
 M1 scope: canonical JSON + SHA-256 sidecar, two-way comparison.
-M2 will add the ``events.jsonl`` ``pipeline.summary`` anchor (``require_event``).
+M2 scope: ``events.jsonl`` ``pipeline.summary`` anchor (``require_event``),
+with one anchor per execution segment (D-2 fix).
 """
 from __future__ import annotations
 
@@ -58,24 +59,60 @@ def write_summary(run_dir: Path, summary: dict) -> Path:
     return path
 
 
-def _last_event_digest(run_dir: Path) -> str | None:
-    events = run_dir / "events.jsonl"
-    if not events.is_file():
-        return None
-    digest = None
-    for line in events.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
+def _canonical_payload(payload: dict) -> str:
+    """Must match ``event_log.canonical_json`` (the writer's encoding)."""
+    return json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
+
+
+def _collect_anchors(run_dir: Path) -> tuple[list[tuple[int, dict]], list[dict]]:
+    """Read ``pipeline.summary`` events with their execution segment.
+
+    Returns ``(anchors, errors)``. A segment increments at every ``run.started``;
+    the writer anchors at most once per segment (M2).
+    """
+    errors: list[dict] = []
+    has_log = any(run_dir.glob("events*.jsonl")) or any(
+        run_dir.glob("events*.jsonl.gz")
+    )
+    events: list[dict] = []
+    if has_log:
         try:
-            raw = json.loads(line)
-        except json.JSONDecodeError:
+            from researchclaw.runtime.event_log import EventLog
+
+            events = EventLog(run_dir, run_dir.name or "run").read_all()
+        except Exception:  # noqa: BLE001 - corrupt log is reported, never raised
+            errors.append({
+                "code": E_SUMMARY_TAMPERED,
+                "field": "events.jsonl:unreadable",
+            })
+    anchors: list[tuple[int, dict]] = []
+    segment = 0
+    for event in events:
+        event_type = event.get("type")
+        if event_type == "run.started":
+            segment += 1
             continue
-        if raw.get("type") != EVENT_TYPE:
+        if event_type != EVENT_TYPE:
             continue
-        payload = raw.get("payload")
-        if isinstance(payload, dict) and isinstance(payload.get("digest"), str):
-            digest = payload["digest"]
-    return digest
+        payload = event.get("payload")
+        if not isinstance(payload, dict) or not isinstance(payload.get("digest"), str):
+            errors.append({
+                "code": E_SUMMARY_TAMPERED,
+                "field": "events.jsonl:payload",
+            })
+            continue
+        recorded = event.get("payload_sha256")
+        expected = hashlib.sha256(_canonical_payload(payload).encode("utf-8")).hexdigest()
+        if not isinstance(recorded, str) or recorded != expected:
+            errors.append({
+                "code": E_SUMMARY_TAMPERED,
+                "field": "events.jsonl:payload_sha256",
+            })
+            continue
+        anchors.append((segment, payload))
+    return anchors, errors
 
 
 def verify_summary(run_dir: Path, *, require_event: bool = False) -> dict:
@@ -111,23 +148,39 @@ def verify_summary(run_dir: Path, *, require_event: bool = False) -> dict:
                 "actual": digest,
             })
     if require_event:
-        event_digest = _last_event_digest(run_dir)
-        if event_digest is None:
+        anchors, anchor_errors = _collect_anchors(run_dir)
+        errors.extend(anchor_errors)
+        if not anchors:
             errors.append({"code": E_SUMMARY_EVENT_MISSING, "field": "events.jsonl"})
-        elif event_digest != digest:
-            errors.append({
-                "code": E_SUMMARY_TAMPERED,
-                "field": "events.jsonl",
-                "expected": event_digest,
-                "actual": digest,
-            })
+        else:
+            segments = [segment for segment, _ in anchors]
+            if len(segments) != len(set(segments)):
+                # D-2: a second anchor in the same execution segment means the
+                # summary was rewritten after the real anchor was recorded.
+                errors.append({
+                    "code": E_SUMMARY_TAMPERED,
+                    "field": "events.jsonl:duplicate_anchor",
+                })
+            anchored = anchors[-1][1]["digest"]
+            if anchored != digest:
+                errors.append({
+                    "code": E_SUMMARY_TAMPERED,
+                    "field": "events.jsonl",
+                    "expected": anchored,
+                    "actual": digest,
+                })
     return {"ok": not errors, "digest": digest, "errors": errors}
 
 
-def append_summary_event(run_dir: Path, summary: dict, event_log: Any | None = None) -> None:
+def append_summary_event(
+    run_dir: Path, summary: dict, event_log: Any | None = None
+) -> None:
     """M2 helper: append the ``pipeline.summary`` anchor to the event chain."""
     if event_log is None:
         from researchclaw.runtime.event_log import EventLog
 
         event_log = EventLog(Path(run_dir) / "events.jsonl")
-    event_log.append(EVENT_TYPE, {"digest": summary_digest(summary)})
+    event_log.append(
+        EVENT_TYPE,
+        {"digest": summary_digest(summary), "generated": summary.get("generated")},
+    )
