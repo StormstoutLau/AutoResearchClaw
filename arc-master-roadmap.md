@@ -8,7 +8,7 @@ depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.4m）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.4n）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -116,6 +116,8 @@ upstream: arb-v2-decisions
 > **修订**：v1.4l（2026-11-14，P-100）**P-099 M0 设计独立异构复核（主线成立，2 项 P2 须 M1 开工前吸收）**：异构基座 **GLM-5.3-Flash（复核）vs DeepSeek-V4.1-Flash（实施）**，RULE-5 交替交叉延续。V-1..V-12 一手复验：现状断言 11 项中 **10 项成立、1 项证伪**——**D-7** RESEARCH A4-3「无 `--memory`」不成立（`docker_sandbox.py` L389 已有 `--memory=8192m` + `--shm-size`，G-7 缺口收窄为 **pids/cpus/label/TTL/137 五项**，A4-3 现状改 ⚠️ 半接线）；SDK 探针复现；session digest 零 mismatch；零代码变更。12 组设计对抗推演：**D-1 P2 审批门组合漏洞**——`approval=never`×`risk=high` 不落任何拒绝分支，高危工具可配置为永久免审批（fail-open，违反 A4-5）；修复 = 注册表校验新增 `risk=high ⇒ approval ≠ never`（V-8）+ 审批门保险分支双保险。**D-2 P2 核心路径依赖 optional extras**——registry 校验的 `jsonschema` 矛盾（建议升核心依赖）。**5 项 P3**：D-3 137 仅 memory/pids（`--cpus` 是 throttling）、D-4 TTL kill 时产物未必落盘（`reason=ttl_timeout`）、D-5 SDK schema 注入机制未定（M2 前置 spike）、D-6 AST 守卫精度（建议注册制白名单+兜底）、D-7 现状订正；O-1..O-8（hitl/escalation 复用、摘要脱敏、gpu 字段、启动范围、M2/M3 集成点、编号顺延）。**G4 仍可开工**：D-1/D-2 作为 M1（P-101）设计修正输入随实现落地，不阻塞；**M1..M5 顺延 P-101..P-105**。**106 计数不变**。依据：[P-100 复核](docs/arc-g4-m0-design-review-20261114.md)。
 >
 > **修订**：v1.4m（2026-11-14，P-101）**G4-M1 交付：工具注册表与启动校验（A4-1 达成）**：Q-1..Q-5 五项裁决落地——**Q-1 (P-100 D-2) `jsonschema>=4.20` 升核心依赖**（registry 属核心包 + fail-closed，optional extras 会绑架 CLI 启动）；**Q-2 (P-100 D-1) V-8 规则** `risk=high ⇒ approval ∈ {always,high_only}`（`E_REGISTRY_APPROVAL`，配置层关闭 fail-open；运行时保险分支留 M3）；**Q-3 分级启动**（load 必抛、进程退出由 server/invoker 决定、纯 CLI 不加载）；**Q-4** 顶层 version 严格 int；**Q-5 V-5a/V-5b 拆分**（格式必做 + importlib 延迟，消除核心路径对 mcp extra 隐性依赖）。交付 `tools/registry.yaml`（6 工具 schema **逐字搬迁**，T-2 deep equality 锁定 INV-4）+ `researchclaw/tools/registry.py`（9 条校验 fail-closed 首错即抛 + `reload()` 旧实例不变）+ 14 函数→19 用例。**编号顺延落定 M1..M5 = P-101..P-105**（M0 文档受控回边：D-7 现状订正、V-5a/b、V-8、Q-1 裁决 + P-099 session seq6-7 rebind）。实测：红 `ModuleNotFoundError` → 首轮 6 failed/13 passed（**测试 helper 两处 bug**，诚实记录）→ **19 passed**；3.13.5 七文件 **194 passed**（含 MCP 42 项）、3.11.15 18 passed/3 skipped（mcp 缺席 `importorskip` 诚实 skip）、宽回归 **278** + 扩展组 **348 passed** 零失败；CI 清单 + `test_tool_registry.py`。**106 计数不变**。依据：[P-101 实施](spec/arc-g4-m1-registry/IMPLEMENTATION.md)。
+>
+> **修订**：v1.4n（2026-11-14，P-102）**P-101 M1 独立异构复核（主线成立；1 项 P2 阻塞 M2 开工）**：异构基座 **DeepSeek-V4.1-Flash（复核）vs GLM-5.3-Flash（实施）**，与 P-100 形成 RULE-5 双向交叉。V-1..V-12 全真（19 collected、七文件 **194**、3.11 **18+3skip**、扩展组 **348**、digest 8 文件零 mismatch、边界 18 文件、A4-1 正负向真实、INV-4 等价搬迁、核心路径无 mcp 导入、M0 回边 legacy exit 0）。**21 组对抗探针**：V-8 五组绕过尝试全拒（大小写/缺失/前导空格/合法组合）、handler strict 与 profile 校验全过；**D-1 P2 wheel 安装缺注册表**——hatch `packages=["researchclaw"]` 不含仓库根 `tools/registry.yaml`，site-packages 下默认路径解析为 `site-packages/tools/registry.yaml`（不存在），**pip 安装用户 M2/M3 启动必然失败**；修复 = 包内资源 `researchclaw/tools/registry.yaml` + hatch force-include + packaging job 冒烟（M2 批内先修）。**D-2 P3** INV-6 不可变告破（frozen dataclass 不冻结嵌套 dict，两处实证可改）；**D-3 P3** 错误码错配（文件不存在/目录/空文件一律 `E_REGISTRY_VERSION`）。O-1..O-7（未知键静默、outputSchema 新增声明、YAML 重复键、env 覆盖、双源、编号顺延）。**编号顺延：M2..M5 = P-103..P-106**。**M1 验收不受 D-1 影响（未接线）；M2 开工前须先修 D-1**。**106 计数不变**。依据：[P-102 复核](docs/arc-g4-m1-registry-review-20261114.md)。
 
 ---
 
