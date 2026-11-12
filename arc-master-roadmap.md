@@ -8,7 +8,7 @@ depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.4j）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.4k）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -110,6 +110,8 @@ upstream: arb-v2-decisions
 > **修订**：v1.4i（2026-11-13，P-097）**P-096 独立异构复评通过（零 D 级，G3 提取器验收闭环）**：异构基座 **GLM-5.3-Flash（复评）vs DeepSeek-V4.1-Flash（实施）**，与 P-095 形成 RULE-5 双向交叉。V-1..V-10 一手复验全真（双环境 131×2、十文件 205、扩展组 348、collect 31、两 session digest 逐字节匹配 HEAD）；**33 组对抗探针**（26 迁移表证伪 + 7 tab 边界扫描）**零 D 级**——列表上下文四形态与单 tab 等价全部关闭、K1 下游 `unpublished_claim_cited` + trace 判红恢复、P-085/P-094 零回退；O-1 tab+空白边界（`\t\t`/`\t `/`\t \t` 前缀多提取，**误阻断假阳性方向非漏检**，非本批回归，修复约 3 行）、O-2 块内深缩进围栏翻转（`_FENCE_RE=^\s*` P-085 沿袭，少提取方向）；M2e 探针笔误如实修正（实现与 CommonMark 一致）。**P-085 D-1「示例误阻断」家族收敛：主路径全部闭合，残留仅 O-1（无漏检）**。**G3 claim spine 提取器验收闭环；G4 可开工（无阻断）**。O-1 修复待用户裁决（可与 G4 前置合并）。**106 计数不变**。依据：[P-097 复评](docs/arc-g3-indent-context-review-20261113.md)。
 >
 > **修订**：v1.4j（2026-11-14，P-098）**O-1 收敛（用户裁决先行小修）**：`_INDENT_CODE_RE` tab 分支 `\t` → `\t[ \t]*`——行首 tab 起始缩进必 ≥4 列（CommonMark tab stop），穷尽全部 tab 前缀形态；`\t\t`/`\t `/`\t \t` 三前缀不再多提取（T2/T3/T4 关闭），`\t\t- x` 修复后按 CommonMark 判代码（8 列无外层列表非列表项）；`_NESTED_LIST_RE` 有意不改（`\t- x` 列表内容 M1d 保持提取）；状态机/围栏/行内码零改动。实测：新增 2 项（claim spine 31→33），红 **1 failed/32 passed** → 绿 **33 passed**，双环境 **133×2**、十文件 **207** + 扩展组 **348 passed**，E2 **15 形态全过**（tab 扫描 T1-T7 + `\t\t-` + M1d + 迁移表 6 护栏）。**P-085 D-1「示例误阻断」家族全部闭合（含 O-1）**；剩余 O-2（块内深缩进围栏，少提取方向）与 P-095 O 表维持登记。建议 **P-099** 由 DeepSeek 基座复评（RULE-5 交叉）或直接裁决 G4 开工。**106 计数不变**。依据：[P-098 实施](spec/arc-g3-tab-normalize/IMPLEMENTATION.md)。
+>
+> **修订**：v1.4k（2026-11-14，P-099）**G4 正式开工：M0 设计冻结**（按 P-074 先例，T1 零生产代码）。逐项核对 A4-1..A4-10：**6 项完全缺失**（`tools/registry.yaml` 与加载器、启动期 schema 校验、审批门、`HostProfile`、`GET /api/tools`、MCP 动态注册）、**3 项半接线**（沙箱有 network 四档/`--rm`/`--gpus all` 但无 `--memory/--pids-limit/--cpus` 与 TTL、`build_subprocess_env` 3 文件、`safe_join` 2 文件）、**1 项地基就绪**（`EVENT_TYPES` 已含 `tool.call`/`tool.result`，**全仓无生产者**）。E2 探针：`mcp` 2.3.0 的 `MCPServer` 类无 list_changed，但 `server/session.py:461`、`connection.py:441` 提供 `send_tool_list_changed()`，`subscriptions.py` 负责协商 → A4-10 可行。冻结：注册表三段 schema + 7 校验规则/错误码、动态注册与 listChanged、tool 事件字段表（只落 digest+摘要）与 `orphan_call` 时点、沙箱 label/network/quota/TTL/137 五要素、AST 覆盖守卫、`HostProfile` 纯数据。拆 **G4-M1..M5**（P-100..P-104）并映射全部 10 项验收，每项唯一归属。Q-1..Q-6 决策建议冻结（Q-1 `jsonschema` 并入 server/mcp extras）。**106 计数不变**。依据：[P-099 设计](spec/arc-g4-m0-design/DESIGN.md)。
 
 ---
 
