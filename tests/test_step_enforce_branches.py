@@ -166,3 +166,39 @@ def test_low_pid_is_not_gated(monkeypatch):
     new = progress(row("P-024", "feat-a", None))
     d = _batch_resolve(old, new)
     assert not [e for e in d.errors if "四文档" in e or "缺批次档位" in e], d.errors
+
+
+# ---------------------------------------------------------------- T-7 严格模式（P-082）
+
+def test_thresholds_lowered_to_this_batch():
+    assert se.GATE_STRICT_MIN_P == 82
+    assert se.BATCH_BINDING_MIN_P == 82
+    assert se.EVIDENCE_MIN_P == 82
+    assert se.DOC_COMPLETENESS_MIN_P == 81
+
+
+def test_registration_mode_requires_tier():
+    """只改 PROGRESS（batch-registration）也必须带档位。"""
+    old = progress()
+    new = progress(row("P-200", "feat-a", None))
+    d = _registration_resolve(old, new)
+    assert d.mode == "batch-registration"
+    assert any("缺批次档位" in e for e in d.errors), d.errors
+
+
+def test_session_mode_requires_tier():
+    """只改 session（session 模式）也必须带档位。"""
+    old = progress()
+    new = progress(row("P-200", "feat-a", None))
+    d = se.resolve([], [("specwf-ok", "P-200")], False, old, new, "main", False)
+    assert d.mode == "session-progress"
+    assert any("缺批次档位" in e for e in d.errors), d.errors
+
+
+def test_tier_gate_starts_at_threshold():
+    """P-081 不受档位约束，P-082 起受约束。"""
+    old = progress()
+    new = progress(row("P-081", "feat-a", None), row("P-082", "feat-a", None))
+    d = _registration_resolve(old, new)
+    errors = [e for e in d.errors if "缺批次档位" in e]
+    assert len(errors) == 1 and "P-082" in errors[0], d.errors

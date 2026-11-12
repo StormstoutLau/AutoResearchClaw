@@ -48,17 +48,17 @@ SESSION_RE = re.compile(
     r"^tools/spec_runner/sessions/(specwf-p(\d{3})-[a-z0-9-]+)\.jsonl$")
 BRANCH_RE = re.compile(r"(?:^|[/_-])p(\d{3})(?:$|[/_-])", re.I)
 STEP_SEQUENCE = ("research", "design", "implement", "verify", "finalize")
-BATCH_BINDING_MIN_P = 129
+# P-082：严格模式边界——档位词 / feature 绑定 / digest 绑定统一从本批起生效（用户裁决 G-3/G-4）。
+GATE_STRICT_MIN_P = 82
+BATCH_BINDING_MIN_P = GATE_STRICT_MIN_P
 # P-081：T1 批次四文档齐全从本批起生效（棘轮不回溯历史）
 DOC_COMPLETENESS_MIN_P = 81
 REQUIRED_DOCS = ("RESEARCH.md", "DESIGN.md", "IMPLEMENTATION.md", "CHECKLIST.md")
-# U-10 C（P-137）：**内容 digest 绑定**过渡边界（独立常量，不与 129 / FINALIZE_IMPACT_MIN_P 合并）。
-# 推导（预注册 §10 U-10 行 + 附录 E.1 提案 135 已被占用）：135 → 136 → **137 = 实施批自身**
-# （同 P-092 `FINALIZE_IMPACT_MIN_P=92` 先例：边界取实施批编号，本批吃狗粮自证）。
-# 存量零回归（E1）：151 个 specwf 批次 session（P-001~P-136）全部 < 137，且 digest 校验只作用于
-# **声明 P 的 session**（per-batch 作用域），历史 session 永不重验。
+# U-10 C（P-137 定义，P-082 下调）：**内容 digest 绑定**独立常量，不与 FINALIZE_IMPACT_MIN_P 合并。
+# 原边界 137 = 实施批自身；P-082 依用户裁决提前到本批（G-3），本批 session 自带 digest 自证。
+# 存量零回归（E1）：digest 校验只作用于**声明 P 的 session**（per-batch 作用域），历史 session 永不重验。
 # 回退 = 本常量置哨兵值（如 9999 > 全部现存 P）⇒ digest 校验整体降为观察（无红、零其他行为变更）。
-EVIDENCE_MIN_P = 137
+EVIDENCE_MIN_P = GATE_STRICT_MIN_P
 DOC_DIGEST_ALGO = "sha256"
 
 
@@ -396,7 +396,22 @@ def _missing_docs(feature: str) -> list[str]:
     return missing
 
 
+def _require_tiers(d: Decision, rows: dict) -> None:
+    """P-082（G-4）：本次声明的 P 行（P≥阈值）必须带 T1/T3 档位词。"""
+    for pid in d.pids:
+        if _pid_num(pid) < GATE_STRICT_MIN_P:
+            continue
+        row = rows.get(pid)
+        if row is None:
+            continue                      # 「不在 PROGRESS」已由调用方报
+        if spec_map.row_tier(row) is None:
+            d.errors.append(f"{pid} 缺批次档位（依据列须含 T1 或 T3）")
+
+
 def _resolve_declared(d: Decision, docs_features: set[str], rows: dict) -> None:
+    _require_tiers(d, rows)
+    if d.errors:
+        return
     allowed: set[str] = set()
     for pid in d.pids:
         row = rows.get(pid)
@@ -428,12 +443,8 @@ def _resolve_declared(d: Decision, docs_features: set[str], rows: dict) -> None:
         if not owners:
             continue
         tier = spec_map.row_tier(rows[max(owners, key=_pid_num)])
-        if tier is None:
-            d.errors.append(
-                "P 行缺批次档位（依据列须含 T1 或 T3）: " + ", ".join(owners))
-            continue
-        if tier == "T3":
-            continue
+        if tier != "T1":
+            continue                      # T3 合法无四文档；缺档位已由 _require_tiers 报
         lacking = _missing_docs(feature)
         if lacking:
             d.errors.append(
@@ -510,6 +521,9 @@ def resolve(changed_docs: list[str], changed_sessions: list[tuple[str, str]],
         d.mode, d.source = "session-progress", "session"
         d.pids = sorted({pid for _, pid in changed_sessions})
         d.sessions = [sid for sid, _ in changed_sessions]
+        _require_tiers(d, rows)
+        if d.errors:
+            return d
         _, errs = _check_sessions(d.sessions, require_complete=False)
         d.errors += errs
         return d
@@ -517,6 +531,9 @@ def resolve(changed_docs: list[str], changed_sessions: list[tuple[str, str]],
     if progress_changed and declared:
         d.mode, d.source = "batch-registration", "P-row"
         d.pids = declared
+        _require_tiers(d, rows)
+        if d.errors:
+            return d
         for pid in declared:
             row = rows.get(pid)
             if not row:

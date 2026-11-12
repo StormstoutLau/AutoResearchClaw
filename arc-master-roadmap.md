@@ -1,14 +1,14 @@
 ---
 id: arc-master-roadmap
 type: design
-version: 1.3s
+version: 1.3t
 status: draft
 date: 2026-11-11
 depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-textbook, clawsgo-cleanroom-arc]
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.3s）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.3t）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -76,6 +76,8 @@ upstream: arb-v2-decisions
 > **修订**：v1.3r（2026-11-12，P-080）**G3 M1/M2 修复批**：新增 `runtime/filelock.py`（stdlib 跨平台 advisory 锁，`msvcrt.LK_NBLCK` / `fcntl.LOCK_NB` + 轮询 + 超时）——**D-1 并发注册丢节点**（barrier 探针 150/150 复现、40 轮 `PermissionError`）修复后 **150 轮 0 丢失 0 异常**；跨进程探针 PASS；`os.replace` 增 3×10 ms 瞬时冲突重试。P-079 O-1..O-3 全部关闭（账本尾部连续坏行容忍、`window<1` 显式拒绝、事件追加跨进程互斥）。**P-077 D-3 撤回**：locator 已含 stage 前缀，跨 stage 同内容节点本就 id 不同（Nix input-addressing 等价语义），探针复验 2 节点均保留，故不改 `node_id` 公式。实测：套件 52 passed（3.13.5 与 3.11.15）、回归 109 passed、200 次注册 169.8 ms。M1/M2 DESIGN 升 v1.1。**M3/M4/M5 = P-081/P-082/P-083**。**106 计数不变**。依据：[P-080 实施](spec/arc-g3-fix-batch/IMPLEMENTATION.md)、[P-077 复核](docs/arc-g3-m1-review-20261112.md)、[P-079 复核](docs/arc-g3-m2-review-20261112.md)。
 >
 > **修订**：v1.3s（2026-11-12，P-081）**Spec 门禁加固**：P-080 后的强制力审计发现两处缺口——① CI 只有 `pre-commit --all-files`，`step_enforce` 本地模式取 `_local_changed()`，CI checkout 干净时为空集 → **空转**（实测 exit 0）；② `FEATURE_RE` 只匹配已存在四文档，**四文档齐全无判据**。加固：`spec-gates` 增 range 兜底（`fetch-depth: 0`、`BASE=before 或 pull_request.base.sha`、全 0/不可达显式跳过、`--base` + 变更集、`rev-list --merges` 逐个 `--check-merge`）；`spec_map` 增 P 行 `basis` 与 `row_tier`；`step_enforce` 对 **P≥81** 的 T1 批次强制四文档齐全，T3 跳过，缺档位判红（阈值从本批起生效，不回溯）。实测：红 8 failed → 绿 16 passed；`--base HEAD~1`（29 路径 / 3 P / 3 session）exit 0。**M3/M4/M5 = P-082/P-083/P-084**。**106 计数不变**。依据：[P-081 实施](spec/arc-spec-gate-hardening/IMPLEMENTATION.md)。
+>
+> **修订**：v1.3t（2026-11-12，P-082）**Spec 门禁严格模式（用户裁决 G-3/G-4）**：`GATE_STRICT_MIN_P=82`，`BATCH_BINDING_MIN_P` 与 `EVIDENCE_MIN_P` 由 129/137 **下调至 82**——P-082 起 feature 绑定、四文档（T1）、digest 绑定同时生效；新增 `_require_tiers` 让档位词检查覆盖 batch / session / batch-registration 三模式（P≥82 的声明行必须含 T1 或 T3，T3 仍合法无四文档）。本批 session 绑定四文档 sha256 自证（定稿→stage→digest→session）。实测：红 4 failed → 绿 20 passed，P-081 既有 5 项零回归。**M3/M4/M5 = P-083/P-084/P-085**。**106 计数不变**。依据：[P-082 实施](spec/arc-spec-gate-strict/IMPLEMENTATION.md)。
 
 ---
 
