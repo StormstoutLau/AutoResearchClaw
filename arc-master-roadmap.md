@@ -8,7 +8,7 @@ depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.4k）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.4l）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -112,6 +112,8 @@ upstream: arb-v2-decisions
 > **修订**：v1.4j（2026-11-14，P-098）**O-1 收敛（用户裁决先行小修）**：`_INDENT_CODE_RE` tab 分支 `\t` → `\t[ \t]*`——行首 tab 起始缩进必 ≥4 列（CommonMark tab stop），穷尽全部 tab 前缀形态；`\t\t`/`\t `/`\t \t` 三前缀不再多提取（T2/T3/T4 关闭），`\t\t- x` 修复后按 CommonMark 判代码（8 列无外层列表非列表项）；`_NESTED_LIST_RE` 有意不改（`\t- x` 列表内容 M1d 保持提取）；状态机/围栏/行内码零改动。实测：新增 2 项（claim spine 31→33），红 **1 failed/32 passed** → 绿 **33 passed**，双环境 **133×2**、十文件 **207** + 扩展组 **348 passed**，E2 **15 形态全过**（tab 扫描 T1-T7 + `\t\t-` + M1d + 迁移表 6 护栏）。**P-085 D-1「示例误阻断」家族全部闭合（含 O-1）**；剩余 O-2（块内深缩进围栏，少提取方向）与 P-095 O 表维持登记。建议 **P-099** 由 DeepSeek 基座复评（RULE-5 交叉）或直接裁决 G4 开工。**106 计数不变**。依据：[P-098 实施](spec/arc-g3-tab-normalize/IMPLEMENTATION.md)。
 >
 > **修订**：v1.4k（2026-11-14，P-099）**G4 正式开工：M0 设计冻结**（按 P-074 先例，T1 零生产代码）。逐项核对 A4-1..A4-10：**6 项完全缺失**（`tools/registry.yaml` 与加载器、启动期 schema 校验、审批门、`HostProfile`、`GET /api/tools`、MCP 动态注册）、**3 项半接线**（沙箱有 network 四档/`--rm`/`--gpus all` 但无 `--memory/--pids-limit/--cpus` 与 TTL、`build_subprocess_env` 3 文件、`safe_join` 2 文件）、**1 项地基就绪**（`EVENT_TYPES` 已含 `tool.call`/`tool.result`，**全仓无生产者**）。E2 探针：`mcp` 2.3.0 的 `MCPServer` 类无 list_changed，但 `server/session.py:461`、`connection.py:441` 提供 `send_tool_list_changed()`，`subscriptions.py` 负责协商 → A4-10 可行。冻结：注册表三段 schema + 7 校验规则/错误码、动态注册与 listChanged、tool 事件字段表（只落 digest+摘要）与 `orphan_call` 时点、沙箱 label/network/quota/TTL/137 五要素、AST 覆盖守卫、`HostProfile` 纯数据。拆 **G4-M1..M5**（P-100..P-104）并映射全部 10 项验收，每项唯一归属。Q-1..Q-6 决策建议冻结（Q-1 `jsonschema` 并入 server/mcp extras）。**106 计数不变**。依据：[P-099 设计](spec/arc-g4-m0-design/DESIGN.md)。
+>
+> **修订**：v1.4l（2026-11-14，P-100）**P-099 M0 设计独立异构复核（主线成立，2 项 P2 须 M1 开工前吸收）**：异构基座 **GLM-5.3-Flash（复核）vs DeepSeek-V4.1-Flash（实施）**，RULE-5 交替交叉延续。V-1..V-12 一手复验：现状断言 11 项中 **10 项成立、1 项证伪**——**D-7** RESEARCH A4-3「无 `--memory`」不成立（`docker_sandbox.py` L389 已有 `--memory=8192m` + `--shm-size`，G-7 缺口收窄为 **pids/cpus/label/TTL/137 五项**，A4-3 现状改 ⚠️ 半接线）；SDK 探针复现；session digest 零 mismatch；零代码变更。12 组设计对抗推演：**D-1 P2 审批门组合漏洞**——`approval=never`×`risk=high` 不落任何拒绝分支，高危工具可配置为永久免审批（fail-open，违反 A4-5）；修复 = 注册表校验新增 `risk=high ⇒ approval ≠ never`（V-8）+ 审批门保险分支双保险。**D-2 P2 核心路径依赖 optional extras**——registry 校验的 `jsonschema` 矛盾（建议升核心依赖）。**5 项 P3**：D-3 137 仅 memory/pids（`--cpus` 是 throttling）、D-4 TTL kill 时产物未必落盘（`reason=ttl_timeout`）、D-5 SDK schema 注入机制未定（M2 前置 spike）、D-6 AST 守卫精度（建议注册制白名单+兜底）、D-7 现状订正；O-1..O-8（hitl/escalation 复用、摘要脱敏、gpu 字段、启动范围、M2/M3 集成点、编号顺延）。**G4 仍可开工**：D-1/D-2 作为 M1（P-101）设计修正输入随实现落地，不阻塞；**M1..M5 顺延 P-101..P-105**。**106 计数不变**。依据：[P-100 复核](docs/arc-g4-m0-design-review-20261114.md)。
 
 ---
 
