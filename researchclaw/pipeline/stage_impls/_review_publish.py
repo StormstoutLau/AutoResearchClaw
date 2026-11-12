@@ -92,6 +92,18 @@ def _apply_simulated_watermark(markdown: str) -> str:
     return _SIMULATED_WATERMARK_MD + markdown
 
 
+def _apply_retrieval_notice(markdown: str) -> str:
+    """Prefix the Markdown paper with the retrieval-degradation note (A3-5)."""
+    marker = "> **Retrieval note:**"
+    if markdown.lstrip().startswith(marker):
+        return markdown
+    notice = (
+        "> **Retrieval note:** Literature retrieval was degraded in this run; "
+        "coverage may be incomplete. See `stage-04/retrieval_status.json`.\n\n"
+    )
+    return notice + markdown
+
+
 def _add_simulated_latex_notice(tex: str) -> str:
     """Insert a visible simulated-data banner right after ``\\begin{document}``."""
     if "SIMULATED DATA --- NOT FOR SUBMISSION" in tex:
@@ -102,6 +114,21 @@ def _add_simulated_latex_notice(tex: str) -> str:
         return _SIMULATED_NOTICE_TEX.strip() + "\n\n" + tex
     insert_at = index + len(marker)
     return tex[:insert_at] + "\n" + _SIMULATED_NOTICE_TEX + tex[insert_at:]
+
+
+def _k5_refs_report(run_dir: Path, config: Any, text: str, filename: str) -> list[dict]:
+    """G3 M5 (A3-4): resolve K5 refs against the KB and BibTeX keys."""
+    from researchclaw.knowledge.k5_refs import bib_keys_from_text, check_k5_refs
+
+    bib_text = _read_prior_artifact(run_dir, "references.bib") or ""
+    root = getattr(config.knowledge_base, "root", "") or ""
+    kb_root = Path(root) if root else None
+    return check_k5_refs(
+        text,
+        kb_root=kb_root,
+        bib_keys=bib_keys_from_text(bib_text),
+        file=filename,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1589,6 +1616,29 @@ def _execute_export_publish(
             "(allow_simulated_paper=true)"
         )
 
+    # G3 M5 (A3-5): retrieval degradation must be visible in the paper.
+    _retrieval_degraded = False
+    try:
+        _rs_path = run_dir / "stage-04" / "retrieval_status.json"
+        if _rs_path.is_file():
+            _rs = json.loads(_rs_path.read_text(encoding="utf-8"))
+            _retrieval_degraded = bool(_rs.get("retrieval_degraded"))
+    except (OSError, json.JSONDecodeError):
+        _retrieval_degraded = False
+    if _retrieval_degraded:
+        final_paper = _apply_retrieval_notice(final_paper)
+        (stage_dir / "retrieval_degraded.json").write_text(
+            json.dumps(
+                {
+                    "retrieval_degraded": True,
+                    "source": "stage-04/retrieval_status.json",
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        logger.warning("Stage 22: retrieval_degraded notice added to paper")
+
     # --- Always-on fabrication sanitization (Phase 1 anti-fabrication) ---
     # Back up pre-sanitized version
     (stage_dir / "paper_presanitized.md").write_text(
@@ -1873,6 +1923,8 @@ def _execute_export_publish(
 
     # Initialize artifacts list
     artifacts = ["paper_final.md"]
+    if (stage_dir / "retrieval_degraded.json").is_file():
+        artifacts.append("retrieval_degraded.json")
     # F2.7: Post-process citations — [cite_key] → \cite{cite_key}
     # and copy final references.bib to export stage
     _ay_map: dict[str, str] = {}  # BUG-102: author-year → cite_key map
@@ -2670,6 +2722,35 @@ def _execute_export_publish(
     except Exception as exc:  # noqa: BLE001
         logger.warning("Stage 22: claim export failed: %s", exc)
 
+    # G3 M5 (A3-4): K5 reference precheck is strict by default.
+    try:
+        _k5_unresolved = _k5_refs_report(run_dir, config, final_paper, "paper_final.md")
+        (stage_dir / "k5_refs.json").write_text(
+            json.dumps(
+                {"file": "paper_final.md", "unresolved": _k5_unresolved},
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        artifacts.append("k5_refs.json")
+    except Exception as exc:  # noqa: BLE001 - check failure must not pass silently
+        logger.error("Stage 22: K5 ref check failed: %s", exc)
+        return StageResult(
+            stage=Stage.EXPORT_PUBLISH,
+            status=StageStatus.FAILED,
+            artifacts=tuple(artifacts),
+            error=f"E_K5_UNRESOLVED_REF: check_failed: {exc}",
+        )
+    if _k5_unresolved:
+        logger.error("Stage 22 BLOCKED by unresolved K5 refs: %s", _k5_unresolved[:5])
+        return StageResult(
+            stage=Stage.EXPORT_PUBLISH,
+            status=StageStatus.FAILED,
+            artifacts=tuple(artifacts),
+            error=f"E_K5_UNRESOLVED_REF: {len(_k5_unresolved)} unresolved K5 ref(s)",
+        )
+
     return StageResult(
         stage=Stage.EXPORT_PUBLISH,
         status=StageStatus.DONE,
@@ -2857,6 +2938,36 @@ def _execute_citation_verify(
             error=f"E_CLAIM_DIGEST_MISMATCH: {len(_digest_errors)} evidence digest error(s)",
         )
 
+    # G3 M5 (A3-4): K5 final check is strict by default.
+    try:
+        _k5_unresolved = _k5_refs_report(run_dir, config, paper_text, "paper_final.md")
+        (stage_dir / "k5_refs.json").write_text(
+            json.dumps(
+                {"file": "paper_final.md", "unresolved": _k5_unresolved},
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+    except Exception as exc:  # noqa: BLE001 - check failure must not pass silently
+        logger.error("Stage 23: K5 ref check failed: %s", exc)
+        return StageResult(
+            stage=Stage.CITATION_VERIFY,
+            status=StageStatus.FAILED,
+            artifacts=("k5_refs.json", "claim_consistency.json", "claim_verification.json"),
+            evidence_refs=("stage-23/k5_refs.json",),
+            error=f"E_K5_UNRESOLVED_REF: check_failed: {exc}",
+        )
+    if _k5_unresolved:
+        logger.error("Stage 23 BLOCKED by unresolved K5 refs: %s", _k5_unresolved[:5])
+        return StageResult(
+            stage=Stage.CITATION_VERIFY,
+            status=StageStatus.FAILED,
+            artifacts=("k5_refs.json", "claim_consistency.json", "claim_verification.json"),
+            evidence_refs=("stage-23/k5_refs.json",),
+            error=f"E_K5_UNRESOLVED_REF: {len(_k5_unresolved)} unresolved K5 ref(s)",
+        )
+
     if not bib_text.strip():
         report_data = {
             "summary": {
@@ -2890,6 +3001,7 @@ def _execute_citation_verify(
                 "references_verified.bib",
                 "claim_verification.json",
                 "claim_consistency.json",
+                "k5_refs.json",
             ),
             evidence_refs=(
                 "stage-23/verification_report.json",
@@ -3036,6 +3148,7 @@ def _execute_citation_verify(
         "references_verified.bib",
         "claim_verification.json",
         "claim_consistency.json",
+        "k5_refs.json",
     ]
 
     if paper_text.strip():

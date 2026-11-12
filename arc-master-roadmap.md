@@ -8,7 +8,7 @@ depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.3w）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.3y）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -84,6 +84,10 @@ upstream: arb-v2-decisions
 > **修订**：v1.3v（2026-11-12，P-084）**G3 M3 复核（1 P2 + 5 P3）**：独立异构复核 V-1..V-12（双环境 114×2、回归 177 + rc_executor 组 270、登记链）全过；12 组探针确证 **D-1 P2 示例标记误阻断链**——Stage 17 prompt 文法说明自带示例 id `c-1a2b3c4d`，论文正文复述即触发 `unknown_claim_marker` → `claim_marker_not_exported` → Stage 23 误阻断 gate pass 的正常 run（fail-closed 假阳性，X-12b 干净复跑确证）；D-2..D-6 五项 P3（标记块级归属错位/n 缺省伪造 1/版本化 stage-14 annotation 落错目录/论文回退 17 先于 19/大写标记静默）；O-1..O-6（含 P-083 IMPLEMENTATION §5 测试计数 18≠19 读数偏差）。修复批与 M4/M5 排期**待用户裁决**（建议 P-085 修复 / P-086 M4 / P-087 M5，沿 P-077 修复批前置先例）。**106 计数不变**。依据：[P-084 复核](docs/arc-g3-m3-review-20261112.md)。
 >
 > **修订**：v1.3w（2026-11-12，P-085）**G3 M3 D-1 修复（用户裁决 ①+②）**：① Stage 17 文法示例由合法 hex `c-1a2b3c4d` 改为**非匹配占位符** `[c-xxxxxxxx]`（`x` 不属 `[0-9a-f]`，正则天然不提取），并加「勿复制/勿虚构」；② `extract_claim_markers` 由空行分块改**逐行扫描**——代码围栏（```/~~~）开关、行内代码剔除、标题即时生效（附带关闭 P-084 D-2 归属错位）。③（unknown marker 降 warning）未采纳，真实未知 hex id 仍 fail-closed。实测：双环境 **118 passed**、十文件回归 **181 passed**、E2 占位符/围栏放行且 `c-deadbeef` 仍判红；ADD 30/30、3 项 P3。**M4/M5 仍为 P-086/P-087，待后续裁决**。**106 计数不变**。依据：[P-085 实施](spec/arc-g3-m3-claim-fixes/IMPLEMENTATION.md)。
+>
+> **修订**：v1.3x（2026-11-12，P-086）**G3 M3 修复复审通过（零 D 级）**：独立异构复审 V-1..V-10（双环境 118×2、回归 181、测试计数 18=14+4 读数准确、`c-1a2b3c4d` 代码零残留、`CLAIM_MARKER_RE` 未改）全过；8 组新角度探针确证 ①+② 真实关闭误阻断链（E2 端到端：占位符 + 围栏示例 + 正常 claim → `trace_ok=True`），fail-closed 未退化；零 D 级缺陷，O-1..O-3 三项 P3 静默面（标题内标记丢弃/缩进代码块不跳过/未闭合行内码提取）登记为加固候选。**M4/M5 = P-087/P-088**。**106 计数不变**。依据：[P-086 复审](docs/arc-g3-m3-claim-fixes-review-20261112.md)。
+>
+> **修订**：v1.3y（2026-11-13，P-087）**G3 M4+M5 合并交付（用户裁决）**：M4 新增 `runtime/mandate.py`——`RunMandate` 在 `execute_pipeline` 前幂等写入且不可变（run_id 不一致拒绝）、`StageHandback` scope 子集校验（越界 `E_HANDBACK_SCOPE`，runner 将暂停结果改 FAILED）、`prompt_version` 在 `for_stage` 渲染点计算并随 `RenderedPrompt.version` 返回 + INFO 日志；M5 新增 `knowledge/k5_refs.py`——`tb:`/`paper:` 文法（键末字符收紧，句末句号不入键）、KB 文件名/BibTeX key 解析、Stage 22 预检 + Stage 23 终检双阻断 `E_K5_UNRESOLVED_REF`；`pipeline_summary.retrieval_degraded` 字段 + Stage 22 论文注记与报告。实测：新增 **17 passed 双环境**、相关回归 **401 passed**、红 4 failed → 绿 17 passed；ADD 42/42、3 项 P3。**106 计数不变**。依据：[P-087 实施](spec/arc-g3-m4-m5-governance-k5/IMPLEMENTATION.md)。
 
 ---
 

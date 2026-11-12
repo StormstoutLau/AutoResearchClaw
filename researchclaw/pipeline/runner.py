@@ -54,6 +54,21 @@ def _should_start(stage: Stage, from_stage: Stage, started: bool) -> bool:
     return stage == from_stage
 
 
+def _retrieval_degraded(run_dir: Path | None) -> bool:
+    """Read the Stage 4 degradation marker (A3-5); missing -> False."""
+    if run_dir is None:
+        return False
+    for path in sorted(
+        Path(run_dir).glob("stage-04*/retrieval_status.json"), reverse=True
+    ):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        return bool(data.get("retrieval_degraded")) if isinstance(data, dict) else False
+    return False
+
+
 def _build_pipeline_summary(
     *,
     run_id: str,
@@ -81,6 +96,7 @@ def _build_pipeline_summary(
         "final_status": results[-1].status.value if results else "no_stages",
         "generated": _utcnow_iso(),
         "data_origin": data_origin,
+        "retrieval_degraded": _retrieval_degraded(run_dir),
         "content_metrics": _collect_content_metrics(run_dir),
     }
     return summary
@@ -657,6 +673,15 @@ def execute_pipeline(
          "to_stage": int(to_stage) if to_stage is not None else None},
     )
 
+    # G3 M4: the mandate is written once and never mutated (A3-6).
+    mandate = None
+    try:
+        from researchclaw.runtime.mandate import ensure_run_mandate
+
+        mandate = ensure_run_mandate(run_dir, run_id=run_id)
+    except Exception:  # noqa: BLE001 - governance writes must not break the run
+        logger.warning("run mandate initialisation failed", exc_info=True)
+
     # Force the domain detector to honor a deployed profile (if any) so
     # every stage picks the same adapter.  Safe no-op when empty.
     try:
@@ -740,6 +765,33 @@ def execute_pipeline(
             auto_approve_gates=auto_approve_gates,
         )
         elapsed = _time.monotonic() - t0
+
+        # G3 M4: a paused/blocked stage may hand back, but never widen scope (A3-7).
+        if mandate is not None and result.status in (
+            StageStatus.PAUSED,
+            StageStatus.BLOCKED_APPROVAL,
+        ):
+            try:
+                from researchclaw.runtime.mandate import (
+                    HandbackScopeError,
+                    read_handback,
+                    validate_handback,
+                )
+
+                handback = read_handback(run_dir / f"stage-{stage_num:02d}")
+                if handback is not None:
+                    validate_handback(handback, mandate)
+            except HandbackScopeError as exc:
+                logger.error("Stage %s handback out of scope: %s", stage.name, exc)
+                result = StageResult(
+                    stage=stage,
+                    status=StageStatus.FAILED,
+                    artifacts=result.artifacts,
+                    error=str(exc),
+                    decision="handback_scope",
+                )
+            except Exception:  # noqa: BLE001 - validation must not break the run
+                logger.warning("stage handback validation failed", exc_info=True)
 
         # ── G3 M2: literature loop guard (FC-1..FC-3) ──
         # Evaluated before the DONE side effects so a paused round neither

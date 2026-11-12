@@ -123,6 +123,9 @@ jobs:
             tests/test_evidence_sidecar_live.py \
             tests/test_claim_policy.py \
             tests/test_claim_spine.py \
+            tests/test_mandate.py \
+            tests/test_k5_refs.py \
+            tests/test_k5_wiring.py \
             tests/test_stage_claim_hooks.py \
             tests/test_offline_audit.py \
             tests/test_artifact_node.py \

@@ -30,6 +30,9 @@ logger = logging.getLogger(__name__)
 # Domain identifiers accepted by ``PromptManager`` / ``_load_bank``.
 SUPPORTED_DOMAINS = ("ml", "hep_ph", "biology_metabolic")
 
+# G3 M4: prompt-bank identity used by ``prompt_version`` (A3-8).
+PROMPT_BANK_VERSION = "1.0"
+
 
 # ---------------------------------------------------------------------------
 # Template rendering
@@ -64,6 +67,7 @@ class RenderedPrompt:
     user: str
     json_mode: bool = False
     max_tokens: int | None = None
+    version: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -225,6 +229,7 @@ class PromptManager:
         """
         entry = self._stages[stage]
         kw = {k: str(v) for k, v in kwargs.items()}
+        system_text = _render(entry["system"], kw)
         user_text = _render(entry["user"], kw)
         if evolution_overlay:
             user_text = f"{user_text}\n\n{evolution_overlay}"
@@ -236,11 +241,21 @@ class PromptManager:
                 "_(from prompts.extra_prompts in config.yaml)_\n\n"
                 f"{extra}"
             )
+        from researchclaw.runtime.mandate import prompt_version
+
+        version = prompt_version(
+            system=system_text,
+            user_template=entry["user"],
+            model_role=stage,
+            prompt_bank_version=PROMPT_BANK_VERSION,
+        )
+        logger.info("prompt_version stage=%s version=%s", stage, version)
         return RenderedPrompt(
-            system=_render(entry["system"], kw),
+            system=system_text,
             user=user_text,
             json_mode=entry.get("json_mode", False),
             max_tokens=entry.get("max_tokens"),
+            version=version,
         )
 
     def system(self, stage: str) -> str:
@@ -310,7 +325,7 @@ class PromptManager:
     def export_yaml(self, path: Path) -> None:
         """Write current prompts (defaults + overrides) to a YAML file."""
         data: dict[str, Any] = {
-            "version": "1.0",
+            "version": PROMPT_BANK_VERSION,
             "domain": self._domain,
             "blocks": dict(self._blocks),
             "stages": {k: dict(v) for k, v in self._stages.items()},
