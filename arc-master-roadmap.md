@@ -8,7 +8,7 @@ depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.4f）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.4h）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -102,6 +102,10 @@ upstream: arb-v2-decisions
 > **修订**：v1.4e（2026-11-13，P-093）**G4 开工前置 MCP 版本对齐验证通过**：PyPI 实查 `mcp` 2.x 实存（2.0.0..2.3.0，latest 2.3.0），pin `mcp>=2.1,<3` 有效；临时 venv 装 2.3.0 实测——代码所用 `MCPServer`/`Client`/`StdioServerParameters`/`CallToolResult(content,structured_content,is_error)`/`@mcp.tool` 全部存在，仓内 MCP 测试 **42 passed**；CI extras job 按 pin 安装并冒烟，**"按 v2 文档写、按旧 SDK 跑" 的仓内风险不成立**。协议术语订正：2026-07-28 官方称 Modern（无握手、每请求 `_meta` 携带版本、stateless），`2025-11-25` 及更早为 Legacy（`initialize` 握手），非官方 "v1/v2"。发现本机 Anaconda 全局装旧 SDK 1.27.2 不满足 pin（本机 MCP 测试收集 ERROR，属环境漂移，CI 不受影响；修复 = `pip install -U "mcp>=2.1,<3"` 留用户执行）。**G4 可开工**。**106 计数不变**。依据：[P-093 调研](spec/arc-g4-mcp-alignment/RESEARCH.md)。
 >
 > **修订**：v1.4f（2026-11-13，P-094）**G3 遗留 P3 一次性清理（用户裁决）**：claim spine 六项静默面修复——D-3 annotation `n` 缺省省略（不再伪造 1）、D-4 版本化 stage-14 场景 annotation 恒写 live 目录、D-5 论文回退顺序 22→19→17、D-6 大写标记 casefold 提取（键恒小写，未知大写 id 仍 `unknown_claim_marker` 判红）、P-086 O-2 缩进代码块跳过、O-3 未闭合行内码截断；全部单向 fail-closed。P-083 O-3 登记面订正（测试计数 18→19）+ DESIGN §8 设计缺口订正，P-083 session 受控回边（seq 8-9）。CI extras job 加 mcp 版本断言（`importlib.metadata` 元组比较 `>= (2,1)`——订正 P-093 §6.3 建议形式，`mcp` 无 `__version__` 属性）。实测：新增 6 项、claim spine 套件 19→25，双环境 **125×2 passed**、M1-M5 十文件 **199 passed** + 扩展组 **348 passed**。登记遗留：P-084 O-4（论文 live-or-latest）、P-086 O-1（标题行内标记）。**106 计数不变**。依据：[P-094 实施](spec/arc-g3-p3-cleanup/IMPLEMENTATION.md)。
+>
+> **修订**：v1.4g（2026-11-13，P-095）**P-094 独立异构复评（六项目标修复成立，新增 1 项 P3）**：异构基座 **DeepSeek-V4.1-Flash（复评）vs GLM-5.3-Flash（实施）**，V-1..V-12 一手复验全真（双环境 125×2、十文件 199、扩展组 348、collect 25、两 session digest 逐字节匹配 HEAD、ci.yml 断言形式）；44 组对抗探针 4 组异常同根——**D-1 P3**：缩进块启发式**无列表上下文**，4 空格嵌套列表/数字列表/悬挂缩进中的真实 `[c-…]` 被当示例丢弃（K1 实证：未发布 claim 仅在嵌套列表被引用时 `export_claim_labels` 不报 `unpublished_claim_cited`、trace 仍 `ok=True`，属 **fail-open 回归**），且 **tab 不等价 4 空格**（tab 缩进示例块内标记仍提取，D-1 误阻断路径残留面）；O-1..O-7 七项观察（派生视图未列边界、标题内标记、bool/float count、空修订稿遮蔽、HTML 注释、CI 版本解析边界）。**结论：P-094 六项目标修复（D-3/D-4/D-5/D-6/O-2/O-3）全部真实关闭，G3 验收不受影响；「全部单向 fail-closed」声明不完全成立**。建议 **P-096** 收敛 D-1（约 10 行 + 4 项测试，含 CommonMark「缩进块不得中断段落」对齐与列表项排除）→ **P-097** 复评闭环；若延后须显式登记为遗留 P3，不得按「零缺口」叙述。**106 计数不变**。依据：[P-095 复评](docs/arc-g3-p3-cleanup-review-20261113.md)。
+>
+> **修订**：v1.4h（2026-11-13，P-096）**D-1 收敛（用户裁决）**：缩进块判定改**上下文感知**——① `_NESTED_LIST_RE` 使 4 空格嵌套 bullet/数字列表属列表内容而非代码（F-1/F-2）；② 按 CommonMark「缩进代码块不得中断段落」，`prev_kind ∈ {para,list,code}` 时的 4 空格行为续行并恢复提取（F-3，修悬挂缩进）；③ `_INDENT_CODE_RE` 纳入 `^\t`（tab 等价 4 空格，F-4）；④ 下游 K1 恢复 `unpublished_claim_cited`（F-5）；⑤ 围栏优先/空行不断块/低缩进闭块/块内伪标题（P-085+P-094 语义）零回退（F-6）。实测：新增 6 项（claim spine 25→31），红 **5 failed/26 passed** → 绿 **31 passed**，双环境 **131×2**、十文件 **205** + 扩展组 **348 passed**，E2 八形态对照迁移表全通过。剩余为行级启发式固有边界（列表项内 6+ 空格续行等）已显式声明。建议 **P-097** 复评（由 GLM 基座执行以保持 RULE-5 交叉）。**106 计数不变**。依据：[P-096 实施](spec/arc-g3-indent-context/IMPLEMENTATION.md)。
 
 ---
 

@@ -436,3 +436,54 @@ def test_extract_markers_skips_unclosed_inline_code() -> None:
         "c-11111111": ["§Results"],
         "c-33333333": ["§Discussion"],
     }
+
+
+# ── P-096: P-095 D-1 indent-context fixes ────────────────────────
+
+
+def test_extract_markers_keeps_nested_bullet_marker() -> None:
+    text = "## R\n\n- bullet [c-11111111]\n    - nested [c-22222222]\n"
+    assert extract_claim_markers(text) == {
+        "c-11111111": ["§R"],
+        "c-22222222": ["§R"],
+    }
+
+
+def test_extract_markers_keeps_nested_ordered_marker() -> None:
+    text = "## R\n\n1. step [c-11111111]\n    2. nested [c-22222222]\n"
+    assert extract_claim_markers(text) == {
+        "c-11111111": ["§R"],
+        "c-22222222": ["§R"],
+    }
+
+
+def test_extract_markers_keeps_hanging_indent_continuation() -> None:
+    text = (
+        "## R\n\n"
+        "The result improves accuracy\n"
+        "    across three benchmarks [c-11111111].\n"
+    )
+    assert extract_claim_markers(text) == {"c-11111111": ["§R"]}
+
+
+def test_extract_markers_skips_tab_indented_code_block() -> None:
+    text = "## R\n\n\t[c-11111111] tab code\n\nReal [c-22222222].\n"
+    assert extract_claim_markers(text) == {"c-22222222": ["§R"]}
+
+
+def test_extract_markers_skips_indented_block_after_heading() -> None:
+    text = "## R\n    [c-11111111] code\n\nReal [c-22222222].\n"
+    assert extract_claim_markers(text) == {"c-22222222": ["§R"]}
+
+
+def test_export_reports_unpublished_claim_in_nested_list(tmp_path: Path) -> None:
+    _write_gate(
+        tmp_path,
+        {
+            "c-11111111": _decision(),
+            "c-22222222": _decision(status="speculation", deliverable=False),
+        },
+    )
+    _write_paper(tmp_path, "## Results\n\n- finding [c-11111111]\n    - nested [c-22222222]\n")
+    result = export_claim_labels(tmp_path)
+    assert {"claim_id": "c-22222222", "reason": "unpublished_claim_cited"} in result["errors"]

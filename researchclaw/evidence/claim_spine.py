@@ -30,7 +30,11 @@ _NUMBERED_HEADING_RE = re.compile(r"^(\d+(?:\.\d+)*)")
 _CLAIM_ID_RE = re.compile(r"^c-[0-9a-f]{8}$")
 _VERSION_RE = re.compile(r"_v(\d+)$")
 _FENCE_RE = re.compile(r"^\s*(```|~~~)")
-_INDENT_CODE_RE = re.compile(r"^ {4,}\S")
+# P-096 / D-1: a tab counts as four columns of indentation (CommonMark).
+_INDENT_CODE_RE = re.compile(r"^(?:\t| {4,})\S")
+# P-096 / D-1: an indented list item is list content, never a code block.
+_NESTED_LIST_RE = re.compile(r"^(?:\t| {4,})(?:[-*+]|\d{1,9}[.)])\s+\S")
+_LIST_ITEM_RE = re.compile(r"^ {0,3}(?:[-*+]|\d{1,9}[.)])\s+\S")
 _INLINE_CODE_RE = re.compile(r"`[^`]*`")
 
 
@@ -301,36 +305,55 @@ def extract_claim_markers(text: str) -> dict[str, list[str]]:
     skipped (a blank line does not close the block; a non-blank line with
     less indentation does). Fence handling keeps P-085 semantics and runs
     before the indented-block state.
+    P-096 / D-1: the indented-block *opener* is context-aware — an indented
+    list item is list content, a tab counts as four columns, and an indented
+    block may not interrupt a paragraph (CommonMark), so real citations in
+    nested lists and hanging-indent continuations are not swallowed.
     """
     markers: dict[str, list[str]] = {}
     current = "§Preamble"
     in_fence = False
     in_indent = False
+    prev_kind: str | None = None
     for raw in (text or "").splitlines():
         line = raw.strip()
         if not line:
+            prev_kind = "blank"
             continue                     # blank lines never close an indented block
         if in_fence:
             if _FENCE_RE.match(raw):
                 in_fence = False
+                prev_kind = "fence_close"
             continue
         if _FENCE_RE.match(raw):
             in_fence = True
             in_indent = False
+            prev_kind = "fence_close"
             continue
+        if in_indent:
+            if _INDENT_CODE_RE.match(raw):
+                continue                 # still inside the block (list markers included)
+            in_indent = False            # a lower-indent non-blank line closes it
         if _INDENT_CODE_RE.match(raw):
-            in_indent = True
-            continue
-        in_indent = False
+            if _NESTED_LIST_RE.match(raw):
+                pass                     # list content, not code
+            elif prev_kind in (None, "blank", "heading", "fence_close"):
+                in_indent = True
+                prev_kind = "code"
+                continue
+            # else: paragraph/list continuation — an indented block cannot
+            # interrupt a paragraph, so the line stays text.
         heading = _HEADING_RE.match(line)
         if heading:
             current = _heading_ref(heading.group(1))
+            prev_kind = "heading"
             continue
         cleaned = _strip_inline_code(raw)
         for claim_id in CLAIM_MARKER_RE.findall(cleaned):
             refs = markers.setdefault(claim_id.lower(), [])
             if current not in refs:
                 refs.append(current)
+        prev_kind = "list" if _LIST_ITEM_RE.match(raw) else "para"
     return markers
 
 
