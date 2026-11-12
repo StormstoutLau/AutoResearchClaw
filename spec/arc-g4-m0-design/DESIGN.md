@@ -65,11 +65,12 @@ sandbox_profiles:
 | V-2 | `tools` 非空、`name` 唯一且匹配 `^[a-z][a-z0-9_]{2,63}$` | `E_REGISTRY_NAME` |
 | V-3 | 每个工具**必须**有 `inputSchema`（2020-12 合法、`type=object`） | `E_REGISTRY_SCHEMA_MISSING` / `E_REGISTRY_SCHEMA_INVALID` |
 | V-4 | `risk ∈ {low,medium,high}`、`approval ∈ {never,always,high_only}`、`scope ∈ {run,global}` | `E_REGISTRY_ENUM` |
-| V-5 | `handler` 形如 `module:attr` 且 `importlib` 可解析 | `E_REGISTRY_HANDLER` |
+| V-5 | `handler` 形如 `module:attr`；**P-101 拆分**：V-5a 格式校验（fail-closed、必做）；V-5b `importlib` 可解析（strict 入口才做，避免核心路径依赖 mcp extra） | `E_REGISTRY_HANDLER` / `E_REGISTRY_HANDLER_UNRESOLVED` |
 | V-6 | `sandbox_profile` 必须在 `sandbox_profiles` 中存在 | `E_REGISTRY_PROFILE` |
 | V-7 | `sandbox_profiles` 的 `network/cpu/memory/pids/ttl_sec` 均必填且类型正确 | `E_REGISTRY_PROFILE_INVALID` |
+| V-8 | **`risk=high ⇒ approval ∈ {always, high_only}`**（P-100 D-1 双保险之配置层） | `E_REGISTRY_APPROVAL` |
 
-- 校验依赖：`jsonschema`（Q-1 建议并入 `server`/`mcp` extras；缺失时 `E_REGISTRY_DEP`）。
+- 校验依赖：**P-101 Q-1 裁决 = `jsonschema>=4.20` 升核心依赖**（registry 属核心包且校验 fail-closed；optional extras 会让 CLI/pipeline 用户被 ImportError 绑架——P-100 D-2）。原「并入 server/mcp extras」方案否决。
 - **fail-closed**：`registry.load()` 在应用启动路径最前调用；异常直接终止启动（A4-1 负向用例）。
 
 ## 3. MCP 动态注册与 `listChanged`（A4-10）
@@ -158,12 +159,14 @@ class HostProfile:
 
 | 批次 | 编号 | 交付 | 验收 | 主要文件 |
 |---|---|---|---|---|
-| M0 | **P-099** | 设计冻结（本批，零代码） | DC + 门禁 | 本 feature 四文档 |
-| M1 | P-100 | 注册表 + 启动校验 | **A4-1** | `tools/registry.yaml`、`researchclaw/tools/registry.py`、`tests/test_tool_registry.py` |
-| M2 | P-101 | MCP 动态注册 + listChanged + `GET /api/tools` | **A4-10** | `researchclaw/mcp/registry_adapter.py`、`server/routes/tools.py`、`tests/test_mcp_dynamic_tools.py` |
-| M3 | P-102 | tool 事件 + orphan_call + 审批门 | **A4-4/A4-5** | `researchclaw/tools/invoker.py`、`runtime/event_log.py` 接线、`tests/test_tool_events.py` |
-| M4 | P-103 | 沙箱配额/TTL/137 + 四类逃逸 | **A4-2/A4-3/A4-6** | `experiment/docker_sandbox.py`、`tests/test_sandbox_boundary.py` |
-| M5 | P-104 | env/safe_join 全覆盖 + HostProfile | **A4-7/A4-8/A4-9** | `utils/`、`researchclaw/runtime/host_profile.py`、`tests/test_boundary_coverage.py` |
+| M0 | **P-099** | 设计冻结（已完成；P-100 复核 2 P2 + 5 P3） | DC + 门禁 | 本 feature 四文档 |
+| M1 | **P-101**（原 P-100，P-100 让位于复核批） | 注册表 + 启动校验 | **A4-1** | `tools/registry.yaml`、`researchclaw/tools/registry.py`、`tests/test_tool_registry.py` |
+| M2 | **P-102**（原 P-101） | MCP 动态注册 + listChanged + `GET /api/tools` | **A4-10** | `researchclaw/mcp/registry_adapter.py`、`server/routes/tools.py`、`tests/test_mcp_dynamic_tools.py` |
+| M3 | **P-103**（原 P-102） | tool 事件 + orphan_call + 审批门 | **A4-4/A4-5** | `researchclaw/tools/invoker.py`、`runtime/event_log.py` 接线、`tests/test_tool_events.py` |
+| M4 | **P-104**（原 P-103） | 沙箱配额/TTL/137 + 四类逃逸 | **A4-2/A4-3/A4-6** | `experiment/docker_sandbox.py`、`tests/test_sandbox_boundary.py` |
+| M5 | **P-105**（原 P-104） | env/safe_join 全覆盖 + HostProfile | **A4-7/A4-8/A4-9** | `utils/`、`researchclaw/runtime/host_profile.py`、`tests/test_boundary_coverage.py` |
+
+**编号顺延依据**：P-100 复核批让位（P-084/P-086 先例）。**D-3 修正输入（M4）**：137 仅 memory/pids（cpus 是 throttling）；**D-4 修正输入（M4）**：TTL kill 产物未必落盘（`reason=ttl_timeout`）；**D-5 修正输入（M2）**：SDK schema 注入须先 spike；**D-6 修正输入（M5）**：AST 守卫改注册制白名单 + 兜底扫描。
 
 **依赖顺序**：M1 → M2（注册表先行）；M3 可与 M2 并行（只依赖 M1）；M4 独立；M5 最后（覆盖扫描需要 M1-M4 的落点）。
 

@@ -40,7 +40,7 @@ upstream: arc-g4-mcp-alignment-RESEARCH
 |---|---|---|---|
 | A4-1 | 100% 已注册工具有 schema；缺 schema 启动即失败 | `researchclaw/mcp/tools.py` 6 个工具**硬编码**含 `inputSchema`（L8-87）；**无注册表**、**无校验** | ❌ 缺 |
 | A4-2 | 路径逃逸/符号链接/网络外联/fork bomb 四类全拒 | `docker_sandbox.py` 有 `network` 策略四档（L104-108）、`--rm`、`--gpus all`（L225）；脚本入口有 `validate_entry_point_resolved` | ⚠️ 半 |
-| A4-3 | 资源超限 → 退出码 137 + 落 `tool.result` | **无** `--memory`/`--pids-limit`/`--cpus`；有 `timeout_sec` 但超时非 137 语义；无 `tool.result` | ❌ 缺 |
+| A4-3 | 资源超限 → 退出码 137 + 落 `tool.result` | `--memory`（L389，默认 8192MB）与 `--shm-size` **已存在**（P-100 D-7 订正：原判「无」不成立）；**无** `--pids-limit/--cpus/--label`，有 `timeout_sec` 但超时非 137 语义；无 `tool.result` | ⚠️ 半（P-100 订正） |
 | A4-4 | 每 `tool.call` 有对应 `tool.result`；缺失标 `orphan_call` | `EVENT_TYPES` 已含 `tool.call`/`tool.result`（`runtime/event_log.py` L40），**无生产者**、无 orphan 扫描 | ❌ 缺 |
 | A4-5 | `risk=high` 未审批拒绝执行 | 有 `approval.required` 事件类型；无 risk 字段、无审批门 | ❌ 缺 |
 | A4-6 | 容器 TTL 到期回收、产物已落盘 | 仅 `--rm`（进程退出即删）；**无 TTL 看护**（挂起容器残留） | ❌ 缺 |
@@ -76,7 +76,7 @@ upstream: arc-g4-mcp-alignment-RESEARCH
 | G-4 | 无 `GET /api/tools` | A4-10（交付物） | M2 |
 | G-5 | 无 `tool.call`/`tool.result` 生产者与 `orphan_call` 扫描 | A4-4 | M3 |
 | G-6 | 无 `risk`/`approval` 审批门 | A4-5 | M3 |
-| G-7 | 沙箱无配额/无 TTL 看护/退出码 137 未映射 | A4-2/A4-3/A4-6 | M4 |
+| G-7 | 沙箱缺 pids/cpus 配额、无 TTL 看护、退出码 137 未映射（`--memory` 已有，P-100 D-7 收窄） | A4-2/A4-3/A4-6 | M4 |
 | G-8 | env allowlist 与 `safe_join` 覆盖不全（3/2 文件） | A4-7/A4-8 | M5 |
 | G-9 | 无 `HostProfile`；`subprocess` 调用面未建清单 | A4-9 | M5 |
 

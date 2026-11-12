@@ -8,7 +8,7 @@ depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.4l）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.4m）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -114,6 +114,8 @@ upstream: arb-v2-decisions
 > **修订**：v1.4k（2026-11-14，P-099）**G4 正式开工：M0 设计冻结**（按 P-074 先例，T1 零生产代码）。逐项核对 A4-1..A4-10：**6 项完全缺失**（`tools/registry.yaml` 与加载器、启动期 schema 校验、审批门、`HostProfile`、`GET /api/tools`、MCP 动态注册）、**3 项半接线**（沙箱有 network 四档/`--rm`/`--gpus all` 但无 `--memory/--pids-limit/--cpus` 与 TTL、`build_subprocess_env` 3 文件、`safe_join` 2 文件）、**1 项地基就绪**（`EVENT_TYPES` 已含 `tool.call`/`tool.result`，**全仓无生产者**）。E2 探针：`mcp` 2.3.0 的 `MCPServer` 类无 list_changed，但 `server/session.py:461`、`connection.py:441` 提供 `send_tool_list_changed()`，`subscriptions.py` 负责协商 → A4-10 可行。冻结：注册表三段 schema + 7 校验规则/错误码、动态注册与 listChanged、tool 事件字段表（只落 digest+摘要）与 `orphan_call` 时点、沙箱 label/network/quota/TTL/137 五要素、AST 覆盖守卫、`HostProfile` 纯数据。拆 **G4-M1..M5**（P-100..P-104）并映射全部 10 项验收，每项唯一归属。Q-1..Q-6 决策建议冻结（Q-1 `jsonschema` 并入 server/mcp extras）。**106 计数不变**。依据：[P-099 设计](spec/arc-g4-m0-design/DESIGN.md)。
 >
 > **修订**：v1.4l（2026-11-14，P-100）**P-099 M0 设计独立异构复核（主线成立，2 项 P2 须 M1 开工前吸收）**：异构基座 **GLM-5.3-Flash（复核）vs DeepSeek-V4.1-Flash（实施）**，RULE-5 交替交叉延续。V-1..V-12 一手复验：现状断言 11 项中 **10 项成立、1 项证伪**——**D-7** RESEARCH A4-3「无 `--memory`」不成立（`docker_sandbox.py` L389 已有 `--memory=8192m` + `--shm-size`，G-7 缺口收窄为 **pids/cpus/label/TTL/137 五项**，A4-3 现状改 ⚠️ 半接线）；SDK 探针复现；session digest 零 mismatch；零代码变更。12 组设计对抗推演：**D-1 P2 审批门组合漏洞**——`approval=never`×`risk=high` 不落任何拒绝分支，高危工具可配置为永久免审批（fail-open，违反 A4-5）；修复 = 注册表校验新增 `risk=high ⇒ approval ≠ never`（V-8）+ 审批门保险分支双保险。**D-2 P2 核心路径依赖 optional extras**——registry 校验的 `jsonschema` 矛盾（建议升核心依赖）。**5 项 P3**：D-3 137 仅 memory/pids（`--cpus` 是 throttling）、D-4 TTL kill 时产物未必落盘（`reason=ttl_timeout`）、D-5 SDK schema 注入机制未定（M2 前置 spike）、D-6 AST 守卫精度（建议注册制白名单+兜底）、D-7 现状订正；O-1..O-8（hitl/escalation 复用、摘要脱敏、gpu 字段、启动范围、M2/M3 集成点、编号顺延）。**G4 仍可开工**：D-1/D-2 作为 M1（P-101）设计修正输入随实现落地，不阻塞；**M1..M5 顺延 P-101..P-105**。**106 计数不变**。依据：[P-100 复核](docs/arc-g4-m0-design-review-20261114.md)。
+>
+> **修订**：v1.4m（2026-11-14，P-101）**G4-M1 交付：工具注册表与启动校验（A4-1 达成）**：Q-1..Q-5 五项裁决落地——**Q-1 (P-100 D-2) `jsonschema>=4.20` 升核心依赖**（registry 属核心包 + fail-closed，optional extras 会绑架 CLI 启动）；**Q-2 (P-100 D-1) V-8 规则** `risk=high ⇒ approval ∈ {always,high_only}`（`E_REGISTRY_APPROVAL`，配置层关闭 fail-open；运行时保险分支留 M3）；**Q-3 分级启动**（load 必抛、进程退出由 server/invoker 决定、纯 CLI 不加载）；**Q-4** 顶层 version 严格 int；**Q-5 V-5a/V-5b 拆分**（格式必做 + importlib 延迟，消除核心路径对 mcp extra 隐性依赖）。交付 `tools/registry.yaml`（6 工具 schema **逐字搬迁**，T-2 deep equality 锁定 INV-4）+ `researchclaw/tools/registry.py`（9 条校验 fail-closed 首错即抛 + `reload()` 旧实例不变）+ 14 函数→19 用例。**编号顺延落定 M1..M5 = P-101..P-105**（M0 文档受控回边：D-7 现状订正、V-5a/b、V-8、Q-1 裁决 + P-099 session seq6-7 rebind）。实测：红 `ModuleNotFoundError` → 首轮 6 failed/13 passed（**测试 helper 两处 bug**，诚实记录）→ **19 passed**；3.13.5 七文件 **194 passed**（含 MCP 42 项）、3.11.15 18 passed/3 skipped（mcp 缺席 `importorskip` 诚实 skip）、宽回归 **278** + 扩展组 **348 passed** 零失败；CI 清单 + `test_tool_registry.py`。**106 计数不变**。依据：[P-101 实施](spec/arc-g4-m1-registry/IMPLEMENTATION.md)。
 
 ---
 

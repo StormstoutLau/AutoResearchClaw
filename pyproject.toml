@@ -8,6 +8,9 @@ dependencies = [
     "rich>=13.0",
     "arxiv>=2.1",
     "numpy>=1.24",
+    # G4-M1 (P-101): registry validation runs on the core startup path and is
+    # fail-closed (A4-1), so the schema validator cannot live in an optional extra.
+    "jsonschema>=4.20",
 ]
 readme = "README.md"
 license = {text = "MIT"}
