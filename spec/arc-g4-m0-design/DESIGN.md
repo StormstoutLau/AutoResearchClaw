@@ -117,7 +117,7 @@ def register_from_registry(server: MCPServer, registry: Registry) -> None:
 
 ## 5. 审批门（A4-5，M3）
 
-- 判定：`approval=always` 或（`approval=high_only` 且 `risk=high`）→ 执行前写 `approval.required` 事件并**拒绝**，返回 `{success:false, error_code:"E_APPROVAL_REQUIRED"}`。
+- 判定：`approval=always` 或（`approval=high_only` 且 `risk=high`）→ 执行前写 `approval.required` 事件（**若注入事件 sink；无 sink 仍拒绝**——P-104 F-4）并**拒绝**，返回 `{success:false, error_code:"E_APPROVAL_REQUIRED"}`。
 - 审批放行来源 v1：run 目录 `approvals.json`（`{tool: {approved: true, by, ts}}`）；无文件即未审批（fail-closed）。
 - 负向用例：`risk=high` + 无 approvals → 断言**未**产生 `tool.result`、handler 未执行（副作用探针）。
 
@@ -162,7 +162,7 @@ class HostProfile:
 | M0 | **P-099** | 设计冻结（已完成；P-100 复核 2 P2 + 5 P3） | DC + 门禁 | 本 feature 四文档 |
 | M1 | **P-101**（原 P-100，P-100 让位于复核批） | 注册表 + 启动校验（已完成；P-102 复核 1 P2 + 2 P3 → **M2 批内先修 D-1/D-2/D-3，已随 P-103 落地**） | **A4-1** | `tools/registry.yaml`、`researchclaw/tools/registry.py`、`tests/test_tool_registry.py` |
 | M2 | **P-103**（原 P-102） | MCP 动态注册 + listChanged + `GET /api/tools`（**已完成**；复核并入批（DeepSeek，不占号）发现 D-1 P1/D-2·D-3 P2，批内收敛关闭——force-include 删除、None 可选参清洗、handler→`dispatch_tool` + 拒类校验） | **A4-10** | `researchclaw/mcp/registry_adapter.py`、`server/routes/tools.py`、`tests/test_mcp_dynamic_tools.py` |
-| M3 | **P-104**（原 P-103） | tool 事件 + orphan_call + 审批门 | **A4-4/A4-5** | `researchclaw/tools/invoker.py`、`runtime/event_log.py` 接线、`tests/test_tool_events.py` |
+| M3 | **P-104**（原 P-103） | tool 事件 + orphan_call + 审批门（**已完成**；复核并入批（GLM，不占号）发现 2 P2——`handle_tool_call` 直调绕过审批门、非 JSON 结果 digest 逃逸——批内收敛关闭，单执行路径） | **A4-4/A4-5** | `researchclaw/tools/invoker.py`、`runtime/event_log.py` 接线、`tests/test_tool_events.py` |
 | M4 | **P-105**（原 P-104） | 沙箱配额/TTL/137 + 四类逃逸 | **A4-2/A4-3/A4-6** | `experiment/docker_sandbox.py`、`tests/test_sandbox_boundary.py` |
 | M5 | **P-106**（原 P-105） | env/safe_join 全覆盖 + HostProfile | **A4-7/A4-8/A4-9** | `utils/`、`researchclaw/runtime/host_profile.py`、`tests/test_boundary_coverage.py` |
 
@@ -176,7 +176,7 @@ class HostProfile:
 - I-2 启动校验 fail-closed：任何非法条目 → 进程不启动（不做「跳过坏条目」）。
 - I-3 事件只落 digest/摘要，不落原始参数与结果。
 - I-4 既有 6 个 MCP 工具的名称与参数**不变**（注册表迁移是等价搬迁，`list_tools()` 输出逐字段相等）。
-- I-5 `EVENT_TYPES` 不新增顶层类型（`tool.orphan_call` 作为 `tool.result` 的派生标记以 `orphan_call=true` 字段表达，或登记为新增类型——M3 裁决并在该批 DESIGN 记录）。
+- I-5 **M3 裁决（P-104）：新增 `tool.orphan_call` 顶层事件类型**（A4-4 的独立控制记录，不复用/改写 `tool.result`）；其余顶层类型不新增。
 - I-6 沙箱默认 `network: none` 的现有行为不回退。
 - I-7 `safe_join`/env 守卫为**新增门禁**，须登记在 CHECKLIST 且先红后绿。
 

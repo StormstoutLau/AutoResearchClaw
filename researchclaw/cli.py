@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -1324,6 +1325,32 @@ def cmd_skills(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_approvals(args: argparse.Namespace) -> int:
+    """G4-M3 (D-Q3): grant a run-scoped tool approval (writes approvals.json)."""
+    from researchclaw.tools.approvals import grant
+
+    if getattr(args, "approvals_command", None) != "grant":
+        print("usage: researchclaw approvals grant --run-id <id> "
+              "--tool <name> --by <who>", file=sys.stderr)
+        return 2
+    run_id = str(args.run_id)
+    if not __import__("re").fullmatch(r"rc-\d{8}-\d{6}-[a-f0-9]{6,64}", run_id):
+        print(f"invalid run_id: {run_id!r}", file=sys.stderr)
+        return 2
+    run_dir = Path(args.artifacts_dir) / run_id
+    if not run_dir.is_dir():
+        print(f"run not found: {run_dir}", file=sys.stderr)
+        return 2
+    path = grant(run_dir, str(args.tool), by=str(args.by))
+    print(json.dumps({
+        "success": True,
+        "run_id": run_id,
+        "tool": str(args.tool),
+        "path": str(path),
+    }, ensure_ascii=False))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct and return the top-level argument parser (without parsing)."""
     parser = argparse.ArgumentParser(
@@ -1443,6 +1470,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--run-dir", required=True, help="Path to run artifacts directory"
     )
     _ = rpt_p.add_argument("--output", "-o", help="Write report to file")
+
+    # G4-M3 (D-Q3): run-scoped tool approvals
+    appr_p = sub.add_parser("approvals", help="Manage run-scoped tool approvals")
+    appr_sub = appr_p.add_subparsers(dest="approvals_command")
+    grant_p = appr_sub.add_parser("grant", help="Grant approval for one tool")
+    _ = grant_p.add_argument("--run-id", required=True, help="Pipeline run ID")
+    _ = grant_p.add_argument("--tool", required=True, help="Tool name")
+    _ = grant_p.add_argument("--by", required=True, help="Approver identity")
+    _ = grant_p.add_argument(
+        "--artifacts-dir", default="artifacts",
+        help="Artifacts root (default: artifacts)",
+    )
 
     # G2 M5 (P-064): offline dual-plane claim audit
     audit_p = sub.add_parser(
@@ -1704,6 +1743,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_info(args)
     elif command == "report":
         return cmd_report(args)
+    elif command == "approvals":
+        return cmd_approvals(args)
     elif command == "audit":
         return cmd_audit(args)
     elif command == "serve":

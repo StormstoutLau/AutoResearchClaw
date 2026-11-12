@@ -13,6 +13,7 @@ Six tools are exposed over stdio:
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import logging
 import re
@@ -43,6 +44,7 @@ from researchclaw.pipeline.review_service import (
 )
 from researchclaw.pipeline.runner import execute_pipeline
 from researchclaw.run_state import read_run_state
+from researchclaw.tools.invoker import ToolInvoker
 from researchclaw.tools.registry import load_registry
 
 logger = logging.getLogger(__name__)
@@ -107,14 +109,14 @@ class ResearchClawMCPServer:
         self._running = False
         self._active_tasks: dict[str, asyncio.Task[Any]] = {}
         self._active_cancels: dict[str, threading.Event] = {}
-        self._handlers = {
-            "run_pipeline": self._handle_run_pipeline,
-            "get_pipeline_status": self._handle_get_status,
-            "get_experiment_results": self._handle_get_results,
-            "search_literature": self._handle_search_literature,
-            "review_paper": self._handle_review_paper,
-            "get_paper": self._handle_get_paper,
-        }
+        # G4-M3 (D-Q4): handlers come from the registry and are bound to this
+        # instance; no module-level singleton dispatcher exists.
+        self._registry = load_registry(strict_handlers=True)
+        self._handlers: dict[str, Any] = {}
+        for spec in self._registry.tools:
+            handler = spec.resolve()
+            self._handlers[spec.name] = functools.partial(handler, self)
+        self._invoker = ToolInvoker(self._registry, self._handlers)
         self._mcp = _SDKMCPServer(
             name="researchclaw",
             version=__version__,
@@ -180,18 +182,13 @@ class ResearchClawMCPServer:
     async def handle_tool_call(
         self, name: str, arguments: dict[str, Any]
     ) -> dict[str, Any]:
-        """Dispatch a tool call directly (unit-test friendly)."""
-        handler = self._handlers.get(name)
-        if handler is None:
-            return _error("INVALID_TOOL", f"Unknown tool: {name}")
+        """Dispatch a tool call through the invoker (single execution path).
+
+        G4-M3 review D-1: schema validation, the approval gate and event
+        pairing live in the invoker — the public API must not bypass them.
+        """
         logger.info("MCP tool call: %s(%s)", name, json.dumps(arguments, default=str)[:200])
-        try:
-            return await handler(arguments or {})
-        except ValueError as exc:
-            return _error("INVALID_ARGUMENT", str(exc))
-        except Exception as exc:  # noqa: BLE001 - report as protocol-level error
-            logger.exception("MCP tool %s failed", name)
-            return _error("INTERNAL_ERROR", self._safe_error(exc))
+        return await self._invoker.invoke(name, arguments)
 
     # ── tool registration ────────────────────────────────────────
 
@@ -200,14 +197,12 @@ class ResearchClawMCPServer:
         # injected verbatim from tools/registry.yaml (P-100 D-5 path B); tool
         # names are never hard-coded here. stdio has a single blocking session,
         # so the listChanged notifier seam stays unbound (P-103 blocker).
-        registry = load_registry(strict_handlers=True)
-        register_from_registry(self._mcp, registry, self._dispatch_tool)
+        register_from_registry(self._mcp, self._registry, self._dispatch_tool)
 
     async def _dispatch_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        # G4-M2: return the bare payload — the SDK wraps it into CallToolResult
-        # (content + structured_content) itself; returning a pre-built
-        # CallToolResult here crashes serialization (observed P-103).
-        return await self.handle_tool_call(name, arguments)
+        # G4-M3: schema validation + approval gate + event pairing live in the
+        # invoker; it returns a bare payload (the SDK wraps CallToolResult).
+        return await self._invoker.invoke(name, arguments)
 
     def _tool_description(self, name: str) -> str:
         for tool in TOOL_DEFINITIONS:
@@ -626,25 +621,3 @@ class ResearchClawMCPServer:
         except OSError:
             pass
         return text[:400]
-
-
-_DEFAULT_SERVER: "ResearchClawMCPServer | None" = None
-
-
-def _default_server() -> "ResearchClawMCPServer":
-    """Lazily create the process-wide server behind the registry handlers."""
-    global _DEFAULT_SERVER
-    if _DEFAULT_SERVER is None:
-        _DEFAULT_SERVER = ResearchClawMCPServer()
-    return _DEFAULT_SERVER
-
-
-async def dispatch_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-    """Module-level call site referenced by ``tools/registry.yaml`` handlers.
-
-    ``module:attr`` handlers cannot express ``Class.method``, so the registry
-    points here instead of at the class (P-103 review D-3): resolving the class
-    passed strict checks but an invoker call would *construct* a server rather
-    than dispatch. The M3 invoker binds this function directly.
-    """
-    return await _default_server().handle_tool_call(name, arguments)

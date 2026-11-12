@@ -119,6 +119,12 @@ def _emit_summary_anchor(
     if log is None or not owns:
         return
     try:
+        from researchclaw.tools.invoker import emit_orphan_markers
+
+        emit_orphan_markers(log)
+    except Exception:  # noqa: BLE001 - orphan scan must not break the run
+        logger.warning("tool orphan scan failed", exc_info=True)
+    try:
         from researchclaw.evidence.summary_check import append_summary_event
 
         append_summary_event(run_dir, summary, log)

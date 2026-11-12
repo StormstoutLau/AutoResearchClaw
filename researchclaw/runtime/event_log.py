@@ -37,7 +37,7 @@ DEFAULT_MAX_RUN_EVENTS = 200_000
 EVENT_TYPES = frozenset({
     "run.started", "run.completed", "run.failed", "run.paused",
     "stage.started", "stage.completed", "stage.failed", "stage.retried",
-    "tool.call", "tool.result", "llm.call", "llm.result",
+    "tool.call", "tool.result", "tool.orphan_call", "llm.call", "llm.result",
     "approval.required", "effect.queued", "effect.started", "effect.done",
     "pipeline.summary",
     "event_log_truncated", "event_log_rolled",
