@@ -3,7 +3,7 @@
 ---
 id: arc-g4-m4-sandbox-limits-DESIGN
 type: design
-version: 1.0
+version: 1.1
 status: verified
 date: 2026-11-13
 depends: [arc-g4-m4-sandbox-limits-RESEARCH]
@@ -39,9 +39,9 @@ upstream: arc-g4-m4-sandbox-limits-RESEARCH
 
 | # | 决策 | 依据 | 拒绝方案与理由 |
 |---|------|------|---------------|
-| D-1（D-Q1-C） | **双源显式分层**：`DockerSandboxConfig` 是实验执行路径唯一真值源（默认 `cpu_limit=2.0`、`pids_limit=512`、`memory_limit_mb=8192` 不回退、`ttl_sec=1800`）；registry `sandbox_profiles` 保留为工具侧真值源，消费点 =「实验即工具」后续批次（RESEARCH U-1 登记）。4g/8192m 冲突不改 M0 §2 冻结值，登记 O 项 | F-4/F-5；A4-2 必须默认生效否则「文档失信」 | 拒 A（只扩 config、profile 死配置 → §6 语义形同未落实）；拒 B（registry 为唯一真值源 → experiment 层反向依赖 tools 层 + 8GB→4GB 行为回退 + registry 损坏放大面） |
+| D-1（D-Q1-C） | **双源显式分层**：`DockerSandboxConfig` 是实验执行路径唯一真值源（默认 `cpu_limit=2.0`、`pids_limit=512`、`memory_limit_mb=8192` 不回退、`ttl_sec=0` 即 auto 跟随本次运行 timeout 预算）；registry `sandbox_profiles` 保留为工具侧真值源，消费点 =「实验即工具」后续批次（RESEARCH U-1 登记）。4g/8192m 冲突不改 M0 §2 冻结值，登记 O 项 | F-4/F-5；A4-2 必须默认生效否则「文档失信」 | 拒 A（只扩 config、profile 死配置 → §6 语义形同未落实）；拒 B（registry 为唯一真值源 → experiment 层反向依赖 tools 层 + 8GB→4GB 行为回退 + registry 损坏放大面） |
 | D-2（D-Q2-A) | **去 `--rm`**；正常退出路径 finally 前置 `docker inspect --format '{{.State.OOMKilled}} {{.State.ExitCode}}'` 回读；`OOMKilled=true 或 inspect ExitCode==137 → resource_limit`；inspect 失败/不可解析 → 不归因（None），**不做纯 137 启发式** | F-1/F-8；A4-3「可证伪」 | 拒 B（保留 `--rm` 仅按 137 分类 → 无法区分程序自愿 exit(137) 与内核 kill，违反可证伪） |
-| D-3（D-Q3-A） | **per-sandbox TTL 守护线程**（daemon=True）：deadline = 本容器 start + `ttl_sec`，到点 `docker kill -s TERM` → 等待 `kill_grace_sec` → 未停则 `docker kill -s KILL`；主流程 finally 中 stop + join。**只管自己的容器**（不等价于全局 reaper，不做 docker ps 跨容器扫描——§11 禁跨 run 干预）；同时 harness 加 SIGTERM handler + atexit → finalize() | F-6/F-7；A4-6 | 拒 B（全局单例看护/跨 run 编排 → M0 §11 非目标）；拒「仅全局 reaper」（父进程存活时主归因通道丢失） |
+| D-3（D-Q3-A） | **per-sandbox TTL 守护线程**（daemon=True）：deadline = 本容器 start + 有效 TTL（显式 `ttl_sec` 为硬上限；默认 0 跟随 timeout 预算，见 §4.3），到点 `docker kill -s TERM` → 等待 `kill_grace_sec` → 未停则 `docker kill -s KILL`；主流程 finally 中 stop + join。**只管自己的容器**（不等价于全局 reaper，不做 docker ps 跨容器扫描——§11 禁跨 run 干预）；同时 harness 加 SIGTERM handler + atexit → finalize() | F-6/F-7；A4-6 | 拒 B（全局单例看护/跨 run 编排 → M0 §11 非目标）；拒「仅全局 reaper」（父进程存活时主归因通道丢失） |
 | D-4（D-Q4-A） | **两层拆分**：验收层 = 单测全 mock（命令构造 / inspect 解析 / TTL 状态机 / 时序），任何机器可跑可失败；证据层 = 本地 Docker e2e 实跑四类逃逸 + OOM + TTL，按 RULE-3 quarantine 四要素登记（Owner=P-105 实施方；Deadline=G4 收尾前；降权=每次运行但不阻塞结论；Re-qualification=CI 具备 Docker 后转阻塞） | F-11/F-12；RULE-3 | 拒 B（pytest `skipif(no docker)` 充验收 → 违反 RULE-3 防 skip-and-forget） |
 | D-5 | **退出码/原因映射唯一实现**：`ttl_fired → ttl_timeout`（优先 1）> `OOMKilled/137 → resource_limit`（优先 2）> `TimeoutExpired → timeout`（优先 3）> 正常 → None。映射只存在于 docker_sandbox 的单函数内，禁止调用点二次解释 | M0 §6 + 简报冻结表 | 拒「在各调用点分别归因」（漂移面） |
 | D-6 | **诚实边界**：① SIGKILL（grace 耗尽）分支只断言 `limit_reason=ttl_timeout`，不断言产物落盘（P-100 D-4）；② `--cpus` 超限是 throttling，不产生 137（P-100 D-3）；③ `rc.tool` 标签在实验路径省略（无工具上下文）；④ `run_id=None` 时无标签且 TTL 禁用（禁止通配清理他人容器） | P-100 D-3/D-4 | — |
@@ -59,7 +59,8 @@ upstream: arc-g4-m4-sandbox-limits-RESEARCH
 run()/run_project()
   └─ _execute(staging, entry_point, timeout_sec, run_id?)
        ├─ _build_run_command(): + --cpus --pids-limit --label rc.run（无 --rm）
-       ├─ TTL 线程启动（仅 run_id 且 ttl_sec>0；deadline = now + ttl_sec）
+       ├─ TTL 线程启动（仅 run_id 且 effective_ttl>0；先等容器创建，
+       │   deadline = 容器创建 + effective_ttl）
        ├─ subprocess.run(docker run ...)                    # 阻塞至容器退出
        │    ├─ TimeoutExpired → _kill_container(SIGKILL) → timed_out
        │    └─ 正常返回 → _inspect_container() → (oomkilled, exitcode) | None
@@ -87,7 +88,7 @@ config.yaml `experiment.docker.{cpu_limit,pids_limit,ttl_sec,kill_grace_sec,ttl_
 
 ### 3.4 控制流
 
-TTL 线程主循环：`stop_event.wait(min(ttl_poll_sec, remaining))`；`now ≥ deadline` → `docker kill -s TERM` → `stop_event.wait(kill_grace_sec)` → **未 stop 才** `docker kill -s KILL` → 置 `ttl_fired`。主流程 finally：`stop_event.set()` → `join(timeout=kill_grace_sec+1)`。容器因 TERM 自行退出时 subprocess.run 先返回，stop 置位使 KILL 分支跳过（对已退出容器 KILL 无害但避免噪声调用）。
+TTL 线程主循环：先以 `docker inspect` 探测容器创建，成功后才起算 deadline；`stop_event.wait(min(ttl_poll_sec, remaining))`；`now ≥ deadline` → `docker kill -s TERM` → 仅当 TERM 返回码为 0 才置 `ttl_fired`（投递失败不归因）→ `stop_event.wait(kill_grace_sec)` → **未 stop 才** `docker kill -s KILL`。主流程 finally：`stop_event.set()` → `join(timeout=kill_grace_sec+1)`。容器因 TERM 自行退出时 subprocess.run 先返回，stop 置位使 KILL 分支跳过（对已退出容器 KILL 无害但避免噪声调用）。
 
 ## 4. 接口定义
 
@@ -123,10 +124,12 @@ def run_project(self, project_dir: Path, *, entry_point: str = "main.py",
 ```python
 cpu_limit: float = 2.0          # ≤0 → 不加 --cpus
 pids_limit: int = 512           # ≤0 → 不加 --pids-limit
-ttl_sec: int = 1800             # ≤0 → TTL 禁用；默认 1800 与 registry profile 对齐
+ttl_sec: int = 0                # 0 → auto（跟随本次 timeout 预算）；>0 → 显式硬上限
 kill_grace_sec: int = 10        # TERM→KILL 宽限
 ttl_poll_sec: float = 30.0      # 线程轮询粒度（测试可调小）
 ```
+
+有效 TTL（收敛批 D-3 定稿）：`ttl_sec > 0` → 取 `ttl_sec`（显式硬上限，可短于预算；A4-6 正向路径：TERM → harness finalize → grace 内 KILL）；`ttl_sec == 0`（默认）→ `timeout_sec + kill_grace_sec`（从容器创建起算，**绝不早于调用方预算**，仅作容器回收兜底）。默认值不得把 `experiment.time_budget_sec` 调大（CLI 明示 HEP 用 7200）的长跑提前截断；反之，显式设小 `ttl_sec` 即运营者主动选择的硬上限。
 
 默认值语义：`cpu_limit/pids_limit` 与 registry `default` profile 数值一致（D-1 分层下不冲突）；`memory_limit_mb=8192` 保持既有（8192m vs profile 4g 冲突按 D-1 以 config 为准，O 项登记）。**既有行为差异面**：此前命令无 cpus/pids 限制，默认开启后长跑实验可能被 throttling（诚实登记，非回退——原先无保护）。
 
@@ -173,7 +176,7 @@ class _TtlWatcher(threading.Thread):  # daemon=True
 | 错误场景 | 处理方式 | 用户可见信息 |
 |---------|---------|------------|
 | inspect 失败/输出不可解析 | 静默降级为 None（不归因），logger.debug | 无（不伪造归因） |
-| TTL 线程内 docker kill 失败 | logger.warning，不影响主执行 | 无 |
+| TTL 线程内 docker kill 失败 | logger.warning，不置 `ttl_fired`、不归因（D-2） | 无 |
 | 信号 handler 在非主线程注册 | try/except ValueError 降级（仅主线程注册） | 无 |
 | finalize OSError | 既有 warning 路径保持 | stderr WARNING |
 | grace 耗尽 SIGKILL | limit_reason=ttl_timeout；**不宣称产物落盘**（D-6①） | results.json 可能缺失 |
@@ -184,7 +187,7 @@ class _TtlWatcher(threading.Thread):  # daemon=True
 1. I-M4-1 退出码/原因映射**唯一实现**于 `_attribute_limit`（全仓无第二处解释 137/ttl）。
 2. I-M4-2 `run_id=None` ⇒ 无 `rc.run` 标签且 TTL 线程不启动（禁止通配清理）。
 3. I-M4-3 TTL 线程只对本批创建的容器名执行 kill（T-10 跨 run 隔离）。
-4. I-M4-4 inspect 不可解析 ⇒ `limit_reason=None`（不伪造）。
+4. I-M4-4 inspect 不可解析，或 TTL 的 TERM 未投递成功 ⇒ `limit_reason=None`（不伪造归因）。
 5. I-M4-5 harness `finalize()` 幂等（信号路径 + atexit 双写无害）。
 6. I-M4-6 既有 36 项 test_rc_docker_sandbox 零回退（新字段全带默认值、新参数全可选）。
 7. I-M4-7 network_policy 默认与 `--network none` 行为不回退（M0 I-6）；GPU/shm 语义不动；disk 不强制（M0 §11）。

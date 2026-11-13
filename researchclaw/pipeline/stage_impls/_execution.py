@@ -1770,6 +1770,7 @@ def _execute_iterative_refine(
                     rerun2 = sandbox2.run_project(
                         version_dir,
                         timeout_sec=config.experiment.time_budget_sec,
+                        run_id=stage_dir.name,
                     )
                     metric_val = _find_metric(rerun2.metrics, metric_key)
                     iter_record["sandbox_after_fix"] = {

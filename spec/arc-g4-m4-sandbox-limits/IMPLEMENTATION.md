@@ -3,7 +3,7 @@
 ---
 id: arc-g4-m4-sandbox-limits-IMPLEMENTATION
 type: design
-version: 1.0
+version: 1.1
 status: verified
 date: 2026-11-13
 depends: [arc-g4-m4-sandbox-limits-DESIGN, arc-g4-m4-sandbox-limits-RESEARCH]
@@ -64,14 +64,14 @@ upstream: arc-g4-m4-sandbox-limits-DESIGN
 # DockerSandboxConfig 新增（frozen=True 不变）
 cpu_limit: float = 2.0
 pids_limit: int = 512
-ttl_sec: int = 1800
+ttl_sec: int = 0  # 0 = auto（timeout + grace）；>0 = 显式硬上限
 kill_grace_sec: int = 10
 ttl_poll_sec: float = 30.0
 
 # _parse_experiment_config docker 段
 cpu_limit=max(0.0, _safe_float(cfg.get("cpu_limit"), fallback=2.0)),
 pids_limit=max(0, _safe_int(cfg.get("pids_limit"), fallback=512)),
-ttl_sec=max(0, _safe_int(cfg.get("ttl_sec"), fallback=1800)),
+ttl_sec=max(0, _safe_int(cfg.get("ttl_sec"), fallback=0)),
 kill_grace_sec=max(0, _safe_int(cfg.get("kill_grace_sec"), fallback=10)),
 ttl_poll_sec=max(0.05, _safe_float(cfg.get("ttl_poll_sec"), fallback=30.0)),
 ```
@@ -82,8 +82,9 @@ ttl_poll_sec=max(0.05, _safe_float(cfg.get("ttl_poll_sec"), fallback=30.0)),
 
 - `_build_run_command`：初始块去 `--rm`；`--cpus={cpu_limit:.6g}`（>0 时）、`--pids-limit={pids_limit}`（>0 时）、`--label rc.run={run_id}`（run_id 非空时）；签名加 `run_id: str | None = None`。
 - `_inspect_container(container_name)`（staticmethod）：`["docker","inspect","--format","{{.State.OOMKilled}} {{.State.ExitCode}}", name]` → stdout 按 `"true 137"` 形态解析（`stdout.strip().split()`，首段小写化 == "true"，次段 int()）→ `(bool,int)`；任何异常/不可解析 → None。
-- `_TtlWatcher(threading.Thread)`：`daemon=True`；字段 `container_name/ttl_sec/kill_grace_sec/poll_sec/_stop/_fired`；`run()`：循环 `self._stop.wait(min(poll_sec, max(0.05, deadline - now)))`，`now >= deadline` → `docker kill -s TERM <name>`（子进程调用，异常 warning）→ `self._stop.wait(kill_grace_sec)` → **未 stop** 则 `docker kill <name>`（SIGKILL）→ 置 `_fired=True`；`stop()` 置 `_stop`；`fired` 属性。
-- `_execute`：签名加 `run_id`；`ttl = _TtlWatcher(...) if (run_id and cfg.ttl_sec > 0) else None`，启动前 `ttl.start()`；try 内 `subprocess.run` 既有逻辑不变，`TimeoutExpired` 分支保持 `_kill_container`；正常返回后 `inspected = self._inspect_container(self._last_container_name)`；finally：`if ttl: ttl.stop(); ttl.join(timeout=cfg.kill_grace_sec + 1.0)` → 既有 `_remove_container`；结果构造处 `limit_reason=self._attribute_limit(ttl_fired=(ttl and ttl.fired), timed_out=..., inspected=...)`。
+- `_TtlWatcher(threading.Thread)`：`daemon=True`；字段 `container_name/ttl_sec/kill_grace_sec/poll_sec/_stop/_fired`；`run()`：先用 `docker inspect` 探测容器创建（拉镜像时间不计入 TTL），随后循环 `self._stop.wait(min(poll_sec, max(0.05, deadline - now)))`，`now >= deadline` → `docker kill -s TERM <name>` → **TERM 返回码 0 才置 `_fired=True`**（投递失败仅 warning，不归因）→ `self._stop.wait(kill_grace_sec)` → **未 stop** 则 `docker kill <name>`（SIGKILL）；`stop()` 置 `_stop`；`fired` 属性。
+- `_effective_ttl(timeout_sec)`：`ttl_sec > 0` → 取 `ttl_sec`（显式硬上限，可短于预算）；`ttl_sec == 0`（默认）→ `timeout_sec + kill_grace_sec`（跟随本次预算，只作容器回收兜底，**绝不提前截断长跑**，D-3）。
+- `_execute`：签名加 `run_id`；`ttl = _TtlWatcher(...) if (run_id and effective_ttl > 0) else None`，启动前 `ttl.start()`；try 内 `subprocess.run` 既有逻辑不变，`TimeoutExpired` 分支保持 `_kill_container`；正常返回后 `inspected = self._inspect_container(self._last_container_name)`；finally：`if ttl: ttl.stop(); ttl.join(timeout=cfg.kill_grace_sec + 1.0)` → 既有 `_remove_container`；结果构造处 `limit_reason=self._attribute_limit(ttl_fired=(ttl and ttl.fired), timed_out=..., inspected=...)`。
 - `_attribute_limit`（staticmethod，D-5 唯一映射）：`ttl_fired → "ttl_timeout"`；`inspected is not None and (inspected[0] or inspected[1] == 137) → "resource_limit"`；`timed_out → "timeout"`；否则 None。
 - 容器名可达性：`_next_container_name` 生成的名字在 `_execute` 内落局部变量传给 inspect/watcher（避免读实例态）。
 - `run()` / `run_project()`：加可选 `run_id: str | None = None` 透传 `_execute`。
@@ -116,9 +117,21 @@ _install_sigterm_handler()
 
 要点：幂等由 finalize 既有 `json.dump` 覆盖写保证（I-M4-5）；`sys.exit(143)` 经由解释器关闭再触发 atexit 二次 finalize——幂等无害；模块顶部补 `import threading`（模板内已用 threading 则复用）。
 
-### 5.4 _execution.py 调用点
+### 5.4 调用点与 run_id 覆盖（收敛批订正）
 
-stage-14 主执行与重跑路径（`runs_dir` 在作用域内处）：`run_project(..., run_id=runs_dir.name)` / `run(..., run_id=runs_dir.name)`。experiment_repair / code_agent 调用点**不改**（DESIGN §2.3 边界，quota 由 config 默认仍生效）。
+`run_id` 决定 `rc.run` 标签与 TTL 看护是否生效。复核/审计后的准确边界（9 个 live 调用点）：
+
+| 调用点 | run_id | 说明 |
+|---|---|---|
+| `_execution.py:551` / `:557` | `runs_dir.name` | stage-14 主执行（DESIGN §2.3 冻结职责） |
+| `_execution.py:1644` | `stage_dir.name` | 结果校验后的重跑 |
+| `_execution.py:1770` | `stage_dir.name` | refine 运行期修复后的重跑（收敛批补传） |
+| `_execution.py:716` → `runner.run_loop` → `runner.py:131` | `exp-<run_dir.name>` | ExperimentRunner 迭代（收敛批在 `runner.py:131` 下传） |
+| `_execution.py:289` / `:472` | 无 | bio/stat agent、code agent 单文件路径（显式登记：无 TTL/标签，仅 `timeout_sec`） |
+| `experiment_repair.py:810` | 无 | stage-14 修复回退路径（同上） |
+| `code_agent.py:1394` | 无 | code agent 项目路径（同上） |
+
+未传 `run_id` 的 4 个路径仍受 `--cpus/--pids-limit/--memory` 与 `timeout_sec` 约束，仅缺 TTL 宽限 TERM 与 `rc.run` 标签——属 DESIGN §2.3 的职责外边界，不在本批扩大。
 
 ### 5.5 sandbox.py
 
@@ -126,7 +139,7 @@ stage-14 主执行与重跑路径（`runs_dir` 在作用域内处）：`run_proj
 
 ## 6. 测试计划
 
-### 6.1 新增 tests/test_sandbox_boundary.py（T-1..T-14）
+### 6.1 新增 tests/test_sandbox_boundary.py（T-1..T-16）
 
 | # | 用例 | 手段 | 断言 |
 |---|------|------|------|
@@ -137,13 +150,15 @@ stage-14 主执行与重跑路径（`runs_dir` 在作用域内处）：`run_proj
 | T-5 | OOM 归因 | inspect stdout "true 137" | `limit_reason=="resource_limit"` |
 | T-6 | 正常退出 | inspect stdout "false 0" | `limit_reason is None` |
 | T-7 | timeout 归因 | subprocess.run side_effect TimeoutExpired | `limit_reason=="timeout"` 且 kill/remove 恰一次 |
-| T-8 | TTL TERM→KILL | 小 ttl/poll/grace + 假 sleep | 先 `-s TERM` 后 KILL；`limit_reason=="ttl_timeout"` |
+| T-8 | TTL 归因与显式硬上限 | 小 ttl/grace/poll + 真线程 | `limit_reason=="ttl_timeout"`、`fired is True`、`_ttl == 0.3`（显式值不被预算抬升） |
 | T-9 | 线程生命周期 | run 返回后 | watcher stop + join 完成（`is_alive() is False`） |
-| T-10 | 跨 run 隔离 | watcher 名称即本容器 | kill 调用仅含本容器名 |
+| T-10 | 跨 run 隔离 + TERM→KILL | watcher 名称即本容器 | kill 仅含本容器名；首条 TERM、次条 SIGKILL（不含 `-s`） |
 | T-11 | inspect 不可解析 → None | stdout 噪声 | `limit_reason is None`（I-M4-4） |
 | T-12 | yaml 解析新字段 | _parse_experiment_config | 5 字段入 config；坏值回退默认 |
 | T-13 | harness 信号兜底 | 源码断言 | `atexit.register`、`signal.SIGTERM`、`_finalize_default`、主线程判定存在 |
 | T-14 | run_id=None 归因仍可达 | 无标签路径 + inspect true 137 | `limit_reason=="resource_limit"`（配额归因不依赖标签） |
+| T-15 | 默认 TTL 不截断长跑（D-3） | `ttl_sec=0（auto）, timeout_sec=7200` | watcher 存在且 `_ttl >= 7200` |
+| T-16 | TERM 不可投递不归因（D-2） | kill 抛 `FileNotFoundError` | `fired is False` 且 `limit_reason is None` |
 
 手段：`unittest.mock.patch("subprocess.run")` + `DockerSandboxConfig(..., ttl_poll_sec=0.05, ...)`；T-8 用真线程 + 微秒级参数（等待 `fired`，超时 fail）。
 
@@ -182,6 +197,21 @@ stage-14 主执行与重跑路径（`runs_dir` 在作用域内处）：`run_proj
 ## 10. 回退方案
 
 每文件独立可 revert（§3 回退点列）；全批回退 = revert 单 commit；无数据迁移、无配置迁移。
+
+## 11. 收敛批记录（2026-11-13，复核/审计后）
+
+来源：`docs/arc-g4-m4-review-20261113.md`（DeepSeek 独立复核）+ `docs/arc-g4-m4-review-audit-20261113.md`（GLM 审计，S/F 表）。本批**并入 P-105 不占号**，零新增调用面。
+
+| 项 | 修复 | 证据 |
+|---|---|---|
+| D-1 | `runner.py:131` 下传 `run_id`；`_execution.py:1770` 补 `run_id=stage_dir.name`；§5.4 边界表重写（9 点全枚举，4 点显式登记无 run_id） | §5.4 + 读码；T-9 旁证 watcher 生命周期 |
+| D-2 | `_fired` 仅在 TERM 返回码 0 后置位；`_kill` 返回 bool 并捕 `OSError`；deadline 改为容器创建后起算（先 `docker inspect` 探测） | T-16（kill 不可达 → `limit_reason is None`） |
+| D-3 | 新增 `_effective_ttl`：`ttl_sec > 0` 取显式硬上限；`ttl_sec == 0`（默认）取 `timeout_sec + kill_grace_sec`；config 默认 1800→0 | T-8（0.3 不被抬升）、T-15（7200s 预算不被截断）；DESIGN §4.3 |
+| D-5 | 删除 T-8 恒真断言；T-10 补 `kill_cmds[1]`（SIGKILL、无 `-s`）断言 | T-10 |
+| F-1..F-4 | 复核报告计数/措辞按审计订正（36+9=45、`copytree` 默认解引用、取证矩阵 4 项读码） | 复核报告 V-2/O-4/§5 |
+| D-4/D-6 | 维持 P3 登记（不改实现）：C-4 措辞降为「OOM 可证伪、137 兜底」；harness 导入副作用留待后续批 | CHECKLIST C-4；复核报告 D-4/D-6 |
+
+收敛后验收：`test_sandbox_boundary.py` 19 passed、`test_rc_docker_sandbox.py` 45 passed（合计 64）；CI 固定清单与 9 门禁复跑见提交记录。
 
 ---
 

@@ -19,6 +19,8 @@ Matrix (spec/arc-g4-m4-sandbox-limits/CHECKLIST.md §2):
   T-12 yaml parsing of new config fields + bad-value fallback
   T-13 harness has SIGTERM handler + atexit finalize (source assertion)
   T-14 attribution works without labels (run_id=None + OOM inspect)
+  T-15 auto TTL: default follows the run's timeout budget (no truncation)
+  T-16 undeliverable TERM -> fired stays False, no fabricated ttl_timeout
 """
 
 from __future__ import annotations
@@ -217,7 +219,7 @@ class TestAttribution:
 
 
 # ---------------------------------------------------------------------------
-# TTL watcher (T-8, T-9, T-10)
+# TTL watcher (T-8, T-9, T-10, T-15, T-16)
 # ---------------------------------------------------------------------------
 
 
@@ -242,14 +244,15 @@ class TestTtlWatcher:
         sandbox = DockerSandbox(cfg, tmp_path / "wd")
         try:
             result = sandbox.run_project(
-                _project(tmp_path), timeout_sec=30, run_id="run-ttl")
+                _project(tmp_path), timeout_sec=1, run_id="run-ttl")
         finally:
             release.set()
         assert result.limit_reason == "ttl_timeout"
         watcher = _watcher_log[0]
         assert watcher.fired is True
-        # docker run must have been released by the container "exiting"
-        assert release.is_set() or True  # mock returns after release/timeout
+        # D-3: an explicit ttl_sec is a hard cap, honoured even when it is
+        # shorter than the caller's timeout budget.
+        assert watcher._ttl == pytest.approx(0.3)
 
     @patch("subprocess.run")
     def test_t9_watcher_lifecycle_stop_and_join(self, mock_run, tmp_path,
@@ -271,7 +274,7 @@ class TestTtlWatcher:
 
         def _blocking_run(cmd, **kwargs):
             if cmd[:2] == ["docker", "run"]:
-                time.sleep(1.0)
+                time.sleep(2.0)
                 return subprocess.CompletedProcess(
                     cmd, 0, stdout="primary_metric: 0.85\n", stderr="")
             if cmd[:2] == ["docker", "inspect"]:
@@ -285,7 +288,7 @@ class TestTtlWatcher:
         mock_run.side_effect = _blocking_run
         cfg = _config(ttl_sec=0.2, kill_grace_sec=0.2, ttl_poll_sec=0.05)
         sandbox = DockerSandbox(cfg, tmp_path / "wd")
-        sandbox.run_project(_project(tmp_path), timeout_sec=30, run_id="run-a")
+        sandbox.run_project(_project(tmp_path), timeout_sec=1, run_id="run-a")
         # Every kill command must reference exactly one container name and
         # it must be the watcher's own container (no cross-run targets).
         assert kill_cmds, "TTL watcher should have issued kill commands"
@@ -293,8 +296,48 @@ class TestTtlWatcher:
         assert len(names) == 1
         own_name = _watcher_log[0]._container
         assert names == {own_name}
-        # first kill is TERM, last (if any) is KILL
+        # first kill is TERM, the second (grace expired) is SIGKILL
         assert kill_cmds[0][:4] == ["docker", "kill", "-s", "TERM"]
+        assert len(kill_cmds) >= 2
+        assert kill_cmds[1][:2] == ["docker", "kill"]
+        assert "-s" not in kill_cmds[1]
+
+    @patch("subprocess.run")
+    def test_t15_default_ttl_follows_timeout_budget(self, mock_run, tmp_path,
+                                                    _watcher_log):
+        """D-3: default ttl_sec=0 follows the budget; no 1800s truncation."""
+        fake, _ = _run_dispatch()
+        mock_run.side_effect = fake
+        cfg = _config(ttl_sec=0, kill_grace_sec=10)
+        sandbox = DockerSandbox(cfg, tmp_path / "wd")
+        sandbox.run_project(_project(tmp_path), timeout_sec=7200,
+                            run_id="run-long")
+        assert len(_watcher_log) == 1
+        assert _watcher_log[0]._ttl >= 7200
+
+    @patch("subprocess.run")
+    def test_t16_undeliverable_term_never_attributes_ttl(self, mock_run,
+                                                         tmp_path,
+                                                         _watcher_log):
+        """D-2: fired is only set after TERM was actually delivered."""
+        def _fake(cmd, **kwargs):
+            if cmd[:2] == ["docker", "run"]:
+                time.sleep(2.0)
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            if cmd[:2] == ["docker", "inspect"]:
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout="false 0\n", stderr="")
+            if cmd[:2] == ["docker", "kill"]:
+                raise FileNotFoundError("docker")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        mock_run.side_effect = _fake
+        cfg = _config(ttl_sec=0.2, kill_grace_sec=0.2, ttl_poll_sec=0.05)
+        sandbox = DockerSandbox(cfg, tmp_path / "wd")
+        result = sandbox.run_project(_project(tmp_path), timeout_sec=1,
+                                     run_id="run-x")
+        assert _watcher_log[0].fired is False
+        assert result.limit_reason is None
 
 
 # ---------------------------------------------------------------------------
@@ -331,7 +374,7 @@ class TestConfigAndHarness:
         })
         assert cfg.docker.cpu_limit == 2.0
         assert cfg.docker.pids_limit == 512
-        assert cfg.docker.ttl_sec == 1800
+        assert cfg.docker.ttl_sec == 0  # 0 = auto: follow the timeout budget
         assert cfg.docker.kill_grace_sec == 10
         assert cfg.docker.ttl_poll_sec == 30.0
 
@@ -359,6 +402,6 @@ class TestSandboxResultContract:
         cfg = DockerSandboxConfig()
         assert cfg.cpu_limit > 0
         assert cfg.pids_limit > 0
-        assert cfg.ttl_sec > 0
+        assert cfg.ttl_sec == 0  # 0 = auto: follows the run's timeout budget
         assert cfg.kill_grace_sec > 0
         assert cfg.ttl_poll_sec > 0

@@ -128,7 +128,11 @@ class ExperimentRunner:
     def run_experiment(
         self, code: str, *, run_id: str, iteration: int = 0
     ) -> ExperimentResult:
-        sandbox_result = self.sandbox.run(code, timeout_sec=self.config.time_budget_sec)
+        sandbox_result = self.sandbox.run(
+            code,
+            timeout_sec=self.config.time_budget_sec,
+            run_id=run_id,
+        )
         primary_metric = self._to_float(
             sandbox_result.metrics.get(self.config.metric_key)
         )

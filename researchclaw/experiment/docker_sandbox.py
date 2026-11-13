@@ -47,7 +47,7 @@ def _next_container_name() -> str:
 class _TtlWatcher(threading.Thread):
     """Per-sandbox TTL guardian for one container.
 
-    Lifecycle: sleep until ``deadline = start + ttl_sec`` (polling with
+    Lifecycle: sleep until ``deadline = container creation + ttl_sec`` (polling with
     ``ttl_poll_sec`` granularity), then ``docker kill -s TERM``, wait
     ``kill_grace_sec`` for a graceful exit (harness finalizes artifacts on
     SIGTERM), then ``docker kill`` (SIGKILL) if still running.
@@ -78,10 +78,15 @@ class _TtlWatcher(threading.Thread):
 
     @property
     def fired(self) -> bool:
-        """True once the TTL deadline was reached and TERM was issued."""
+        """True once the TTL deadline was reached and SIGTERM was delivered."""
         return self._fired
 
     def run(self) -> None:  # noqa: D102
+        # Anchor the TTL clock at container creation, not at thread start:
+        # ``docker run`` may spend a long time pulling an image before the
+        # container exists, and that time must not be charged to the run.
+        if not self._wait_for_container():
+            return
         deadline = time.monotonic() + self._ttl
         while not self._stop.is_set():
             remaining = deadline - time.monotonic()
@@ -93,13 +98,47 @@ class _TtlWatcher(threading.Thread):
             return
         self._fire()
 
+    def _wait_for_container(self) -> bool:
+        """Wait until this watcher's container exists; False if stopped first."""
+        while not self._stop.is_set():
+            if self._container_exists():
+                return True
+            if self._stop.wait(min(self._poll, 1.0)):
+                return False
+        return False
+
+    def _container_exists(self) -> bool:
+        """Best-effort probe: the container has been created by ``docker run``."""
+        try:
+            cp = subprocess.run(
+                ["docker", "inspect", "--format", "{{.Id}}", self._container],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
+                check=False,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            # Cannot probe (docker CLI unavailable) — fall back to the legacy
+            # behaviour and let the kill attempt decide the attribution.
+            return True
+        return cp.returncode == 0
+
     def _fire(self) -> None:
-        self._fired = True
         logger.warning(
             "TTL (%.0fs) expired for container %s — sending SIGTERM",
             self._ttl, self._container,
         )
-        self._kill(["docker", "kill", "-s", "TERM", self._container])
+        if not self._kill(["docker", "kill", "-s", "TERM", self._container]):
+            logger.warning(
+                "TTL SIGTERM for %s was not delivered — no attribution",
+                self._container,
+            )
+            return
+        # Only a delivered TERM may produce ttl_timeout (I-M4-4): a failed or
+        # impossible kill must never fabricate an attribution.
+        self._fired = True
         # Grace window: harness SIGTERM handler finalizes artifacts here.
         if self._stop.wait(self._grace):
             return  # container exited during grace (main flow stopped us)
@@ -110,11 +149,15 @@ class _TtlWatcher(threading.Thread):
         self._kill(["docker", "kill", self._container])
 
     @staticmethod
-    def _kill(cmd: list[str]) -> None:
+    def _kill(cmd: list[str]) -> bool:
+        """Run one kill command; True only when Docker accepted it."""
         try:
-            subprocess.run(cmd, capture_output=True, timeout=10, check=False)
-        except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+            cp = subprocess.run(
+                cmd, capture_output=True, timeout=10, check=False)
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
             logger.warning("TTL kill failed for %s: %s", cmd[-1], exc)
+            return False
+        return cp.returncode == 0
 
 
 # Packages already in the Docker image — skip during auto-detect.
@@ -369,12 +412,14 @@ class DockerSandbox:
         )
 
         # TTL guardian: only with an explicit run_id (never sweep other
-        # runs' containers) and only when enabled via ttl_sec > 0.
+        # runs' containers) and only when an effective TTL applies (explicit
+        # ttl_sec, or the auto-follow of this run's timeout budget).
         watcher: _TtlWatcher | None = None
-        if run_id and cfg.ttl_sec > 0:
+        effective_ttl = self._effective_ttl(timeout_sec)
+        if run_id and effective_ttl > 0:
             watcher = _TtlWatcher(
                 container_name,
-                ttl_sec=cfg.ttl_sec,
+                ttl_sec=effective_ttl,
                 kill_grace_sec=cfg.kill_grace_sec,
                 poll_sec=cfg.ttl_poll_sec,
             )
@@ -470,6 +515,23 @@ class DockerSandbox:
                 inspected=inspected,
             ),
         )
+
+    def _effective_ttl(self, timeout_sec: int) -> float:
+        """Resolve the TTL for this run (D-3).
+
+        ``ttl_sec > 0`` is an explicit hard cap: the operator opted into a
+        deadline that may be shorter than the run's budget (A4-6 path — TERM
+        lets the harness finalize artifacts inside the grace window).
+
+        ``ttl_sec == 0`` (default) auto-follows the caller's budget
+        (``timeout_sec + kill_grace_sec``, measured from container creation).
+        A 7200s HEP run is therefore never truncated by a fixed default, and
+        the watcher stays a container-reaping backstop instead of acting as a
+        second, shorter timeout.
+        """
+        if self.config.ttl_sec > 0:
+            return float(self.config.ttl_sec)
+        return float(timeout_sec) + float(self.config.kill_grace_sec)
 
     def _build_run_command(
         self,
