@@ -287,6 +287,10 @@ class SandboxResult:
     elapsed_sec: float
     metrics: dict[str, object]
     timed_out: bool = False
+    # Sandbox-limit attribution (single mapping lives in
+    # DockerSandbox._attribute_limit): "ttl_timeout" | "resource_limit" |
+    # "timeout" | None. None means normal exit or attribution unavailable.
+    limit_reason: str | None = None
 
 
 class SandboxProtocol(Protocol):

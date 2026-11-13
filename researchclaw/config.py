@@ -321,6 +321,14 @@ class DockerSandboxConfig:
     shm_size_mb: int = 2048
     container_python: str = "/usr/bin/python3"
     keep_containers: bool = False
+    # G4-M4 sandbox limits. These are the single source of truth for the
+    # experiment execution path (registry sandbox_profiles are the tool-side
+    # source and are consumed by a later "experiment-as-tool" batch).
+    cpu_limit: float = 2.0    # <=0 -> omit --cpus
+    pids_limit: int = 512     # <=0 -> omit --pids-limit
+    ttl_sec: int = 1800       # <=0 -> TTL watcher disabled
+    kill_grace_sec: int = 10  # TERM -> KILL grace window
+    ttl_poll_sec: float = 30.0  # watcher poll granularity
 
 
 @dataclass(frozen=True)
@@ -1428,6 +1436,11 @@ def _parse_experiment_config(data: dict[str, Any]) -> ExperimentConfig:
             shm_size_mb=_safe_int(docker_data.get("shm_size_mb"), 2048),
             container_python=docker_data.get("container_python", "/usr/bin/python3"),
             keep_containers=bool(docker_data.get("keep_containers", False)),
+            cpu_limit=max(0.0, _safe_float(docker_data.get("cpu_limit"), 2.0)),
+            pids_limit=max(0, _safe_int(docker_data.get("pids_limit"), 512)),
+            ttl_sec=max(0, _safe_int(docker_data.get("ttl_sec"), 1800)),
+            kill_grace_sec=max(0, _safe_int(docker_data.get("kill_grace_sec"), 10)),
+            ttl_poll_sec=max(0.05, _safe_float(docker_data.get("ttl_poll_sec"), 30.0)),
         ),
         ssh_remote=SshRemoteConfig(
             host=ssh_data.get("host", ""),

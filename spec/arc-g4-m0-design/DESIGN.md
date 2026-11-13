@@ -132,6 +132,8 @@ def register_from_registry(server: MCPServer, registry: Registry) -> None:
 | TTL | 看护线程每 30s 扫描 `rc.run` 标签容器，`started_at + ttl_sec < now` → `docker kill` + 回收；**产物先落盘再 kill**（A4-6） |
 | 四类逃逸测试 | 路径逃逸（`../`）、符号链接逃逸（`ln -s /`）、网络外联（`curl` 必失败）、fork bomb（`--pids-limit` 生效） |
 
+> **M4 落地状态（P-105，2026-11-13，受控回边）**：① 标签：`rc.run` 已落地；`rc.tool` 实验路径省略（无工具上下文，由工具化批次承接）。② 配额：`--cpus`（默认 2.0）/`--pids-limit`（默认 512）/`--memory`（既有 8192m）默认生效；**真值源 = `DockerSandboxConfig`**（config 字段优先，既有 memory 行为不回退），registry `sandbox_profiles` 保留为工具侧真值源、消费点 =「实验即工具」后续批次（登记 U-1）；4g/8192m 数值冲突不改 §2 冻结值。③ 137 归因：去 `--rm` + finally 前 `docker inspect` 回读 `State.OOMKilled/ExitCode`；映射唯一实现 `ttl_timeout > resource_limit > timeout > None`（inspect 不可解析 → 不归因，不伪造）；cpus throttling 不产生 137（P-100 D-3 保持）。④ TTL：per-sandbox 守护线程（TERM → grace 10s → KILL，只管本容器、不做跨 run 扫描，§11 保持）；harness 新增 SIGTERM handler + `atexit` → `finalize()`（产物落盘的必要条件）；SIGKILL 分支只标 `ttl_timeout`、不宣称产物（P-100 D-4 保持）；父进程崩溃后的僵尸容器回收登记 U-2 不实现。⑤ 四类逃逸：路径 `..` 拒绝、符号链接经复制步解引用受限 + `validate_entry_point_resolved` 兜底、网络 `--network none`（I-6 不回退）、fork bomb `--pids-limit` 生效；验收层 = 单测（全 mock，T-1..T-14），证据层 = 本地 Docker e2e（RULE-3 quarantine 登记，CHECKLIST §4）。
+
 ## 7. env allowlist 与 safe_join 覆盖（A4-7/A4-8，M5）
 
 - **清单法**：新增守卫测试（`tests/test_boundary_coverage.py`）用 AST 扫描 `researchclaw/**`：
@@ -163,7 +165,7 @@ class HostProfile:
 | M1 | **P-101**（原 P-100，P-100 让位于复核批） | 注册表 + 启动校验（已完成；P-102 复核 1 P2 + 2 P3 → **M2 批内先修 D-1/D-2/D-3，已随 P-103 落地**） | **A4-1** | `tools/registry.yaml`、`researchclaw/tools/registry.py`、`tests/test_tool_registry.py` |
 | M2 | **P-103**（原 P-102） | MCP 动态注册 + listChanged + `GET /api/tools`（**已完成**；复核并入批（DeepSeek，不占号）发现 D-1 P1/D-2·D-3 P2，批内收敛关闭——force-include 删除、None 可选参清洗、handler→`dispatch_tool` + 拒类校验） | **A4-10** | `researchclaw/mcp/registry_adapter.py`、`server/routes/tools.py`、`tests/test_mcp_dynamic_tools.py` |
 | M3 | **P-104**（原 P-103） | tool 事件 + orphan_call + 审批门（**已完成**；复核并入批（GLM，不占号）发现 2 P2——`handle_tool_call` 直调绕过审批门、非 JSON 结果 digest 逃逸——批内收敛关闭，单执行路径） | **A4-4/A4-5** | `researchclaw/tools/invoker.py`、`runtime/event_log.py` 接线、`tests/test_tool_events.py` |
-| M4 | **P-105**（原 P-104） | 沙箱配额/TTL/137 + 四类逃逸 | **A4-2/A4-3/A4-6** | `experiment/docker_sandbox.py`、`tests/test_sandbox_boundary.py` |
+| M4 | **P-105**（原 P-104） | 沙箱配额/TTL/137 + 四类逃逸（**已完成**：配额三 flag + `rc.run` 标签默认生效、去 `--rm` + inspect 归因、per-sandbox TTL 线程 + harness 信号兜底；真值源分层 = config 优先 / profile 留工具化批次；验收层单测 T-1..T-14 全绿 + 证据层本地 Docker e2e 22/22） | **A4-2/A4-3/A4-6** | `experiment/docker_sandbox.py`、`tests/test_sandbox_boundary.py` |
 | M5 | **P-106**（原 P-105） | env/safe_join 全覆盖 + HostProfile | **A4-7/A4-8/A4-9** | `utils/`、`researchclaw/runtime/host_profile.py`、`tests/test_boundary_coverage.py` |
 
 **编号顺延依据**：P-100 复核批、P-102 复核批先后让位（P-084/P-086 先例），M2..M5 = **P-103..P-106**。**D-3 修正输入（M4）**：137 仅 memory/pids（cpus 是 throttling）；**D-4 修正输入（M4）**：TTL kill 产物未必落盘（`reason=ttl_timeout`）；**D-5 已定案（P-103 落地）**：路径 B 注入 + deep equality 守卫；**D-6 修正输入（M5）**：AST 守卫改注册制白名单 + 兜底扫描。

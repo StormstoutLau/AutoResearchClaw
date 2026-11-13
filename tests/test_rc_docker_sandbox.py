@@ -419,6 +419,92 @@ def test_run_project_rejects_path_traversal(mock_run: MagicMock, tmp_path: Path)
     mock_run.assert_not_called()
 
 
+# ── G4-M4 command construction: quotas, labels, no --rm ──────────────
+
+
+def _build_cmd(tmp_path: Path, cfg: DockerSandboxConfig,
+               run_id: str | None = None) -> list[str]:
+    staging = tmp_path / "staging"
+    staging.mkdir(exist_ok=True)
+    sandbox = DockerSandbox(cfg, tmp_path / "work")
+    return sandbox._build_run_command(
+        staging, entry_point="main.py",
+        container_name="rc-exp-test-0", run_id=run_id,
+    )
+
+
+def test_build_run_command_default_quotas(tmp_path: Path):
+    """Default config must enforce --cpus and --pids-limit (G4-M4 A4-2)."""
+    cmd = _build_cmd(tmp_path, DockerSandboxConfig())
+    assert "--cpus=2" in cmd
+    assert "--pids-limit=512" in cmd
+    assert "--memory=8192m" in cmd
+
+
+def test_build_run_command_no_rm(tmp_path: Path):
+    """--rm must be gone so the container stays inspectable for 137."""
+    cmd = _build_cmd(tmp_path, DockerSandboxConfig())
+    assert "--rm" not in cmd
+
+
+def test_build_run_command_run_label(tmp_path: Path):
+    cmd = _build_cmd(tmp_path, DockerSandboxConfig(), run_id="run-42")
+    assert cmd[cmd.index("--label") + 1] == "rc.run=run-42"
+
+
+def test_build_run_command_no_label_without_run_id(tmp_path: Path):
+    cmd = _build_cmd(tmp_path, DockerSandboxConfig())
+    assert "--label" not in cmd
+
+
+def test_build_run_command_quota_opt_out(tmp_path: Path):
+    """cpu_limit/pids_limit <= 0 omit the flags (explicit opt-out)."""
+    cmd = _build_cmd(
+        tmp_path, DockerSandboxConfig(cpu_limit=0.0, pids_limit=0))
+    assert not any(str(tok).startswith("--cpus") for tok in cmd)
+    assert not any(str(tok).startswith("--pids-limit") for tok in cmd)
+
+
+@patch("researchclaw.experiment.docker_sandbox.subprocess.run")
+def test_inspect_container_parses_state(mock_run: MagicMock):
+    mock_run.return_value = subprocess.CompletedProcess(
+        args=[], returncode=0, stdout="true 137\n", stderr="")
+    assert DockerSandbox._inspect_container("c1") == (True, 137)
+
+
+@patch("researchclaw.experiment.docker_sandbox.subprocess.run")
+def test_inspect_container_unparseable_returns_none(mock_run: MagicMock):
+    mock_run.return_value = subprocess.CompletedProcess(
+        args=[], returncode=0, stdout="garbage noise\n", stderr="")
+    assert DockerSandbox._inspect_container("c1") is None
+
+
+@patch("researchclaw.experiment.docker_sandbox.subprocess.run")
+def test_inspect_container_failure_returns_none(mock_run: MagicMock):
+    mock_run.return_value = subprocess.CompletedProcess(
+        args=[], returncode=1, stdout="", stderr="Error: no such object")
+    assert DockerSandbox._inspect_container("c1") is None
+
+
+def test_attribute_limit_priority_order():
+    assert DockerSandbox._attribute_limit(
+        ttl_fired=True, timed_out=True,
+        inspected=(True, 137)) == "ttl_timeout"
+    assert DockerSandbox._attribute_limit(
+        ttl_fired=False, timed_out=True,
+        inspected=(True, 137)) == "resource_limit"
+    assert DockerSandbox._attribute_limit(
+        ttl_fired=False, timed_out=True, inspected=None) == "timeout"
+    assert DockerSandbox._attribute_limit(
+        ttl_fired=False, timed_out=False, inspected=None) is None
+    assert DockerSandbox._attribute_limit(
+        ttl_fired=False, timed_out=False, inspected=(False, 137)
+    ) == "resource_limit"
+    # cpus throttling never masquerades as 137: exit 0 + not OOM -> None
+    assert DockerSandbox._attribute_limit(
+        ttl_fired=False, timed_out=False, inspected=(False, 0)) is None
+
+
 @patch("researchclaw.experiment.docker_sandbox.subprocess.run")
 def test_run_project_rejects_absolute_path(mock_run: MagicMock, tmp_path: Path):
     """run_project() must reject absolute entry_point paths."""

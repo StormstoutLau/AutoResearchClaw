@@ -545,14 +545,19 @@ def _execute_experiment_run(
             _ensure_sandbox_deps(_all_code, config.experiment.sandbox.python_path)
 
         sandbox = create_sandbox(config.experiment, runs_dir / "sandbox")
-        # Use run_project for multi-file, run for single-file
+        # Use run_project for multi-file, run for single-file.
+        # run_id ties the container to this run (rc.run label + TTL scope).
         if exp_dir_path and Path(exp_dir_path).is_dir():
             result = sandbox.run_project(
-                Path(exp_dir_path), timeout_sec=config.experiment.time_budget_sec
+                Path(exp_dir_path),
+                timeout_sec=config.experiment.time_budget_sec,
+                run_id=runs_dir.name,
             )
         else:
             result = sandbox.run(
-                code_text, timeout_sec=config.experiment.time_budget_sec
+                code_text,
+                timeout_sec=config.experiment.time_budget_sec,
+                run_id=runs_dir.name,
             )
         # Try to read structured results.json from sandbox working dir
         structured_results: dict[str, Any] | None = None
@@ -1639,6 +1644,7 @@ def _execute_iterative_refine(
             rerun = sandbox.run_project(
                 version_dir,
                 timeout_sec=config.experiment.time_budget_sec,
+                run_id=stage_dir.name,
             )
             metric_val = _find_metric(rerun.metrics, metric_key)
             # R19-1: Store stdout (capped) so PAIRED lines survive for Stage 14

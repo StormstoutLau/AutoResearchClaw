@@ -11,9 +11,12 @@ This file is NOT editable by the LLM agent — it provides a trust boundary
 for metric reporting, inspired by karpathy/autoresearch's immutable prepare.py.
 """
 
+import atexit
 import json
 import math
+import signal
 import sys
+import threading
 import time
 
 
@@ -117,3 +120,44 @@ def get_harness(time_budget: int = 120) -> ExperimentHarness:
     if _default_harness is None:
         _default_harness = ExperimentHarness(time_budget)
     return _default_harness
+
+
+def _finalize_default() -> None:
+    """Finalize the default harness if one exists (idempotent: finalize()
+    only overwrites results.json, so double invocation is harmless)."""
+    if _default_harness is not None:
+        _default_harness.finalize()
+
+
+atexit.register(_finalize_default)
+
+
+def _install_sigterm_handler() -> None:
+    """Route SIGTERM through finalize() so artifacts land on disk before
+    the container dies (G4-M4 A4-6).
+
+    entrypoint.sh runs the experiment via ``exec python3 -u``, so SIGTERM
+    reaches this process directly; the default handler would terminate
+    immediately without finalizing. With the handler installed, a TTL
+    expiry (docker kill -s TERM) gives the experiment a grace window to
+    write results.json.
+
+    Guard: signal handlers may only be installed on the main thread;
+    otherwise degrade silently (no handler, atexit still covers normal
+    exits).
+    """
+    if threading.current_thread() is not threading.main_thread():
+        return
+
+    def _on_sigterm(signum: int, frame: object) -> None:
+        _finalize_default()
+        sys.exit(128 + signum)
+
+    try:
+        signal.signal(signal.SIGTERM, _on_sigterm)
+    except (ValueError, OSError):
+        # Not on main thread or restricted environment — degrade silently.
+        pass
+
+
+_install_sigterm_handler()

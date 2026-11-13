@@ -186,6 +186,128 @@ def main() -> None:
         check("Factory sandbox executes", r.returncode == 0 and r.metrics.get("primary_metric") == 42.0,
               str(r.metrics))
 
+    # ── Test 8: OOM attribution (G4-M4 A4-3) ───────────────────
+    print("\n--- Test 8: OOM 137 attribution ---")
+    with tempfile.TemporaryDirectory(prefix="rc_e2e_") as tmp:
+        cfg = DockerSandboxConfig(
+            gpu_enabled=False, network_policy="none", memory_limit_mb=64
+        )
+        sandbox = DockerSandbox(cfg, Path(tmp) / "work")
+        code = (
+            "import numpy as np\n"
+            "x = np.ones((25_000_000,), dtype=np.float64)\n"
+            "print(f'primary_metric: {x.sum()}')\n"
+        )
+        r = sandbox.run(code, timeout_sec=30, run_id="e2e-oom")
+        check("OOM exit code 137", r.returncode == 137, f"rc={r.returncode}")
+        check("limit_reason == resource_limit", r.limit_reason == "resource_limit",
+              str(r.limit_reason))
+
+    # ── Test 9: TTL expiry lands artifacts then kills (A4-6) ──
+    print("\n--- Test 9: TTL TERM -> finalize -> artifacts ---")
+    with tempfile.TemporaryDirectory(prefix="rc_e2e_") as tmp:
+        work = Path(tmp) / "work"
+        staging = work / "_ttl_probe"
+        staging.mkdir(parents=True)
+        (staging / "main.py").write_text(
+            "from experiment_harness import get_harness\n"
+            "import time\n"
+            "h = get_harness(120)\n"
+            "h.report_metric('primary_metric', 0.5)\n"
+            "while True:\n"
+            "    time.sleep(0.5)\n",
+            encoding="utf-8",
+        )
+        cfg = DockerSandboxConfig(
+            gpu_enabled=False, network_policy="none",
+            ttl_sec=8, kill_grace_sec=12, ttl_poll_sec=1.0,
+        )
+        sandbox = DockerSandbox(cfg, work)
+        r = sandbox.run_project(staging, timeout_sec=60, run_id="e2e-ttl")
+        check("TTL fired (ttl_timeout)", r.limit_reason == "ttl_timeout",
+              f"limit_reason={r.limit_reason}, rc={r.returncode}")
+        # run_project copies the project into workdir/_docker_run_N; search
+        # for the artifact wherever the mounted staging wrote it.
+        landed_files = list(work.rglob("results.json"))
+        parseable = False
+        for f in landed_files:
+            try:
+                payload = json.loads(f.read_text(encoding="utf-8"))
+                if isinstance(payload, dict) and payload.get("metrics", {}).get("primary_metric") == 0.5:
+                    parseable = True
+                    break
+            except (json.JSONDecodeError, OSError):
+                continue
+        check("artifacts landed before kill (results.json)",
+              bool(landed_files) and parseable,
+              f"found={[str(f) for f in landed_files]}, parseable={parseable}")
+
+    # ── Test 10: fork bomb contained by pids-limit ────────────
+    print("\n--- Test 10: fork bomb under --pids-limit ---")
+    with tempfile.TemporaryDirectory(prefix="rc_e2e_") as tmp:
+        cfg = DockerSandboxConfig(
+            gpu_enabled=False, network_policy="none", pids_limit=64,
+            ttl_sec=0,  # watcher off: subprocess timeout is the boundary here
+        )
+        sandbox = DockerSandbox(cfg, Path(tmp) / "work")
+        code = (
+            "import os, sys\n"
+            "try:\n"
+            "    pids = []\n"
+            "    for _ in range(10000):\n"
+            "        pids.append(os.fork())\n"
+            "    print('FORK_ESCAPED')\n"
+            "except OSError:\n"
+            "    print('FORK_BLOCKED: EAGAIN')\n"
+            "    print('primary_metric: 1.0')\n"
+            "    sys.exit(0)\n"
+        )
+        r = sandbox.run(code, timeout_sec=60, run_id="e2e-fork")
+        host_ok = True  # reaching this line means the host survived
+        check("host process survived fork bomb", host_ok)
+        check("forks limited in container",
+              "FORK_BLOCKED" in r.stdout or r.returncode != 0,
+              f"rc={r.returncode}, stdout={r.stdout.strip()[:120]}")
+
+    # ── Test 11: symlink escape rejected/contained ────────────
+    print("\n--- Test 11: symlink escape rejected or contained ---")
+    with tempfile.TemporaryDirectory(prefix="rc_e2e_") as tmp:
+        work = Path(tmp) / "work"
+        project = Path(tmp) / "project"
+        project.mkdir()
+        (project / "main.py").write_text("print('should not run')\n",
+                                         encoding="utf-8")
+        target = Path(tmp) / "outside"
+        target.mkdir()
+        try:
+            (project / "evil").symlink_to(target, target_is_directory=True)
+            symlink_created = True
+        except OSError:
+            # Windows without developer mode may refuse symlinks — skip hard
+            symlink_created = False
+        if symlink_created:
+            cfg = DockerSandboxConfig(gpu_enabled=False, network_policy="none")
+            sandbox = DockerSandbox(cfg, work)
+            # Branch A: dangling entry through symlink -> rejected up front
+            r = sandbox.run_project(project, entry_point="evil/main.py",
+                                    timeout_sec=30)
+            check("symlink escape rejected (rc=-1, no container run)",
+                  r.returncode == -1,
+                  f"rc={r.returncode}, stderr={r.stderr.strip()[:160]}")
+            # Branch B: symlink target holds main.py -> the copy step
+            # dereferences INTO staging (contained inside the sandbox);
+            # the container must only ever see the dereferenced copy.
+            (target / "main.py").write_text(
+                "print('primary_metric: 7.0')\n", encoding="utf-8")
+            r2 = sandbox.run_project(project, entry_point="evil/main.py",
+                                     timeout_sec=30)
+            check("symlink dereferenced into sandbox (contained)",
+                  r2.returncode == 0 and r2.metrics.get("primary_metric") == 7.0,
+                  f"rc={r2.returncode}, metrics={r2.metrics}")
+        else:
+            print(f"  [{SKIP}] symlink unavailable on this host (not an acceptance item)")
+
+
     # ── Summary ────────────────────────────────────────────────
     print("\n" + "=" * 60)
     passed = sum(1 for _, ok, _ in results if ok)

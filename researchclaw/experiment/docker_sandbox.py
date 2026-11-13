@@ -44,6 +44,79 @@ def _next_container_name() -> str:
         return f"rc-exp-{_CONTAINER_COUNTER}-{os.getpid()}"
 
 
+class _TtlWatcher(threading.Thread):
+    """Per-sandbox TTL guardian for one container.
+
+    Lifecycle: sleep until ``deadline = start + ttl_sec`` (polling with
+    ``ttl_poll_sec`` granularity), then ``docker kill -s TERM``, wait
+    ``kill_grace_sec`` for a graceful exit (harness finalizes artifacts on
+    SIGTERM), then ``docker kill`` (SIGKILL) if still running.
+
+    Scope: this watcher only ever targets the single container it was
+    created for — never other runs' containers (no docker ps sweeps).
+    All failures degrade to warnings and never affect the main execution.
+    """
+
+    def __init__(
+        self,
+        container_name: str,
+        ttl_sec: float,
+        kill_grace_sec: float,
+        poll_sec: float,
+    ) -> None:
+        super().__init__(daemon=True, name=f"rc-ttl-{container_name}")
+        self._container = container_name
+        self._ttl = float(ttl_sec)
+        self._grace = float(kill_grace_sec)
+        self._poll = float(poll_sec)
+        self._stop = threading.Event()
+        self._fired = False
+
+    def stop(self) -> None:
+        """Signal the watcher to give up (called from the main flow)."""
+        self._stop.set()
+
+    @property
+    def fired(self) -> bool:
+        """True once the TTL deadline was reached and TERM was issued."""
+        return self._fired
+
+    def run(self) -> None:  # noqa: D102
+        deadline = time.monotonic() + self._ttl
+        while not self._stop.is_set():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            if self._stop.wait(min(self._poll, remaining)):
+                return  # stopped before deadline — container exited normally
+        if self._stop.is_set():
+            return
+        self._fire()
+
+    def _fire(self) -> None:
+        self._fired = True
+        logger.warning(
+            "TTL (%.0fs) expired for container %s — sending SIGTERM",
+            self._ttl, self._container,
+        )
+        self._kill(["docker", "kill", "-s", "TERM", self._container])
+        # Grace window: harness SIGTERM handler finalizes artifacts here.
+        if self._stop.wait(self._grace):
+            return  # container exited during grace (main flow stopped us)
+        logger.warning(
+            "Container %s survived TTL grace (%.0fs) — sending SIGKILL",
+            self._container, self._grace,
+        )
+        self._kill(["docker", "kill", self._container])
+
+    @staticmethod
+    def _kill(cmd: list[str]) -> None:
+        try:
+            subprocess.run(cmd, capture_output=True, timeout=10, check=False)
+        except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+            logger.warning("TTL kill failed for %s: %s", cmd[-1], exc)
+
+
 # Packages already in the Docker image — skip during auto-detect.
 _BUILTIN_PACKAGES = {
     # PyTorch ecosystem
@@ -118,7 +191,8 @@ class DockerSandbox:
     # Public API
     # ------------------------------------------------------------------
 
-    def run(self, code: str, *, timeout_sec: int = 300) -> SandboxResult:
+    def run(self, code: str, *, timeout_sec: int = 300,
+            run_id: str | None = None) -> SandboxResult:
         """Run a single Python code string inside a container."""
         self._run_counter += 1
         staging = self.workdir / f"_docker_run_{self._run_counter}"
@@ -130,7 +204,10 @@ class DockerSandbox:
         # Inject experiment harness
         self._inject_harness(staging)
 
-        return self._execute(staging, entry_point="main.py", timeout_sec=timeout_sec)
+        return self._execute(
+            staging, entry_point="main.py", timeout_sec=timeout_sec,
+            run_id=run_id,
+        )
 
     def run_project(
         self,
@@ -140,6 +217,7 @@ class DockerSandbox:
         timeout_sec: int = 300,
         args: list[str] | None = None,
         env_overrides: dict[str, str] | None = None,
+        run_id: str | None = None,
     ) -> SandboxResult:
         """Run a multi-file experiment project inside a container."""
         self._run_counter += 1
@@ -197,6 +275,7 @@ class DockerSandbox:
             timeout_sec=timeout_sec,
             entry_args=args,
             env_overrides=env_overrides,
+            run_id=run_id,
         )
 
     # ------------------------------------------------------------------
@@ -269,6 +348,7 @@ class DockerSandbox:
         timeout_sec: int,
         entry_args: list[str] | None = None,
         env_overrides: dict[str, str] | None = None,
+        run_id: str | None = None,
     ) -> SandboxResult:
         """Core execution: single container, three-phase via entrypoint.sh."""
         cfg = self.config
@@ -285,10 +365,24 @@ class DockerSandbox:
             container_name=container_name,
             entry_args=entry_args,
             env_overrides=env_overrides,
+            run_id=run_id,
         )
+
+        # TTL guardian: only with an explicit run_id (never sweep other
+        # runs' containers) and only when enabled via ttl_sec > 0.
+        watcher: _TtlWatcher | None = None
+        if run_id and cfg.ttl_sec > 0:
+            watcher = _TtlWatcher(
+                container_name,
+                ttl_sec=cfg.ttl_sec,
+                kill_grace_sec=cfg.kill_grace_sec,
+                poll_sec=cfg.ttl_poll_sec,
+            )
+            watcher.start()
 
         start = time.monotonic()
         timed_out = False
+        inspected: tuple[bool, int] | None = None
         try:
             logger.debug("Docker run command: %s", cmd)
             completed = subprocess.run(
@@ -304,6 +398,10 @@ class DockerSandbox:
             stderr = completed.stderr
             returncode = completed.returncode
             elapsed = time.monotonic() - start
+            # Container state readback for falsifiable 137 attribution.
+            # Without --rm the container still exists here; unparseable
+            # output degrades to None (no fabricated attribution).
+            inspected = self._inspect_container(container_name)
         except subprocess.TimeoutExpired as exc:
             timed_out = True
             stdout = exc.stdout or ""
@@ -318,6 +416,9 @@ class DockerSandbox:
             elapsed = time.monotonic() - start
         except Exception as exc:  # noqa: BLE001
             elapsed = time.monotonic() - start
+            if watcher is not None:
+                watcher.stop()
+                watcher.join(timeout=cfg.kill_grace_sec + 1.0)
             return SandboxResult(
                 returncode=-1,
                 stdout="",
@@ -326,9 +427,13 @@ class DockerSandbox:
                 metrics={},
             )
         finally:
+            # TTL guardian must never outlive the execution.
+            if watcher is not None:
+                watcher.stop()
+                watcher.join(timeout=cfg.kill_grace_sec + 1.0)
             # Always clean up the container regardless of how we exit.
             # docker rm -f is idempotent: safe even if container was
-            # already removed by --rm, already dead, or never created.
+            # already removed, already dead, or never created.
             if not cfg.keep_containers:
                 self._remove_container(container_name)
 
@@ -359,6 +464,11 @@ class DockerSandbox:
             elapsed_sec=elapsed,
             metrics=metrics,
             timed_out=timed_out,
+            limit_reason=self._attribute_limit(
+                ttl_fired=(watcher.fired if watcher is not None else False),
+                timed_out=timed_out,
+                inspected=inspected,
+            ),
         )
 
     def _build_run_command(
@@ -369,6 +479,7 @@ class DockerSandbox:
         container_name: str,
         entry_args: list[str] | None = None,
         env_overrides: dict[str, str] | None = None,
+        run_id: str | None = None,
     ) -> list[str]:
         """Build the ``docker run`` command list.
 
@@ -378,17 +489,33 @@ class DockerSandbox:
           Phase 2: python3 <entry_point>
 
         Network policy determines --network and RC_SETUP_ONLY_NETWORK env.
+        No ``--rm``: the container must stay inspectable after exit so
+        OOM/137 can be attributed from ``State.OOMKilled``/``ExitCode``
+        (G4-M4 A4-3); cleanup is handled by the ``_execute`` finally block.
         """
         cfg = self.config
         cmd = [
             "docker", "run",
             "--name", container_name,
-            "--rm",
             "-v", f"{staging_dir}:/workspace",
             "-w", "/workspace",
             f"--memory={cfg.memory_limit_mb}m",
             f"--shm-size={cfg.shm_size_mb}m",
         ]
+
+        # --- Resource quotas (G4-M4 A4-2) ---
+        # NOTE: --cpus over-limit is throttling, never 137 (P-100 D-3);
+        # attribution must not treat a CPU-starved exit as OOM.
+        if cfg.cpu_limit > 0:
+            cmd.append(f"--cpus={cfg.cpu_limit:g}")
+        if cfg.pids_limit > 0:
+            cmd.append(f"--pids-limit={cfg.pids_limit}")
+
+        # --- Provenance labels ---
+        # rc.run ties the container to a pipeline run (TTL scope, forensics).
+        # rc.tool is omitted on the experiment path (no tool context here).
+        if run_id:
+            cmd.extend(["--label", f"rc.run={run_id}"])
 
         # --- Network policy ---
         # On POSIX, run the container as the host user so that files
@@ -565,6 +692,60 @@ class DockerSandbox:
                     detected.append(pip_name)
 
         return detected
+
+    @staticmethod
+    def _inspect_container(name: str) -> tuple[bool, int] | None:
+        """Read ``State.OOMKilled``/``State.ExitCode`` for a stopped container.
+
+        Returns ``(oomkilled, exitcode)`` on success, or ``None`` when the
+        inspect fails or the output is unparseable — attribution must never
+        be fabricated from a best-effort guess.
+        """
+        try:
+            cp = subprocess.run(
+                ["docker", "inspect", "--format",
+                 "{{.State.OOMKilled}} {{.State.ExitCode}}", name],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
+                check=False,
+            )
+            if cp.returncode != 0:
+                return None
+            parts = cp.stdout.strip().split()
+            if len(parts) != 2:
+                return None
+            oom = parts[0].strip().lower()
+            if oom not in ("true", "false"):
+                return None
+            return (oom == "true", int(parts[1]))
+        except (ValueError, FileNotFoundError, subprocess.TimeoutExpired,
+                OSError):
+            return None
+
+    @staticmethod
+    def _attribute_limit(
+        *,
+        ttl_fired: bool,
+        timed_out: bool,
+        inspected: tuple[bool, int] | None,
+    ) -> str | None:
+        """Single mapping from execution evidence to ``limit_reason``.
+
+        Priority (frozen in spec/arc-g4-m4-sandbox-limits/DESIGN.md §2.2 D-5,
+        M0 §6): ttl_timeout > resource_limit > timeout > None. This is the
+        ONLY place that interprets 137/TTL evidence — call sites must not
+        re-attribute.
+        """
+        if ttl_fired:
+            return "ttl_timeout"
+        if inspected is not None and (inspected[0] or inspected[1] == 137):
+            return "resource_limit"
+        if timed_out:
+            return "timeout"
+        return None
 
     @staticmethod
     def _kill_container(name: str) -> None:
