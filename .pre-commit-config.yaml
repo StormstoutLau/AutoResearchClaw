@@ -73,6 +73,13 @@ repos:
         pass_filenames: false
         files: ^docs/rework-graph\.json$
 
+      - id: ci-coverage
+        name: CI test coverage closure guard (D-5 / I-3)
+        entry: python scripts/spec/ci_coverage_check.py --check
+        language: system
+        pass_filenames: false
+        files: ^(tests/test_.*\.py|tests/ci_exclusions\.yaml)$
+
 # Deferred（登记不激活，依据 ADR-0010 懒加载）：
 #   - spec-runner-selftest  83 项中 4 项依赖 Spec_Workflow 自有 fixture
 #                     （spec/step-gate、ADR-0006、spec/independent-verify），

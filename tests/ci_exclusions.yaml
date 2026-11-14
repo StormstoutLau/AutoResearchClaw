@@ -1,0 +1,8 @@
+version: 1
+exclusions: []
+# 首条登记形态（占位示例，非现有文件）：
+#  - path: tests/test_<真实外部依赖用例>.py
+#    reason: 需要真实 <服务/守护进程>；runner 可用而本地开发者未必具备
+#    marker: heavy
+#    owner: P-112
+#    since: 2026-11-15

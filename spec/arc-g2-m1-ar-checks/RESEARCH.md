@@ -16,7 +16,7 @@ upstream: arc-g2-m0-contracts
 
 ## 1. 问题与边界
 
-R-03 §5.2 把 M1 定义为「八条机械化（AR-01..08）+ ClaimRecord」，DoD 为 **16 fixture + 8 条 pre-red 全绿**（[R-03 §5.2](../../arb-v2-decisions-research-design.md)），总纲对应验收为 **A2-2**（[总纲 §4 G2](../../arc-master-roadmap.md)）。本批回答：
+R-03 §5.2 把 M1 定义为「八条机械化（AR-01..08）+ ClaimRecord」，DoD 为 **16 fixture + 8 条 pre-red 全绿**（R-03 §5.2（`../../arb-v2-decisions-research-design.md`）），总纲对应验收为 **A2-2**（[总纲 §4 G2](../../arc-master-roadmap.md)）。本批回答：
 
 1. 每条判据的机械输入、判定条件与严重度如何落到代码；
 2. R-03 内部矛盾（AR-05 的 `claim_type`）如何在 v1 契约下解释；
@@ -29,7 +29,7 @@ R-03 §5.2 把 M1 定义为「八条机械化（AR-01..08）+ ClaimRecord」，D
 
 | # | 事实 | 证据 |
 |---|---|---|
-| F-1 | R-03 §3.3 逐条给出 AR-01..08 的判据与违反处置：AR-01/02 降级、AR-03/04/08 fail、AR-05/06 封顶、AR-07 fail/warn | [R-03 §3.3](../../arb-v2-decisions-research-design.md) |
+| F-1 | R-03 §3.3 逐条给出 AR-01..08 的判据与违反处置：AR-01/02 降级、AR-03/04/08 fail、AR-05/06 封顶、AR-07 fail/warn | R-03 §3.3（`../../arb-v2-decisions-research-design.md`） |
 | F-2 | **源冲突**：AR-05 写 `claim_type ∈ {model, method}`，但 R-03 §3.2 与 M0 的 C4 v1 把 `claim_type` 冻结为 `exploratory/confirmatory`，不含 `model/method` | R-03 §3.2/§3.3；[C4 schema](../../contracts/v1/c4_claim_record.schema.json) |
 | F-3 | C4/C5 已在**结构层**强制部分 AR-08（`snapshot ⇒ readonly`、`digest` 必填）；AR-08 仍需运行时检查：内存态记录、`inline_copy` 长度、以及 schema 之外的跨仓声明 | M0 实施；本批读码 |
 | F-4 | M0 契约位于 `contracts/v1/`，fixture 位于 `contracts/v1/fixtures/`；仓库 `tests/` 为扁平文件，无 `tests/fixtures/` 目录 | 本批清点 |
@@ -87,5 +87,5 @@ AR-05 的触发条件在 R-03 中写为「`claim_type ∈ {model, method}` 或 A
 
 ## 7. 引用
 
-1. 仓内：[R-02](../../academic-reasoning-base-fusion.md)、[R-03](../../arb-v2-decisions-research-design.md)、[总纲 G2](../../arc-master-roadmap.md)、[M0 契约](../../contracts/README.md)、`researchclaw/hitl/claim_verifier.py`。
+1. 仓内：R-02（`../../academic-reasoning-base-fusion.md`）、R-03（`../../arb-v2-decisions-research-design.md`）、[总纲 G2](../../arc-master-roadmap.md)、[M0 契约](../../contracts/README.md)、`researchclaw/hitl/claim_verifier.py`。
 2. 外部：S-1..S-4（§4 表，URL 已解析）。

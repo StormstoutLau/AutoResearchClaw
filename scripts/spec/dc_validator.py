@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import subprocess
 import sys
 from dataclasses import dataclass
 
@@ -349,15 +350,54 @@ def strip_inline_code(line):
     return "".join(out)
 
 
-def check_links(file, text, root=ROOT):
-    """M5：DC3 档 1——仓库内相对链接可解析。
+def _norm_rel(p):
+    """仓库相对路径归一：统一正斜杠 + normpath（与 --check-links 判定同口径）。"""
+    return os.path.normpath(p).replace("\\", "/")
+
+
+TRACKED: set[str] | None = None   # 进程级一次载入：{normpath(p) for p in git ls-files}
+_TRACKED_BY_ROOT: dict = {}
+
+
+def _load_tracked(root):
+    """一次 `git ls-files -z`；非 git 仓库根 ⇒ 空集 + 一行 skip 提示（不误红，DESIGN §4.1 O-3）。"""
+    probe = subprocess.run(["git", "-C", root, "rev-parse", "--show-toplevel"],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    top = probe.stdout.decode("utf-8", "replace").strip()
+    if probe.returncode != 0 or os.path.normcase(os.path.abspath(top)) != os.path.normcase(os.path.abspath(root)):
+        print("[skip] 非 git 仓库根：跳过入库校验（CI 恒在 git worktree 内执行，不受影响）")
+        return set()
+    proc = subprocess.run(["git", "-C", root, "ls-files", "-z"],
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if proc.returncode != 0:
+        print("[skip] git ls-files 执行失败：跳过入库校验")
+        return set()
+    return {_norm_rel(p.decode("utf-8", "replace")) for p in proc.stdout.split(b"\0") if p}
+
+
+def tracked_paths(root=ROOT):
+    """按 root 缓存的入库路径集合；root 为仓库根时同步填充模块级 TRACKED。"""
+    global TRACKED
+    root = os.path.abspath(root)
+    if root not in _TRACKED_BY_ROOT:
+        _TRACKED_BY_ROOT[root] = _load_tracked(root)
+        if root == os.path.abspath(ROOT):
+            TRACKED = _TRACKED_BY_ROOT[root]
+    return _TRACKED_BY_ROOT[root]
+
+
+def check_links(file, text, root=ROOT, tracked=None):
+    """M5：DC3 档 1——仓库内相对链接 (1) 可解析；(2) 目标在 git index 内。
 
     排除上下文（DR-3）：fenced code block / 引文行（引文: 或 "quote":）/ spec/templates/。
     P-090 增第四排除上下文：行内代码跨度（strip_inline_code，CommonMark 反引号配对标）。
     档 2-4 标注（链接文本前缀 源项目·/外部·/本地工具·）不跨仓解析。
+    tracked=None：有 .git 时一次 `git ls-files` 载入（按 root 缓存）；无 .git ⇒ 空集 skip。
     """
     if file.replace("\\", "/").startswith(TEMPLATE_DIR.replace("\\", "/")):
         return []
+    if tracked is None:
+        tracked = tracked_paths(root)
     results = []
     in_fence = False
     for i, ln in enumerate(text.splitlines(), 1):
@@ -378,8 +418,21 @@ def check_links(file, text, root=ROOT):
             if not p:
                 continue
             base = os.path.dirname(os.path.normpath(os.path.join(root, file)))
-            if not os.path.exists(os.path.normpath(os.path.join(base, p))):
+            target = os.path.normpath(os.path.join(base, p))
+            if not os.path.exists(target):
                 results.append(CheckResult("dc3", file, "P2", "档 1 相对链接不可解析: %s" % tgt, i))
+                continue
+            if tracked:
+                rel = _norm_rel(os.path.relpath(target, root))
+                if os.path.isdir(target):
+                    # 目录链接：该目录下至少有一个入库文件才视为「已入库」
+                    ok = rel in ("", ".") or any(t.startswith(rel + "/") for t in tracked)
+                else:
+                    ok = rel in tracked
+                if not ok:
+                    results.append(CheckResult(
+                        "dc3", file, "P2",
+                        "档 1 相对链接目标未入库（CI 将判红）：%s（修复：入库，或改为行内代码引用）" % p, i))
     return results
 
 
@@ -478,7 +531,7 @@ def _read(full):
         return fh.read()
 
 
-def run_checks(files, checks, root=ROOT):
+def run_checks(files, checks, root=ROOT, tracked=None):
     """逐文件检查（M2/M4/M5）+ 强制全仓 namespace（M3）。返回 list[CheckResult]。"""
     results = []
     for f in files:
@@ -493,7 +546,7 @@ def run_checks(files, checks, root=ROOT):
         if "counting" in checks:
             results += check_counting(f, text)
         if "links" in checks:
-            results += check_links(f, text, root)
+            results += check_links(f, text, root, tracked)
     if "namespace" in checks:
         results += check_namespace(gather_md_files(root), root)
     if "version_ref" in checks:
@@ -787,6 +840,29 @@ def run_selftest():
         f33 = w("f33.md", FM_OK + "\n```\n> **基于设计**: [DESIGN.md](./tgt27.md) v9.9\n```\n")
         r = check_version_refs([f33], root=tmp)
         expect(len(r) == 0, "F33 围栏内示例不触发")
+
+        # --- P-112 D-2：M5 档 1 增「目标在 git index 内」判定（tracked） ---
+        # F34 目标可解析但未入库 → P2（固定文案）
+        w("f34_target.md", FM_OK)
+        f34 = w("f34.md", FM_OK + "\n见 [t](./f34_target.md)\n")
+        r = check_links(f34, _read(os.path.join(tmp, f34)), root=tmp, tracked={"f34.md"})
+        expect(len(r) == 1 and r[0].severity == "P2" and "目标未入库" in r[0].message,
+               "F34 未入库链接判 P2")
+
+        # F35 目标已入库 → 不判
+        f35 = w("f35.md", FM_OK + "\n见 [t](./f34_target.md)\n")
+        r = check_links(f35, _read(os.path.join(tmp, f35)), root=tmp,
+                        tracked={"f35.md", "f34_target.md"})
+        expect(len(r) == 0, "F35 已入库链接不判")
+
+        # F36 无 .git ⇒ 空集 skip，不误红（tracked=None 自动载入路径）
+        r = check_links(f34, _read(os.path.join(tmp, f34)), root=tmp)
+        expect(len(r) == 0, "F36 非 git 工作树空集 skip 不误红")
+
+        # F37 行内代码中的同名链接不参与判定
+        f37 = w("f37.md", FM_OK + "\n示例 `[t](./f34_target.md)` 不判定\n")
+        r = check_links(f37, _read(os.path.join(tmp, f37)), root=tmp, tracked={"f37.md"})
+        expect(len(r) == 0, "F37 行内代码不参与入库判定")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

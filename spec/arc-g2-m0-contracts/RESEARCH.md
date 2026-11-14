@@ -16,7 +16,7 @@ upstream: arc-g2-decisions
 
 ## 1. 问题与边界
 
-R-03 把 M0 定义为「契约 v1 + Spec 引导（S0）」，DoD 为 **7 契约 schema + 6 钩子可跑**（[R-03 §5.2](../../arb-v2-decisions-research-design.md)）。需要回答四件事：
+R-03 把 M0 定义为「契约 v1 + Spec 引导（S0）」，DoD 为 **7 契约 schema + 6 钩子可跑**（R-03 §5.2（`../../arb-v2-decisions-research-design.md`））。需要回答四件事：
 
 1. 「6 钩子」是否仍需本批交付，还是已由既有治理基座满足；
 2. 7 份契约的字段以哪份材料为真值源（R-02 §6.3 的抽象清单 vs R-03 §3.2 的 `ClaimRecord v1`）；
@@ -29,8 +29,8 @@ R-03 把 M0 定义为「契约 v1 + Spec 引导（S0）」，DoD 为 **7 契约 
 
 | # | 事实 | 证据 |
 |---|---|---|
-| F-1 | R-02 §6.3 定义 7 个跨层契约：C1 `RunEnvelope`、C2 `TaskContract`、C3 `GateResult`、C4 `ClaimRecord`、C5 `EvidenceRef`、C6 `ModelRole`、C7 `DerivedView`，并给出各自核心字段 | [R-02 §6.3](../../academic-reasoning-base-fusion.md) |
-| F-2 | R-03 §3.2 把 C4 具体化为 `ClaimRecord v1`：16 个顶层字段（`claim_id`…`policy_version`），`status` 7 值、`verification_depth` 4 值、`claim_class` A/B/C | [R-03 §3.2](../../arb-v2-decisions-research-design.md) |
+| F-1 | R-02 §6.3 定义 7 个跨层契约：C1 `RunEnvelope`、C2 `TaskContract`、C3 `GateResult`、C4 `ClaimRecord`、C5 `EvidenceRef`、C6 `ModelRole`、C7 `DerivedView`，并给出各自核心字段 | R-02 §6.3（`../../academic-reasoning-base-fusion.md`） |
+| F-2 | R-03 §3.2 把 C4 具体化为 `ClaimRecord v1`：16 个顶层字段（`claim_id`…`policy_version`），`status` 7 值、`verification_depth` 4 值、`claim_class` A/B/C | R-03 §3.2（`../../arb-v2-decisions-research-design.md`） |
 | F-3 | AP 的 `CitationLabel` 是 **6 个 lowercase 字符串值**（`formally_verified`…`failed`），`CURRENT_POLICY_VERSION = 2`；C4 的 `status` 在其上追加 `speculation` | `F:\Auto_Prover\proof_pipeline\datatypes\core.py:23-34` |
 | F-4 | ARC 当前**没有** `contracts/` 目录，也**没有**任何 `jsonschema` 依赖或用法 | 本批穷举检索 |
 | F-5 | ARC CI 的 tests job 安装 `.[dev,server,mcp]`，并运行一份**固定**的契约测试文件清单；新增测试文件必须显式加入该清单才会在 CI 执行 | [ci.yml](../../.github/workflows/ci.yml) |
@@ -97,5 +97,5 @@ R-03 把 M0 定义为「契约 v1 + Spec 引导（S0）」，DoD 为 **7 契约 
 
 ## 7. 引用
 
-1. 仓内：[R-02](../../academic-reasoning-base-fusion.md)、[R-03](../../arb-v2-decisions-research-design.md)、[总纲 G2](../../arc-master-roadmap.md)、[P-042](../arc-g2-decisions/RESEARCH.md)、[P-045](../arc-g2-py311-env/RESEARCH.md)、`researchclaw/hitl/claim_verifier.py`、`pyproject.toml`、`.github/workflows/ci.yml`。
+1. 仓内：R-02（`../../academic-reasoning-base-fusion.md`）、R-03（`../../arb-v2-decisions-research-design.md`）、[总纲 G2](../../arc-master-roadmap.md)、[P-042](../arc-g2-decisions/RESEARCH.md)、[P-045](../arc-g2-py311-env/RESEARCH.md)、`researchclaw/hitl/claim_verifier.py`、`pyproject.toml`、`.github/workflows/ci.yml`。
 2. 外部：S-1..S-5（§3 表，URL 已解析）。

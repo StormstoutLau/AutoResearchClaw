@@ -12,7 +12,7 @@ upstream: arc-g3-m0-design-DESIGN
 
 > **Feature**：P-078，G3 M2（`stage_events.jsonl` + 循环护栏 + `events.jsonl:pipeline.summary` 三向核对）。
 > **Spec 步骤**：Step 1-2。
-> **输入**：M0 设计冻结 [DESIGN §4/§5/§10](../arc-g3-m0-design/DESIGN.md)；P-077 复核缺陷 D-2（事件链尾锚可被覆盖）与 O-4（坏行语义不一致）[复核报告](../../docs/arc-g3-m1-review-20261112.md)；FC-1..FC-3 与护栏背景 [failure-guards-design](../../docs/failure-guards-design.md)。
+> **输入**：M0 设计冻结 [DESIGN §4/§5/§10](../arc-g3-m0-design/DESIGN.md)；P-077 复核缺陷 D-2（事件链尾锚可被覆盖）与 O-4（坏行语义不一致）[复核报告](../../docs/arc-g3-m1-review-20261112.md)；FC-1..FC-3 与护栏背景 `docs/failure-guards-design.md`。
 
 ## 1. 调研目标
 

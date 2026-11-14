@@ -156,5 +156,5 @@ uv pip install --python "$venv\Scripts\python.exe" pytest numpy
 
 ## 9. 引用
 
-1. 仓内：`F:\Auto_Prover\pyproject.toml`、`proof_pipeline/sandbox/{evaluator,limits}.py`、`proof_pipeline/stages/stage2_numerical.py`、`tests/test_{d110_verdict_policy,d110_verdict_recheck,semantic_verdict}.py`；[testset-3.11.txt](testset-3.11.txt)；[R-03 §1](../../arb-v2-decisions-research-design.md)、[P-042 §8](../arc-g2-decisions/RESEARCH.md)。AP 修复：`bd95f02`（evaluator + W8 用例 + CHANGELOG v3.58-d173 + DECISIONS D173）。
+1. 仓内：`F:\Auto_Prover\pyproject.toml`、`proof_pipeline/sandbox/{evaluator,limits}.py`、`proof_pipeline/stages/stage2_numerical.py`、`tests/test_{d110_verdict_policy,d110_verdict_recheck,semantic_verdict}.py`；[testset-3.11.txt](testset-3.11.txt)；R-03 §1（`../../arb-v2-decisions-research-design.md`）、[P-042 §8](../arc-g2-decisions/RESEARCH.md)。AP 修复：`bd95f02`（evaluator + W8 用例 + CHANGELOG v3.58-d173 + DECISIONS D173）。
 2. 外部：S-1..S-12（§4 表，URL 已逐条解析）。

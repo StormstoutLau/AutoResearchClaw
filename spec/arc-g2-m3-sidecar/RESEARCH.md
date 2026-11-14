@@ -358,5 +358,5 @@ A/D 用本地 4.20 工程；B/C/E/F 不需要真实 Lean 或只需极短运行�
 
 ## 12. 引用
 
-1. 仓内：[R-03 §2.3/§5.2](../../arb-v2-decisions-research-design.md)、[总纲 G2](../../arc-master-roadmap.md)、[P-042 §8](../arc-g2-decisions/RESEARCH.md)、[P-045](../arc-g2-py311-env/RESEARCH.md)、[P-049](../arc-g2-m2-vendor/IMPLEMENTATION.md)、`F:\Auto_Prover\proof_pipeline\{config,lean4_project,model_gateway}.py`、`stages/proving_runtime.py`、`lean_meta/extract.py`。
+1. 仓内：R-03 §2.3/§5.2（`../../arb-v2-decisions-research-design.md`）、[总纲 G2](../../arc-master-roadmap.md)、[P-042 §8](../arc-g2-decisions/RESEARCH.md)、[P-045](../arc-g2-py311-env/RESEARCH.md)、[P-049](../arc-g2-m2-vendor/IMPLEMENTATION.md)、`F:\Auto_Prover\proof_pipeline\{config,lean4_project,model_gateway}.py`、`stages/proving_runtime.py`、`lean_meta/extract.py`。
 2. 外部：S-1..S-24（§5 表，URL 已逐条解析）；工程先例 C-1..C-7（§5.1）。

@@ -15,7 +15,7 @@ upstream: arc-g4-m0-design-RESEARCH
 > **状态**: verified（Step 2 Review 自查 + §5.4 异构复审：U-1..U-4 全部成立，订正 3 处已回填）
 > **Spec 步骤**: Step 1-2（本轮只做调研，不改代码）
 > **修订**: v1.0（2026-11-13）初稿（AST 盘点 + HostProfile 草案 + U-1..U-4 登记）→ **v1.1**（2026-11-13）新增 §6.6：U-1..U-4 方案比选、注入点裁决、外部先例（MCP SDK / sudo / Bandit / CWE-22），并补测 hardware.py 首行折叠与 8 个后端清点 → **v1.2**（2026-11-14）§5.4 异构复审（U-1..U-4 全部成立）；订正 3 处回填（HF_HUB_CACHE 措辞 / pipeline/ 路径消歧 / shell=True 口径限 researchclaw/**）；新发现 ssh 命令行前缀 env 形态与 tools 域 shell=True 转 DESIGN
-> **上游依据**: [M0 DESIGN §7/§8/§9/§10](../arc-g4-m0-design/DESIGN.md)、[M0 RESEARCH A4-7/A4-8](../arc-g4-m0-design/RESEARCH.md)、[P-100 复核 X-6](../../docs/arc-g4-m0-design-review-20261114.md)、[G4 中期盘点](../../docs/arc-g4-midpoint-20261113.md)
+> **上游依据**: [M0 DESIGN §7/§8/§9/§10](../arc-g4-m0-design/DESIGN.md)、[M0 RESEARCH A4-7/A4-8](../arc-g4-m0-design/RESEARCH.md)、[P-100 复核 X-6](../../docs/arc-g4-m0-design-review-20261114.md)、G4 中期盘点（`../../docs/arc-g4-midpoint-20261113.md`）
 > **基线**: `5cf14e7`（P-105 收敛批已推送）
 
 ---
@@ -308,7 +308,7 @@ def detect_host_profile(
 - [M0 RESEARCH](../arc-g4-m0-design/RESEARCH.md)（A4-7/A4-8 现状计数，本文 F-3/F-6 已订正）
 - [P-102 复核](../../docs/arc-g4-m1-registry-review-20261114.md)（X-6 AST 守卫精度）
 - [P-105 调研](../arc-g4-m4-sandbox-limits/RESEARCH.md)（真值源分层 D-Q1=C 先例）
-- [G4 中期盘点](../../docs/arc-g4-midpoint-20261113.md)（未入仓工作区文档；计数以本文为准）
+- G4 中期盘点（`../../docs/arc-g4-midpoint-20261113.md`）（未入仓工作区文档；计数以本文为准）
 - Python 3 官方文档：`subprocess.Popen`（env/shell 语义）、`pathlib.Path.resolve`
 - MCP Python SDK 官方文档：`mcp.shared.path_security`（safe_join 同语义实现 + TOCTOU 声明）
 - sudo 手册：`env_reset` / `env_keep`（最小环境 + 白名单）

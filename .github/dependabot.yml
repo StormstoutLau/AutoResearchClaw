@@ -1,0 +1,18 @@
+version: 2
+# P-112 D-6：单维护者仓库，monthly 分组，避免逐条 PR 淹没 CI 修复批。
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: monthly
+    groups:
+      python-deps:
+        patterns: ["*"]

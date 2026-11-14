@@ -14,7 +14,7 @@ upstream: arc-master-roadmap
 > **Spec 步骤**：T3 轻批（Layer-0：本文件 + session + PROGRESS 行 + 总纲 Q1/Q2 状态；零代码/零门禁）。
 > **修订**：v1.1（2026-11-10，P-043）**U-1 关闭**——AP 已采用 **Apache-2.0**（`LICENSE` 官方全文、`NOTICE`、PEP 639 元数据 `License-Expression: Apache-2.0` / `License-File: LICENSE, NOTICE` 均已验证）；Q2 的 L-1 许可证闸门解除，并新增 §8 vendor 合规要求。
 > **修订**：v1.2（2026-11-11，P-044）**I-8 关闭**——`atlas_*.py`（9 个）与 `lean4_cases`（23 条）经一手比对确认均为作者自有代码，无第三方归属要求；结论与证据落 AP `THIRD_PARTY_NOTICES.md`（commit `1ded9be`），§8.4 审计闸门关闭；Q2 自此无保留。
-> **优先级声明**：本文件 **取代** [R-03 §1.3/§2.3/§7](../../arb-v2-decisions-research-design.md) 的「建议」为正式裁决；R-03 原文不改（追加式证据）。
+> **优先级声明**：本文件 **取代** R-03 §1.3/§2.3/§7（`../../arb-v2-decisions-research-design.md`） 的「建议」为正式裁决；R-03 原文不改（追加式证据）。
 
 ## 1. 问题与判据
 
@@ -188,6 +188,6 @@ researchclaw/vendor/auto_prover/
 
 ## 9. 引用
 
-1. 仓内：[R-03](../../arb-v2-decisions-research-design.md) §1-§2/§7、[总纲 §4 G2 / §7](../../arc-master-roadmap.md)、`hitl/claim_verifier.py`、`pyproject.toml`、`.github/workflows/ci.yml`。
+1. 仓内：R-03（`../../arb-v2-decisions-research-design.md`） §1-§2/§7、[总纲 §4 G2 / §7](../../arc-master-roadmap.md)、`hitl/claim_verifier.py`、`pyproject.toml`、`.github/workflows/ci.yml`。
 2. 本地上游：`F:\Auto_Prover\pyproject.toml`、`proof_pipeline/{datatypes,verdict,sandbox}/`（HEAD `63565bd`，2026-11-11）。
 3. 外部：S-1..S-13（§3 表，URL/DOI 已逐条解析）。

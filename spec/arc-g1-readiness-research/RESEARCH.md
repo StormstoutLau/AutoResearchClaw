@@ -186,4 +186,4 @@ upstream: arc-master-roadmap
 12. NIST. *SP 800-92 Guide to Computer Security Log Management*. https://csrc.nist.gov/pubs/itlb/2006/10/log-management-using-computer-and-network-records/final
 13. EUR-Lex. *Regulation (EU) 2016/679* Art. 5(1)(e), Art. 89(1).
 14. Microsoft. *Event Sourcing Pattern — Azure Architecture Center*. https://learn.microsoft.com/en-us/Azure/Architecture/patterns/event-sourcing
-15. 仓内：[clawsgo-cleanroom-arc-reinforcement.md](../../clawsgo-cleanroom-arc-reinforcement.md) R0/R1；[dsh-superagent-absorption-analysis.md](../../dsh-superagent-absorption-analysis.md)
+15. 仓内：`../../clawsgo-cleanroom-arc-reinforcement.md` R0/R1；`../../dsh-superagent-absorption-analysis.md`

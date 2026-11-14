@@ -3,17 +3,27 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:        # D-4：允许手动触发排障与重跑
+
+permissions:
+  contents: read            # D-4：最小权限（显式收紧 GITHUB_TOKEN）
+
+concurrency:                # D-4：同分支连续 push 取消前序 run
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   packaging:
     name: Packaging / wheel smoke
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
+          cache: pip            # D-4：依赖缓存（复用 runner 本机 pip 缓存目录）
 
       - name: Install build tooling
         run: |
@@ -64,12 +74,14 @@ jobs:
   extras:
     name: Extras import
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
+          cache: pip
 
       - name: Install optional extras
         run: |
@@ -86,6 +98,7 @@ jobs:
   tests:
     name: Tests (${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -95,76 +108,32 @@ jobs:
             experimental: true
     continue-on-error: ${{ matrix.experimental || false }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
 
       - name: Install dev dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev,server,mcp]"
 
-      - name: Run contract tests
-        run: |
-          python -m pytest \
-            tests/test_packaging.py \
-            tests/test_run_state.py \
-            tests/test_frontend_mount.py \
-            tests/test_mcp.py \
-            tests/test_mcp_protocol.py \
-            tests/test_simulated_guard.py \
-            tests/test_cost_tracker.py \
-            tests/test_docs_and_adapters.py \
-            tests/test_rc_config.py \
-            tests/test_cli.py \
-            tests/test_stage12_returncode.py \
-            tests/test_stage_retries.py \
-            tests/test_claim_verifier_wiring.py \
-            tests/test_contracts_v1.py \
-            tests/test_g2_ar_checks.py \
-            tests/test_vendor_auto_prover.py \
-            tests/test_vendor_d110_verdict_policy.py \
-            tests/test_vendor_d110_verdict_recheck.py \
-            tests/test_vendor_semantic_verdict.py \
-            tests/test_evidence_sidecar.py \
-            tests/test_evidence_sidecar_live.py \
-            tests/test_claim_policy.py \
-            tests/test_claim_spine.py \
-            tests/test_mandate.py \
-            tests/test_k5_refs.py \
-            tests/test_k5_wiring.py \
-            tests/test_tool_registry.py \
-            tests/test_mcp_dynamic_tools.py \
-            tests/test_tool_events.py \
-            tests/test_stage_claim_hooks.py \
-            tests/test_offline_audit.py \
-            tests/test_artifact_node.py \
-            tests/test_pipeline_summary_check.py \
-            tests/test_stage_events.py \
-            tests/test_filelock.py \
-            tests/test_spec_map_tiers.py \
-            tests/test_retrieval_degraded.py \
-            tests/test_forged_execution_guards.py \
-            tests/test_env_allowlist.py \
-            tests/test_safe_join.py \
-            tests/test_boundary_coverage.py \
-            tests/test_host_profile.py \
-            tests/test_cors_default.py \
-            tests/test_rc_docker_sandbox.py \
-            tests/test_sandbox_boundary.py \
-            -q
+      - name: Run contract tests (full collection, D-5)
+        run: python -m pytest tests -m "not heavy" -q
 
   roadmap-coverage:
     name: Roadmap coverage gates
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
+          cache: pip
 
       - name: Acceptance coverage check (D-6)
         run: python scripts/spec/roadmap_coverage_check.py --check
@@ -179,14 +148,16 @@ jobs:
     # A0-6：六必需钩子 + 三额外守卫全量运行；不依赖 tests 产物，与 3.11–3.13 矩阵并行。
     name: Spec gates (pre-commit all-files)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0        # P-081：range 兜底需要 before/base 的祖先可见
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
+          cache: pip
 
       - name: Install runtimes
         run: |
@@ -200,6 +171,8 @@ jobs:
           python scripts/spec/m7_stats.py
           python scripts/spec/repo_stats.py --check
           python scripts/spec/blackbox_check.py
+          python scripts/spec/ci_coverage_check.py --selftest   # I-6：本地与 CI 同判
+          python scripts/spec/ci_coverage_check.py --check
 
       - name: Batch binding on the pushed range (P-081)
         env:

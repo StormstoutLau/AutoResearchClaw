@@ -18,7 +18,7 @@ upstream: arc-g2-m4-wiring-fixes
 
 | # | 事实 | 证据 |
 |---|---|---|
-| F-1 | R-03 §5.1 裁定：审查平面是 ARC 的**离线批次模式**（`arb audit`），不是独立进程/入口 | [`arb-v2-decisions-research-design.md`](../../arb-v2-decisions-research-design.md) §5.1「变化点」 |
+| F-1 | R-03 §5.1 裁定：审查平面是 ARC 的**离线批次模式**（`arb audit`），不是独立进程/入口 | `../../arb-v2-decisions-research-design.md` §5.1「变化点」 |
 | F-2 | R-03 §5.2 M5 DoD：同一 claim 生产/审查同 `status`（同 `policy_version`） | 同上 §5.2 里程碑表 |
 | F-3 | M4 后判定唯一入口是 `evaluate_claim`；`audit_claim` 是其无 IO 别名；Stage 23 经 `compare_claims` 比对 | [`claim_policy.py`](../../researchclaw/evidence/claim_policy.py)、[`stage_hooks.py`](../../researchclaw/evidence/stage_hooks.py) |
 | F-4 | C4 每条 claim 自带 `policy_version`（必填、integer≥1）；Stage 9 写 `CURRENT_POLICY_VERSION`；gate 不改写该字段 | [`c4_claim_record.schema.json`](../../contracts/v1/c4_claim_record.schema.json)、`build_claim_records` |

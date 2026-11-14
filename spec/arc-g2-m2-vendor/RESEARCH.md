@@ -29,7 +29,7 @@ R-03 §5.2 的 M2 DoD 是「3.11 内核子集 vendor（policy/sandbox/ledger）�
 
 | # | 事实 | 证据 |
 |---|---|---|
-| F-1 | M2 DoD = 65 项判定测试迁入 ARC 并绿；测试集已在 G2 开工时冻结 | [R-03 §5.2](../../arb-v2-decisions-research-design.md)；[testset-3.11.txt](../arc-g2-py311-env/testset-3.11.txt) |
+| F-1 | M2 DoD = 65 项判定测试迁入 ARC 并绿；测试集已在 G2 开工时冻结 | R-03 §5.2（`../../arb-v2-decisions-research-design.md`）；[testset-3.11.txt](../arc-g2-py311-env/testset-3.11.txt) |
 | F-2 | 冻结集拆分：`test_d110_verdict_policy` 23 + `test_d110_verdict_recheck` 3 + `test_semantic_verdict` 39 = **65** | 冻结清单按文件分组 |
 | F-3 | 只复制 datatypes/verdict/sandbox 三包时，65 项中 **4 项失败**：2 项缺 `proof_pipeline.kg`，2 项缺 `proof_pipeline.stages` | 本批探针（临时目录，65 → 61 passed/4 failed） |
 | F-4 | 补齐闭包后 65 项全绿；闭包共 **27 个内核文件**：datatypes 9、verdict 3、sandbox 4、semantic_verdict 1、model_gateway 1、kg 3、stages 5、scripts 1 | 本批探针 + `SOURCE.json` |
@@ -86,5 +86,5 @@ R-03 §5.2 的 M2 DoD 是「3.11 内核子集 vendor（policy/sandbox/ledger）�
 
 ## 7. 引用
 
-1. 仓内：[R-03](../../arb-v2-decisions-research-design.md)、[总纲 G2](../../arc-master-roadmap.md)、[P-042 §8](../arc-g2-decisions/RESEARCH.md)、[P-046 冻结清单](../arc-g2-py311-env/testset-3.11.txt)、`researchclaw/vendor/auto_prover/SOURCE.json`。
+1. 仓内：R-03（`../../arb-v2-decisions-research-design.md`）、[总纲 G2](../../arc-master-roadmap.md)、[P-042 §8](../arc-g2-decisions/RESEARCH.md)、[P-046 冻结清单](../arc-g2-py311-env/testset-3.11.txt)、`researchclaw/vendor/auto_prover/SOURCE.json`。
 2. 外部：S-1..S-4（§4 表，URL 已解析）。
