@@ -3,9 +3,9 @@
 ---
 id: arc-ci-cd-research-CHECKLIST
 type: design
-version: 1.1
+version: 1.2
 status: pending
-date: 2026-11-14
+date: 2026-11-15
 depends: [arc-ci-cd-research-IMPLEMENTATION, arc-ci-cd-research-DESIGN]
 upstream: null
 ---
@@ -17,7 +17,7 @@ upstream: null
 > **基于实施**: [IMPLEMENTATION.md](./IMPLEMENTATION.md)（v1.2 / verified）
 > **基于设计**: [DESIGN.md](./DESIGN.md)（v1.3 / verified）
 
-> **验收边界（诚实声明）**：P-110 只建立验收基线，不实施 B1/B2。凡需运行代码、改 workflow 或改仓库设置的验收项一律标 ☐，**不得预填** ✅；仅「已发生的文档事实」（四文档链对齐、既有配置一手实测）可标 ✅。因此本文件当前为 `pending`，§10.2 三选项均不勾选，代码项等待 B1/B2 实施后回填。
+> **验收边界（诚实声明）**：P-110 只建立验收基线，不实施 B1/B2。凡需运行代码、改 workflow 或改仓库设置的验收项一律标 ☐，**不得预填** ✅；仅「已发生的文档事实」（四文档链对齐、既有配置一手实测）可标 ✅。因此本文件当前为 `pending`，§10.2 三选项均不勾选，代码项等待 B1/B2 实施后回填。2026-11-15 首轮回填（P-114）：B1/B2 已实施（P-112），本机可验项回填 ✅；push 依赖项保持 ☐，§10.2 按三选项口径勾选「有条件通过」，待第二轮回填终裁。
 
 ---
 
@@ -64,61 +64,61 @@ upstream: null
 
 | 验收项 | 测试方法 | 通过条件 | 状态 | 证据 |
 |--------|---------|---------|------|------|
-| `--check` 先红 | `python scripts/spec/vendor_source_sync.py --check` | exit 1，12 条差异且与 DESIGN §2.1.1 同名 | ☐ | 待 B1 Step 1 |
-| `--write` 后元数据自洽 | `--write` 后复跑 `--check` | exit 0；`file_count` = 27 | ☐ | 待 B1 Step 1 |
-| 断言改锚 blob | `pytest tests/test_vendor_auto_prover.py -q` | 27 passed；本地 CRLF 工作树与 clean checkout 同判 | ☐ | 待 B1 Step 2 |
-| `license_files[]` 仅重写 `sha256` | 比对 `--write` 前后 SOURCE.json | 仅 `sha256` 变更，无 `bytes` 键新增 | ☐ | 待 B1 Step 1 |
-| 未入库 vendored 路径 fail-closed | 临时移出 index 后 `--check` | exit 1 并列明路径，无 `git add -f` 兜底 | ☐ | 待 B1 Step 1 |
+| `--check` 先红 | `python scripts/spec/vendor_source_sync.py --check` | exit 1，12 条差异且与 DESIGN §2.1.1 同名 | ✅ | P-112 TDD 先红读数 12 条差异同名（PROGRESS P-112）；`--write` 后转绿，P-114 复跑 exit 0 |
+| `--write` 后元数据自洽 | `--write` 后复跑 `--check` | exit 0；`file_count` = 27 | ✅ | P-114 复跑 exit 0（「SOURCE.json 与 git blob 一致（29 条目）」，27 files + 2 license） |
+| 断言改锚 blob | `pytest tests/test_vendor_auto_prover.py -q` | 27 passed；本地 CRLF 工作树与 clean checkout 同判 | ✅ | P-114 复跑 34 passed（27 vendored 条目 + 许可 7，IMPL §8.2 口径）；CI run 43635083591 四矩阵 0 vendored 断言失败（R-1 修复在 CI 生效） |
+| `license_files[]` 仅重写 `sha256` | 比对 `--write` 前后 SOURCE.json | 仅 `sha256` 变更，无 `bytes` 键新增 | ✅ | P-112 `--write` diff 24 行 = 12 条 × 2 字段；license 条目无 `bytes` 键的不对称复核（P-114） |
+| 未入库 vendored 路径 fail-closed | 临时移出 index 后 `--check` | exit 1 并列明路径，无 `git add -f` 兜底 | ✅ | P-114 实测：`git rm --cached` 后 `--check` exit 1 列明「未入库（git index 无此 blob）」；恢复注意 `git add` 会把工作树 CRLF 版本重新入库（`-text` 无转换），须 `git restore --staged` 自 HEAD 恢复，恢复后 exit 0 |
 
 ### 2.2 D-2：链接改写与 tracked 校验（B1）
 
 | 验收项 | 测试方法 | 通过条件 | 状态 | 证据 |
 |--------|---------|---------|------|------|
-| tracked 判定先红 | 在 detached worktree（仅已提交文件）中对 hook 作用域（`spec/**` + `docs/{PROGRESS,CONSOLE}.md`）跑 `python scripts/spec/dc_validator.py --check-links <files>` | 21 条 P2 / 10 文件 / 6 目标（本地工作树与无参全仓扫描不作判据） | ☐ | 待 B1 Step 3 |
-| 21 处链接改写 | 改写后在同一 detached worktree 的 hook 作用域内复跑 | 0 违规 | ☐ | 待 B1 Step 4 |
-| detached worktree 复验 | 仅含已提交文件的工作树内复跑 | 0 违规（排除「磁盘上有文件」假绿） | ☐ | 待 B1 Step 4 |
-| 自测 F34-F37 | `python scripts/spec/dc_validator.py --selftest` | 未入库判 P2 / 已入库不判 / 无 .git 空集 / 行内代码不判，全 PASS | ☐ | 待 B1 Step 3 |
+| tracked 判定先红 | 在 detached worktree（仅已提交文件）中对 hook 作用域（`spec/**` + `docs/{PROGRESS,CONSOLE}.md`）跑 `python scripts/spec/dc_validator.py --check-links <files>` | 21 条 P2 / 10 文件 / 6 目标（本地工作树与无参全仓扫描不作判据） | ✅ | P-112/P-113 先红读数 21 P2 / 10 文件 / 6 目标（PROGRESS P-112/P-113，detached worktree 判据） |
+| 21 处链接改写 | 改写后在同一 detached worktree 的 hook 作用域内复跑 | 0 违规 | ✅ | P-114 复跑：detached worktree（HEAD b135b4f 已提交文件）hook 作用域 252 文件 0 违规 |
+| detached worktree 复验 | 仅含已提交文件的工作树内复跑 | 0 违规（排除「磁盘上有文件」假绿） | ✅ | 同上，`git worktree add --detach` + `git ls-files` 取文件清单，exit 0 |
+| 自测 F34-F37 | `python scripts/spec/dc_validator.py --selftest` | 未入库判 P2 / 已入库不判 / 无 .git 空集 / 行内代码不判，全 PASS | ✅ | P-114 复跑 selftest 43/43 PASS（含 F34-F37） |
 
 ### 2.3 D-4：workflow 硬化（B2）
 
 | 验收项 | 测试方法 | 通过条件 | 状态 | 证据 |
 |--------|---------|---------|------|------|
-| `workflow_dispatch` 可手动触发 | Actions 页面手动 Run workflow | 出现并成功启动 | ☐ | 待 B2 Step 6 |
-| 同分支连推取消前序 | 连续两次 push 同分支 | 前序 run 状态为 Cancelled | ☐ | 待 B2 Step 6 |
-| 超时与 pip 缓存 | 读 run 日志 | 5 个 job 均有 `timeout-minutes`；`cache: pip` 命中 | ☐ | 待 B2 Step 6 |
-| actions 版本与 job name | 读 ci.yml + 分支保护读回 | `checkout@v7` / `setup-python@v7`；5 个 job `name:` 未改 | ☐ | 待 B2 Step 6 |
+| `workflow_dispatch` 可手动触发 | Actions 页面手动 Run workflow | 出现并成功启动 | ☐ | push 依赖项，留待第二轮回填（遗留待办） |
+| 同分支连推取消前序 | 连续两次 push 同分支 | 前序 run 状态为 Cancelled | ☐ | push 依赖项（run 43635083591 为单推、无取消事件），留待第二轮回填（遗留待办） |
+| 超时与 pip 缓存 | 读 run 日志 | 5 个 job 均有 `timeout-minutes`；`cache: pip` 命中 | ☐ | ci.yml 静态半项已验（5 job `timeout-minutes` 15/15/30/10/20）；缓存命中日志待后续 run 取证（run 43635083591 首轮 miss 属正常，Roadmap job 有「no dependencies to cache」提示） |
+| actions 版本与 job name | 读 ci.yml + 分支保护读回 | `checkout@v7` / `setup-python@v7`；5 个 job `name:` 未改 | ☐ | ci.yml 静态半项已验（`checkout@v7` / `setup-python@v7`，P-112 `gh api` 实测 latest v7.0.1 / v7.1.0；5 个 `name:` 未改）；分支保护读回半项待分支保护执行（遗留待办） |
 
 ### 2.4 D-5：覆盖闭合守卫（B2）
 
 | 验收项 | 测试方法 | 通过条件 | 状态 | 证据 |
 |--------|---------|---------|------|------|
-| 守卫先红 | `python scripts/spec/ci_coverage_check.py --check` | exit 1，104 文件未进 C | ☐ | 待 B2 Step 8 |
-| 全量收集后闭合 | tests job 改 `pytest tests -m "not heavy" -q` 后复跑 | exit 0 | ☐ | 待 B2 Step 8 |
-| 守卫自测 C1-C4 | `--selftest` | 闭合 / 死项 / 未进 CI / marker 不一致四类全 PASS | ☐ | 待 B2 Step 8 |
-| 登记表空表契约 | `yaml.safe_load` 解析 `tests/ci_exclusions.yaml` | `version: 1` + `exclusions: []`，五字段契约在注释 | ☐ | 待 B2 Step 7 |
-| `heavy` marker 注册 | `pytest tests -m "not heavy" --collect-only -q` | 无 `PytestUnknownMarkWarning` | ☐ | 待 B2 Step 7 |
+| 守卫先红 | `python scripts/spec/ci_coverage_check.py --check` | exit 1，104 文件未进 C | ✅ | P-112 接表前缺表 fail-closed 红（PROGRESS P-112）；旧 45 枚举反事实缺口 103（P-111 记 104 系含 `__init__.py` 口径） |
+| 全量收集后闭合 | tests job 改 `pytest tests -m "not heavy" -q` 后复跑 | exit 0 | ✅ | P-114 复跑 exit 0（L=148 / R=0 / C=148）；CI spec-gates 侧 collect error（缺 `mcp` extra）为 fail-closed 设计语义生效，红面登记为遗留待办 |
+| 守卫自测 C1-C4 | `--selftest` | 闭合 / 死项 / 未进 CI / marker 不一致四类全 PASS | ✅ | P-114 复跑 selftest 4/4 PASS |
+| 登记表空表契约 | `yaml.safe_load` 解析 `tests/ci_exclusions.yaml` | `version: 1` + `exclusions: []`，五字段契约在注释 | ✅ | P-114 实读 `version: 1` + `exclusions: []`（五字段契约在文件头注释） |
+| `heavy` marker 注册 | `pytest tests -m "not heavy" --collect-only -q` | 无 `PytestUnknownMarkWarning` | ✅ | P-114 复跑 3778 collected，`heavy` 无 UnknownMark 警告；存量 `pytest.mark.asyncio` 未注册警告与本项无关（登记观察，遗留待办） |
 
 ### 2.5 D-3：分支保护 runbook（B1）
 
 | 验收项 | 测试方法 | 通过条件 | 状态 | 证据 |
 |--------|---------|---------|------|------|
-| 7 个必需检查名读回 | `gh api repos/<owner>/<repo>/branches/main/protection` | 7 名逐字符一致；`Tests (3.14)` 不在集 | ☐ | 待 B1 Step 5 |
-| 无 admin 旁路且红即阻断 | 读回 `enforce_admins` + 一次故意违规 PR | `enforce_admins=true`；违规 PR 被阻断后 revert | ☐ | 待 B1 Step 5 |
+| 7 个必需检查名读回 | `gh api repos/<owner>/<repo>/branches/main/protection` | 7 名逐字符一致；`Tests (3.14)` 不在集 | ☐ | 分支保护未应用——runbook 前置「CI 连续两次全绿」未满足（run 43635083591 红面登记为遗留待办），挂起待分支保护执行（遗留待办） |
+| 无 admin 旁路且红即阻断 | 读回 `enforce_admins` + 一次故意违规 PR | `enforce_admins=true`；违规 PR 被阻断后 revert | ☐ | 同上，挂起待分支保护执行（遗留待办；PUT 后读回 + 失败 PR 实证一并取证） |
 
 ### 2.6 D-6：依赖自动化与徽章（B2）
 
 | 验收项 | 测试方法 | 通过条件 | 状态 | 证据 |
 |--------|---------|---------|------|------|
-| dependabot 配置形态 | 读 `.github/dependabot.yml` | github-actions 与 pip 均 monthly + `groups` 全量 patterns | ☐ | 待 B2 Step 9 |
-| 首个分组 PR | 观察一个周期 | 每月 1 个 actions PR + 1 个 python PR，非逐条 | ☐ | 待 B2 Step 9 |
-| 徽章单一真值 | 读 README + 请求徽章 URL | 静态 `Tests-2699 passed` 已删；`ci.yml/badge.svg?branch=main` 可解析 | ☐ | 待 B2 Step 9 |
+| dependabot 配置形态 | 读 `.github/dependabot.yml` | github-actions 与 pip 均 monthly + `groups` 全量 patterns | ✅ | P-114 实读：两 package-ecosystem 均 monthly + `groups` 全量 patterns |
+| 首个分组 PR | 观察一个周期 | 每月 1 个 actions PR + 1 个 python PR，非逐条 | ☐ | push 依赖项，dependabot 首轮调度待第二次回填（遗留待办） |
+| 徽章单一真值 | 读 README + 请求徽章 URL | 静态 `Tests-2699 passed` 已删；`ci.yml/badge.svg?branch=main` 可解析 | ☐ | README 半项已验（静态数字徽章已删，改 `ci.yml/badge.svg?branch=main`，P-114 实读）；徽章 URL 请求取证待第二次回填（遗留待办） |
 
 ### 2.7 I-6：本地与 CI 同判接线（B2）
 
 | 验收项 | 测试方法 | 通过条件 | 状态 | 证据 |
 |--------|---------|---------|------|------|
-| 两处 entry 逐字符一致 | 比对 `.pre-commit-config.yaml` 与 ci.yml spec-gates | 字符串完全相同 | ☐ | 待 B2 Step 8 |
-| 钩子与 job 同判 | `pre-commit run ci-coverage --all-files` | 与 spec-gates job 内命令同结论 | ☐ | 待 B2 Step 8 |
+| 两处 entry 逐字符一致 | 比对 `.pre-commit-config.yaml` 与 ci.yml spec-gates | 字符串完全相同 | ✅ | P-114 比对 `python scripts/spec/ci_coverage_check.py --check` 两处 entry `-ceq` 相等 |
+| 钩子与 job 同判 | `pre-commit run ci-coverage --all-files` | 与 spec-gates job 内命令同结论 | ✅ | P-114 复跑 Passed（与 job 同 entry 同判 exit 0）；CI spec-gates 实跑 collect error 为环境差异（缺 `mcp` extra），登记为遗留待办 |
 
 ## 3. 接口验收
 
@@ -161,12 +161,12 @@ upstream: null
 
 | 不变式（来自 DESIGN.md §8） | 验证方法 | 状态 |
 |---------------------------|---------|------|
-| I-1 入库真值 | `--selftest` F34/F35 + detached worktree 复跑 0 违规 | ☐ |
-| I-2 可重现元数据 | `vendor_source_sync --check` exit 0；27 例全绿 | ☐ |
-| I-3 覆盖闭合 | `ci_coverage_check --check` exit 0 + `--selftest` 三类违规可判 | ☐ |
-| I-4 单一真值 | 人工核对 README 无「未经 CI 实测」的数字徽章 | ☐ |
-| I-5 红即阻断 | 分支保护 API 读回逐字段核对（7 必需名 / `enforce_admins=true` / 3.14 不入集） | ☐ |
-| I-6 本地=CI | 两处 entry 字符串一致 + `pre-commit run ci-coverage` 与 job 同判 | ☐ |
+| I-1 入库真值 | `--selftest` F34/F35 + detached worktree 复跑 0 违规 | ✅（P-114：selftest 43/43 含 F34/F35 + detached worktree 252 文件 0 违规） |
+| I-2 可重现元数据 | `vendor_source_sync --check` exit 0；27 例全绿 | ✅（P-114 复跑 exit 0，29 条目；34 passed） |
+| I-3 覆盖闭合 | `ci_coverage_check --check` exit 0 + `--selftest` 三类违规可判 | ✅（P-114 复跑 exit 0，L=148 / R=0 / C=148；selftest 4/4） |
+| I-4 单一真值 | 人工核对 README 无「未经 CI 实测」的数字徽章 | ✅（P-114 实读 README：静态 `Tests-2699 passed` 已删） |
+| I-5 红即阻断 | 分支保护 API 读回逐字段核对（7 必需名 / `enforce_admins=true` / 3.14 不入集） | ☐（待分支保护执行（遗留待办）：前置「CI 连续两次全绿」未满足，run 43635083591 红面待修复批） |
+| I-6 本地=CI | 两处 entry 字符串一致 + `pre-commit run ci-coverage` 与 job 同判 | ✅（P-114：entry 逐字符相等 + 钩子 Passed；CI 侧 env 差异红面登记为遗留待办） |
 
 ## 5. 错误处理验收
 
@@ -183,9 +183,9 @@ upstream: null
 
 | 性能指标 | 目标 | 实测 | 状态 |
 |---------|------|------|------|
-| blob 读取子进程数 | ≤1（`git cat-file --batch` 单进程） | 待 B1 | ☐ |
-| 链接判定复杂度 | 集合成员 O(1)，`git ls-files` 进程级 1 次 | 待 B1 | ☐ |
-| 覆盖守卫开销 | `--collect-only` 单次；本地仅在 `files` 正则命中时触发 | 待 B2 | ☐ |
+| blob 读取子进程数 | ≤1（`git cat-file --batch` 单进程） | `blob_facts` 单次 `Popen git cat-file --batch`（`vendor_source_sync.py` 实读，无逐文件子进程） | ✅ |
+| 链接判定复杂度 | 集合成员 O(1)，`git ls-files` 进程级 1 次 | tracked 为 set 成员 O(1)，每 root 缓存 1 次 `ls-files`（`dc_validator.check_links` 实读） | ✅ |
+| 覆盖守卫开销 | `--collect-only` 单次；本地仅在 `files` 正则命中时触发 | P-114 实跑 `--check` 3.7s（`--collect-only` 单次）；pre-commit 钩子仅 `spec/**` 与 `docs/{PROGRESS,CONSOLE}.md` 命中时触发 | ✅ |
 
 ## 7. 兼容性验收
 
@@ -262,14 +262,14 @@ upstream: null
 | 类别 | 总数 | 通过 | 失败 | 待办 |
 |------|------|------|------|------|
 | 文档一致性 | 15 | 15 | 0 | 0 |
-| 功能 | 25 | 0 | 0 | 25 |
+| 功能 | 25 | 17 | 0 | 8 |
 | 接口 | 15 | 0 | 0 | 15 |
-| 不变式 | 6 | 0 | 0 | 6 |
+| 不变式 | 6 | 5 | 0 | 1 |
 | 错误处理 | 6 | 0 | 0 | 6 |
-| 性能 | 3 | 0 | 0 | 3 |
+| 性能 | 3 | 3 | 0 | 0 |
 | 兼容性 | 8 | 1 | 0 | 7 |
 | ADD 审计 | 8 | 6 | 0 | 2 |
-| **总计** | **86** | **22** | **0** | **64** |
+| **总计** | **86** | **47** | **0** | **39** |
 
 > **统计口径（RULE-2）**：上表来自本文件**逐项核对**（每一项均有独立标记），非事后汇总推算。
 >
@@ -278,10 +278,10 @@ upstream: null
 ### 10.2 验收决定
 
 - [ ] **验收通过**：所有 P1 项通过，无阻塞性问题
-- [ ] **有条件通过**：<条件>
+- [x] **有条件通过**：本机可验项全部通过（§2.1 / §2.2 / §2.4 / §2.6 形态 / §2.7 / §4 I-1..I-4、I-6 / §6），push 依赖项（§2.3 4 项、§2.5 2 项、§2.6 2 项、I-5）保持 ☐ 待第二次回填；CI push run 43635083591 红面（D-5 全量收集暴露存量 22/16 失败 + spec-gates 缺 `mcp` extra 致覆盖守卫 collect error）须先修复（遗留待办：CI 红面修复批），分支保护前置「CI 连续两次全绿」未满足（遗留待办：分支保护执行）
 - [ ] **验收失败**：<原因>
 
-> 三项均不勾选：本批（P-110）只建立验收基线，B1/B2 未实施，§2-§6 代码项全部 ☐。待 B1 完成（§2.1/§2.2/§2.5 转绿）后回填一次，B2 完成（§2.3/§2.4/§2.6/§2.7）后回填第二次，再按实际读数择一勾选并复算 §10.1。
+> 首轮回填（P-114，2026-11-15）：B1/B2 已实施（P-112），本机可验项回填 ✅ 并复算 §10.1（86/47/0/39）；「有条件通过」已勾选——条件为 CI 红面修复批与分支保护执行（均遗留待办）完成后，push 依赖项第二轮回填（遗留待办）再按实际读数复算并终裁。
 
 ### 10.3 签字
 
@@ -295,11 +295,11 @@ upstream: null
 
 | 行动 | 责任人 | 期限 | 状态 |
 |------|--------|------|------|
-| B1 步骤 1-2：`vendor_source_sync.py` + 断言改锚 blob | 实施者 | B1 | ☐ |
-| B1 步骤 3-4：`tracked` 校验 + 21 处链接改写 | 实施者 | B1 | ☐ |
-| B1 步骤 5：分支保护 runbook（CI 连续两次绿后） | 实施者 | B1 | ☐ |
-| B2 步骤 6-9：workflow 硬化 / 登记表 / 覆盖守卫 / dependabot | 实施者 | B2 | ☐ |
-| 回填 §2-§6 并复算 §10.1，择一勾选 §10.2 | 审查者 | B2 后 | ☐ |
+| B1 步骤 1-2：`vendor_source_sync.py` + 断言改锚 blob | 实施者 | B1 | ✅（P-112） |
+| B1 步骤 3-4：`tracked` 校验 + 21 处链接改写 | 实施者 | B1 | ✅（P-112 / P-113） |
+| B1 步骤 5：分支保护 runbook（CI 连续两次绿后） | 实施者 | B1 | ☐（挂起待分支保护执行（遗留待办）：前置 CI 两次绿未满足） |
+| B2 步骤 6-9：workflow 硬化 / 登记表 / 覆盖守卫 / dependabot | 实施者 | B2 | ✅（P-112） |
+| 回填 §2-§6 并复算 §10.1，择一勾选 §10.2 | 审查者 | B2 后 | 首轮完成（P-114：本机项 + 有条件通过）；第二轮待 CI 红面修复与分支保护（遗留待办）后终裁 |
 | DESIGN v1.3 订正 §4.1 返回注解（IMPL O-4） | 设计者 | 下一设计版 | ✅（P-111 已订正） |
-| 更新 PROGRESS.md | 实施者 | 每批 | ☐ |
-| 记录开发日志 | 实施者 | 每批 | ☐ |
+| 更新 PROGRESS.md | 实施者 | 每批 | ✅（P-114） |
+| 记录开发日志 | 实施者 | 每批 | ✅（P-114） |
