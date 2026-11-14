@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from researchclaw.hitl.intervention import Intervention
+from researchclaw.utils.paths import safe_join
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +159,9 @@ class HITLStore:
 
     def save_guidance(self, stage_num: int, guidance: str) -> None:
         self.ensure_dirs()
-        (self.hitl_dir / "guidance" / f"stage_{stage_num:02d}.md").write_text(
+        safe_join(
+            self.hitl_dir, "guidance", f"stage_{stage_num:02d}.md"
+        ).write_text(
             guidance, encoding="utf-8"
         )
 

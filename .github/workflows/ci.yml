@@ -149,6 +149,8 @@ jobs:
             tests/test_forged_execution_guards.py \
             tests/test_env_allowlist.py \
             tests/test_safe_join.py \
+            tests/test_boundary_coverage.py \
+            tests/test_host_profile.py \
             tests/test_cors_default.py \
             tests/test_rc_docker_sandbox.py \
             tests/test_sandbox_boundary.py \

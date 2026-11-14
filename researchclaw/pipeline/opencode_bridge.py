@@ -25,6 +25,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from researchclaw.utils.env import build_subprocess_env
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -459,7 +461,7 @@ class OpenCodeBridge:
         prompt: str,
     ) -> tuple[bool, str, float]:
         """Run ``opencode run`` in the workspace. Returns (success, log, elapsed)."""
-        env = os.environ.copy()
+        overrides: dict[str, str] = {}
         # Pass API key via environment if configured
         if self._api_key_env:
             api_key = os.environ.get(self._api_key_env, "")
@@ -467,7 +469,7 @@ class OpenCodeBridge:
                 # We always use the "openai" provider for OpenCode now,
                 # which reads OPENAI_API_KEY (works for Azure too via
                 # Bearer token auth on the OpenAI-compatible endpoint).
-                env["OPENAI_API_KEY"] = api_key
+                overrides["OPENAI_API_KEY"] = api_key
 
         # Use -m flag to specify model (more reliable than opencode.json)
         resolved_model = self._resolve_opencode_model()
@@ -484,7 +486,7 @@ class OpenCodeBridge:
                 encoding="utf-8",
                 errors="replace",
                 timeout=self._timeout_sec,
-                env=env,
+                env=build_subprocess_env(overrides),
             )
             elapsed = time.monotonic() - t0
             log = result.stdout + "\n" + result.stderr

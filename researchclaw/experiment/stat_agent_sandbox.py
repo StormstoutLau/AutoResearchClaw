@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import shutil
 import subprocess
 import time
@@ -42,6 +41,7 @@ from typing import Any
 
 from researchclaw.config import StatAgentConfig
 from researchclaw.experiment.sandbox import SandboxResult
+from researchclaw.utils.env import build_subprocess_env
 
 logger = logging.getLogger(__name__)
 
@@ -85,11 +85,19 @@ class StatAgentSandbox:
         returncode = -1
 
         try:
-            env = self._build_env()
             proc = subprocess.run(
                 cmd,
                 cwd=str(workspace),
-                env=env,
+                env=build_subprocess_env(
+                    {
+                        key: value
+                        for key, value in {
+                            "MAGNUS_ADDRESS": self.config.magnus_address,
+                            "MAGNUS_TOKEN": self.config.magnus_token,
+                        }.items()
+                        if value
+                    }
+                ),
                 capture_output=True,
                 text=True,
                 timeout=timeout_sec,
@@ -376,14 +384,6 @@ class StatAgentSandbox:
                 cmd.append(arg)
 
         return cmd
-
-    def _build_env(self) -> dict[str, str]:
-        env = os.environ.copy()
-        if self.config.magnus_address:
-            env["MAGNUS_ADDRESS"] = self.config.magnus_address
-        if self.config.magnus_token:
-            env["MAGNUS_TOKEN"] = self.config.magnus_token
-        return env
 
     def _collect_artifacts(self, workspace: Path) -> dict[str, list[str]]:
         artifacts: dict[str, list[str]] = {

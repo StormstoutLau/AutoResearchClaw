@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from researchclaw.hitl.chat import ChatMessage, ChatSession, build_stage_context
+from researchclaw.utils.paths import safe_join
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +120,7 @@ class CollaborationSession:
         if self.run_dir:
             stage_dir = self.run_dir / f"stage-{self.stage_num:02d}"
             stage_dir.mkdir(parents=True, exist_ok=True)
-            (stage_dir / filename).write_text(content, encoding="utf-8")
+            safe_join(stage_dir, filename).write_text(content, encoding="utf-8")
 
     def ai_proposes_edit(
         self, filename: str, content: str
@@ -139,7 +140,7 @@ class CollaborationSession:
         if self.run_dir:
             stage_dir = self.run_dir / f"stage-{self.stage_num:02d}"
             stage_dir.mkdir(parents=True, exist_ok=True)
-            (stage_dir / filename).write_text(content, encoding="utf-8")
+            safe_join(stage_dir, filename).write_text(content, encoding="utf-8")
 
     def finalize(self) -> dict[str, str]:
         """End collaboration and write modified artifacts to disk.
@@ -169,7 +170,7 @@ class CollaborationSession:
             # Only write artifacts that were modified in this session
             for fname in self._modified_artifacts:
                 if fname in self.shared_artifacts:
-                    (stage_dir / fname).write_text(
+                    safe_join(stage_dir, fname).write_text(
                         self.shared_artifacts[fname], encoding="utf-8"
                     )
 
@@ -181,7 +182,9 @@ class CollaborationSession:
             )
 
             # Save revision history
-            (hitl_dir / f"revisions_stage_{self.stage_num:02d}.json").write_text(
+            safe_join(
+                hitl_dir, f"revisions_stage_{self.stage_num:02d}.json"
+            ).write_text(
                 json.dumps(self.revision_history, indent=2),
                 encoding="utf-8",
             )

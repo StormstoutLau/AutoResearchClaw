@@ -30,6 +30,7 @@ from researchclaw.pipeline._helpers import (
 )
 from researchclaw.pipeline.stages import Stage, StageStatus
 from researchclaw.prompts import PromptManager
+from researchclaw.utils.paths import safe_join
 
 logger = logging.getLogger(__name__)
 
@@ -989,7 +990,7 @@ def _execute_knowledge_extract(
             parts.append(f"## {key.title()}")
             parts.append(str(card.get(key, "")))
             parts.append("")
-        (cards_dir / f"{card_id}.md").write_text("\n".join(parts), encoding="utf-8")
+        safe_join(cards_dir, f"{card_id}.md").write_text("\n".join(parts), encoding="utf-8")
     return StageResult(
         stage=Stage.KNOWLEDGE_EXTRACT,
         status=StageStatus.DONE,

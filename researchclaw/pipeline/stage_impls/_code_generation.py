@@ -32,6 +32,7 @@ from researchclaw.pipeline._helpers import (
 )
 from researchclaw.pipeline.stages import Stage, StageStatus
 from researchclaw.prompts import PromptManager
+from researchclaw.utils.paths import safe_join
 
 logger = logging.getLogger(__name__)
 
@@ -323,8 +324,8 @@ def _execute_agent_plan_generation(
             f"`results.json` in the workspace root.\n"
         )
 
-    (stage_dir / plan_file).write_text(plan_text, encoding="utf-8")
-    (stage_dir / spec["meta_file"]).write_text(
+    safe_join(stage_dir, plan_file).write_text(plan_text, encoding="utf-8")
+    safe_join(stage_dir, spec["meta_file"]).write_text(
         json.dumps(
             {
                 "generated": _utcnow_iso(),
@@ -342,7 +343,7 @@ def _execute_agent_plan_generation(
     # no Python project exists; mirror the collider_agent convention.
     exp_dir = stage_dir / "experiment"
     exp_dir.mkdir(exist_ok=True)
-    (exp_dir / plan_file).write_text(plan_text, encoding="utf-8")
+    safe_join(exp_dir, plan_file).write_text(plan_text, encoding="utf-8")
 
     (stage_dir / "experiment_spec.md").write_text(
         f"# Experiment Specification ({mode} mode)\n\n"
@@ -1205,7 +1206,7 @@ def _execute_code_generation(
     exp_dir = stage_dir / "experiment"
     exp_dir.mkdir(parents=True, exist_ok=True)
     for fname, code in files.items():
-        (exp_dir / fname).write_text(code, encoding="utf-8")
+        safe_join(exp_dir, fname).write_text(code, encoding="utf-8")
 
     # --- Write validation report ---
     if validation_log or not all_valid:
@@ -1236,7 +1237,7 @@ def _execute_code_generation(
             fixed_code, n_fixes = auto_fix_unbound_locals(code)
             if n_fixes > 0:
                 files[fname] = fixed_code
-                (exp_dir / fname).write_text(fixed_code, encoding="utf-8")
+                safe_join(exp_dir, fname).write_text(fixed_code, encoding="utf-8")
                 _total_ub_fixes += n_fixes
                 logger.info(
                     "Stage 10: auto-fixed %d UnboundLocalError risk(s) in %s",
@@ -1320,7 +1321,7 @@ def _execute_code_generation(
             if repaired and "main.py" in repaired:
                 files = repaired
                 for fname, code in files.items():
-                    (exp_dir / fname).write_text(code, encoding="utf-8")
+                    safe_join(exp_dir, fname).write_text(code, encoding="utf-8")
                 # Re-check after repair
                 deep_warnings_after = deep_validate_files(files)
                 fixed = len(critical_deep) - len([
@@ -1456,7 +1457,7 @@ def _execute_code_generation(
                         if fixed_files and "main.py" in fixed_files:
                             files = fixed_files
                             for fname, code in files.items():
-                                (exp_dir / fname).write_text(code, encoding="utf-8")
+                                safe_join(exp_dir, fname).write_text(code, encoding="utf-8")
                             logger.info(
                                 "Stage 10: Code fixed after review "
                                 "(was %d/10, %d critical issues)",
@@ -1618,7 +1619,7 @@ def _execute_code_generation(
                         continue
                     files = regen_files
                     for fname, code in files.items():
-                        (exp_dir / fname).write_text(code, encoding="utf-8")
+                        safe_join(exp_dir, fname).write_text(code, encoding="utf-8")
                     # Re-check alignment on regenerated code (BUG-171 fix)
                     _rc_inv = []
                     for _fn, _cd in files.items():
@@ -1732,7 +1733,7 @@ def _execute_code_generation(
                     if repaired_files and "main.py" in repaired_files:
                         files = repaired_files
                         for fname, code in files.items():
-                            (exp_dir / fname).write_text(code, encoding="utf-8")
+                            safe_join(exp_dir, fname).write_text(code, encoding="utf-8")
                         logger.info(
                             "Stage 10: Ablation repair applied — "
                             "rewrote duplicate conditions"

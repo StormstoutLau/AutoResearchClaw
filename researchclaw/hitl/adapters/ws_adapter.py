@@ -24,6 +24,7 @@ from researchclaw.hitl.intervention import (
     PauseReason,
     WaitingState,
 )
+from researchclaw.utils.paths import safe_join
 
 logger = logging.getLogger(__name__)
 
@@ -339,7 +340,7 @@ class WebSocketHITLAdapter:
         # Write guidance to hitl/guidance/
         guidance_dir = run_dir / "hitl" / "guidance"
         guidance_dir.mkdir(parents=True, exist_ok=True)
-        (guidance_dir / f"stage_{stage:02d}.md").write_text(
+        safe_join(guidance_dir, f"stage_{stage:02d}.md").write_text(
             guidance, encoding="utf-8"
         )
 

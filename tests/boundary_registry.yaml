@@ -1,0 +1,894 @@
+# Boundary registry (M4-D6) — single source of truth for host-boundary debt.
+#
+# Keys are (relpath, qualname, ordinal); line numbers are deliberately absent.
+# ordinal is the 1-based position inside one (relpath, qualname) ordered by
+# (lineno, col_offset).  Both directions are enforced: unregistered calls and
+# stale entries are red.
+#
+# category: A = host tool / CLI, B = workload execution, C = lifecycle management
+# env:      inherit | allowlist | sourced:<callable> | prefix | overrides
+version: 1
+scan:
+  roots: ["researchclaw"]
+  exclude: []
+
+subprocess_calls:
+  - id: S-001
+    relpath: researchclaw/agents/figure_agent/renderer.py
+    qualname: _docker_available
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "docker CLI availability probe"
+    owner: P-106
+    expires: null
+
+  - id: S-002
+    relpath: researchclaw/agents/figure_agent/renderer.py
+    qualname: RendererAgent._execute_local
+    ordinal: 1
+    category: B
+    env: allowlist
+    reason: "E-7: model-generated figure script"
+    owner: P-106
+    expires: null
+
+  - id: S-003
+    relpath: researchclaw/agents/figure_agent/renderer.py
+    qualname: RendererAgent._execute_in_docker
+    ordinal: 1
+    category: B
+    env: inherit
+    reason: "E-8: script runs inside container; env only reaches the docker client, no -e passthrough"
+    owner: P-106
+    expires: null
+
+  - id: S-004
+    relpath: researchclaw/agents/figure_agent/renderer.py
+    qualname: RendererAgent._execute_in_docker
+    ordinal: 2
+    category: C
+    env: inherit
+    reason: "docker kill on timeout"
+    owner: P-106
+    expires: null
+
+  - id: S-005
+    relpath: researchclaw/cli.py
+    qualname: _is_opencode_installed
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "opencode CLI probe"
+    owner: P-106
+    expires: null
+
+  - id: S-006
+    relpath: researchclaw/cli.py
+    qualname: _install_opencode
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "npm install of a host tool"
+    owner: P-106
+    expires: null
+
+  - id: S-007
+    relpath: researchclaw/cli.py
+    qualname: cmd_setup
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "host toolchain setup"
+    owner: P-106
+    expires: null
+
+  - id: S-008
+    relpath: researchclaw/cli.py
+    qualname: cmd_profile
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "opens the user editor"
+    owner: P-106
+    expires: null
+
+  - id: S-009
+    relpath: researchclaw/evidence/sidecar.py
+    qualname: _kill_tree
+    ordinal: 1
+    category: C
+    env: inherit
+    reason: "process-tree teardown"
+    owner: P-106
+    expires: null
+
+  - id: S-010
+    relpath: researchclaw/evidence/sidecar.py
+    qualname: run_lean_check
+    ordinal: 1
+    category: B
+    env: "sourced:_build_env"
+    reason: "_build_env (sidecar.py:87-104) builds its own allowlist; only PYTHONPATH and ARB_* are explicit"
+    owner: P-106
+    expires: null
+
+  - id: S-011
+    relpath: researchclaw/experiment/agentic_sandbox.py
+    qualname: AgenticSandbox._start_container
+    ordinal: 1
+    category: C
+    env: inherit
+    reason: "docker run (container lifecycle)"
+    owner: P-106
+    expires: null
+
+  - id: S-012
+    relpath: researchclaw/experiment/agentic_sandbox.py
+    qualname: AgenticSandbox._docker_exec
+    ordinal: 1
+    category: B
+    env: inherit
+    reason: "command runs inside container; env only reaches the docker client"
+    owner: P-106
+    expires: null
+
+  - id: S-013
+    relpath: researchclaw/experiment/agentic_sandbox.py
+    qualname: AgenticSandbox._cleanup_container
+    ordinal: 1
+    category: C
+    env: inherit
+    reason: "container cleanup"
+    owner: P-106
+    expires: null
+
+  - id: S-014
+    relpath: researchclaw/experiment/agentic_sandbox.py
+    qualname: AgenticSandbox._cleanup_container
+    ordinal: 2
+    category: C
+    env: inherit
+    reason: "container cleanup"
+    owner: P-106
+    expires: null
+
+  - id: S-015
+    relpath: researchclaw/experiment/agentic_sandbox.py
+    qualname: AgenticSandbox.check_docker_available
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "docker availability probe"
+    owner: P-106
+    expires: null
+
+  - id: S-016
+    relpath: researchclaw/experiment/biology_agent_sandbox.py
+    qualname: BiologyAgentSandbox.run
+    ordinal: 1
+    category: B
+    env: allowlist
+    reason: "E-2: Claude Code runs the biology prompt"
+    owner: P-106
+    expires: null
+
+  - id: S-017
+    relpath: researchclaw/experiment/code_agent.py
+    qualname: _CliAgentBase._kill_process_tree
+    ordinal: 1
+    category: C
+    env: inherit
+    reason: "process-tree teardown"
+    owner: P-106
+    expires: null
+
+  - id: S-018
+    relpath: researchclaw/experiment/code_agent.py
+    qualname: _CliAgentBase._run_subprocess
+    ordinal: 1
+    category: B
+    env: allowlist
+    reason: "E-4: CLI agent executes model-generated code"
+    owner: P-106
+    expires: null
+
+  - id: S-019
+    relpath: researchclaw/experiment/collider_agent_sandbox.py
+    qualname: ColliderAgentSandbox.run
+    ordinal: 1
+    category: B
+    env: allowlist
+    reason: "E-3: Claude Code runs the collider prompt"
+    owner: P-106
+    expires: null
+
+  - id: S-020
+    relpath: researchclaw/experiment/docker_sandbox.py
+    qualname: _TtlWatcher._container_exists
+    ordinal: 1
+    category: C
+    env: inherit
+    reason: "TTL watcher probe"
+    owner: P-106
+    expires: null
+
+  - id: S-021
+    relpath: researchclaw/experiment/docker_sandbox.py
+    qualname: _TtlWatcher._kill
+    ordinal: 1
+    category: C
+    env: inherit
+    reason: "TTL kill"
+    owner: P-106
+    expires: null
+
+  - id: S-022
+    relpath: researchclaw/experiment/docker_sandbox.py
+    qualname: DockerSandbox.check_docker_available
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "docker availability probe"
+    owner: P-106
+    expires: null
+
+  - id: S-023
+    relpath: researchclaw/experiment/docker_sandbox.py
+    qualname: DockerSandbox.check_nvidia_runtime
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "nvidia runtime probe"
+    owner: P-106
+    expires: null
+
+  - id: S-024
+    relpath: researchclaw/experiment/docker_sandbox.py
+    qualname: DockerSandbox.ensure_image
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "image build/pull"
+    owner: P-106
+    expires: null
+
+  - id: S-025
+    relpath: researchclaw/experiment/docker_sandbox.py
+    qualname: DockerSandbox._execute
+    ordinal: 1
+    category: B
+    env: inherit
+    reason: "workload runs inside container; env only reaches the docker client, explicit keys go via -e"
+    owner: P-106
+    expires: null
+
+  - id: S-026
+    relpath: researchclaw/experiment/docker_sandbox.py
+    qualname: DockerSandbox._inspect_container
+    ordinal: 1
+    category: C
+    env: inherit
+    reason: "container inspection"
+    owner: P-106
+    expires: null
+
+  - id: S-027
+    relpath: researchclaw/experiment/docker_sandbox.py
+    qualname: DockerSandbox._kill_container
+    ordinal: 1
+    category: C
+    env: inherit
+    reason: "container teardown"
+    owner: P-106
+    expires: null
+
+  - id: S-028
+    relpath: researchclaw/experiment/docker_sandbox.py
+    qualname: DockerSandbox._remove_container
+    ordinal: 1
+    category: C
+    env: inherit
+    reason: "container teardown"
+    owner: P-106
+    expires: null
+
+  - id: S-029
+    relpath: researchclaw/experiment/git_manager.py
+    qualname: ExperimentGitManager._run_git
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "git CLI"
+    owner: P-106
+    expires: null
+
+  - id: S-030
+    relpath: researchclaw/experiment/sandbox.py
+    qualname: ExperimentSandbox.run
+    ordinal: 1
+    category: B
+    env: allowlist
+    reason: "local experiment execution"
+    owner: P-106
+    expires: null
+
+  - id: S-031
+    relpath: researchclaw/experiment/sandbox.py
+    qualname: ExperimentSandbox.run_project
+    ordinal: 1
+    category: B
+    env: allowlist
+    reason: "local experiment execution"
+    owner: P-106
+    expires: null
+
+  - id: S-032
+    relpath: researchclaw/experiment/ssh_sandbox.py
+    qualname: SshRemoteSandbox.check_ssh_available
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "ssh availability probe"
+    owner: P-106
+    expires: null
+
+  - id: S-033
+    relpath: researchclaw/experiment/ssh_sandbox.py
+    qualname: SshRemoteSandbox._ssh_run
+    ordinal: 1
+    category: B
+    env: prefix
+    reason: "U-5: remote shell executes the command; env is injected as a quoted prefix (env_overrides + gpu_env + HOME), not via env="
+    owner: P-106
+    expires: null
+
+  - id: S-034
+    relpath: researchclaw/experiment/ssh_sandbox.py
+    qualname: SshRemoteSandbox._scp_upload
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "scp transfer"
+    owner: P-106
+    expires: null
+
+  - id: S-035
+    relpath: researchclaw/experiment/stat_agent_sandbox.py
+    qualname: StatAgentSandbox.run
+    ordinal: 1
+    category: B
+    env: allowlist
+    reason: "E-1: Claude Code runs the statistics prompt"
+    owner: P-106
+    expires: null
+
+  - id: S-036
+    relpath: researchclaw/hardware.py
+    qualname: _detect_nvidia_remote
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "ssh nvidia-smi probe"
+    owner: P-106
+    expires: null
+
+  - id: S-037
+    relpath: researchclaw/hardware.py
+    qualname: _detect_nvidia
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "nvidia-smi probe"
+    owner: P-106
+    expires: null
+
+  - id: S-038
+    relpath: researchclaw/hardware.py
+    qualname: _detect_mps
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "sysctl probe"
+    owner: P-106
+    expires: null
+
+  - id: S-039
+    relpath: researchclaw/hardware.py
+    qualname: ensure_torch_available
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "interpreter probe"
+    owner: P-106
+    expires: null
+
+  - id: S-040
+    relpath: researchclaw/hardware.py
+    qualname: ensure_torch_available
+    ordinal: 2
+    category: A
+    env: inherit
+    reason: "pip install of a host tool"
+    owner: P-106
+    expires: null
+
+  - id: S-041
+    relpath: researchclaw/hitl/adapters/cli_adapter.py
+    qualname: CLIAdapter._handle_edit
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "opens the user editor"
+    owner: P-106
+    expires: null
+
+  - id: S-042
+    relpath: researchclaw/hitl/hooks.py
+    qualname: HookRegistry._run_script
+    ordinal: 1
+    category: B
+    env: allowlist
+    reason: "E-5: user-supplied hook script"
+    owner: P-106
+    expires: null
+
+  - id: S-043
+    relpath: researchclaw/llm/acp_client.py
+    qualname: ACPClient.close
+    ordinal: 1
+    category: C
+    env: inherit
+    reason: "ACP session teardown"
+    owner: P-106
+    expires: null
+
+  - id: S-044
+    relpath: researchclaw/llm/acp_client.py
+    qualname: ACPClient._ensure_session
+    ordinal: 1
+    category: C
+    env: inherit
+    reason: "ACP session lifecycle"
+    owner: P-106
+    expires: null
+
+  - id: S-045
+    relpath: researchclaw/llm/acp_client.py
+    qualname: ACPClient._ensure_session
+    ordinal: 2
+    category: C
+    env: inherit
+    reason: "ACP session lifecycle"
+    owner: P-106
+    expires: null
+
+  - id: S-046
+    relpath: researchclaw/llm/acp_client.py
+    qualname: ACPClient._ensure_session
+    ordinal: 3
+    category: C
+    env: inherit
+    reason: "ACP session lifecycle"
+    owner: P-106
+    expires: null
+
+  - id: S-047
+    relpath: researchclaw/llm/acp_client.py
+    qualname: ACPClient._run_acp_with_heartbeat
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "ACP client process (host tool)"
+    owner: P-106
+    expires: null
+
+  - id: S-048
+    relpath: researchclaw/overleaf/sync.py
+    qualname: OverleafSync._git
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "git CLI"
+    owner: P-106
+    expires: null
+
+  - id: S-049
+    relpath: researchclaw/overleaf/sync.py
+    qualname: OverleafSync._git_clone
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "git CLI"
+    owner: P-106
+    expires: null
+
+  - id: S-050
+    relpath: researchclaw/pipeline/opencode_bridge.py
+    qualname: OpenCodeBridge.check_available
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "opencode CLI probe"
+    owner: P-106
+    expires: null
+
+  - id: S-051
+    relpath: researchclaw/pipeline/opencode_bridge.py
+    qualname: OpenCodeBridge._prepare_workspace
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "git init in workspace"
+    owner: P-106
+    expires: null
+
+  - id: S-052
+    relpath: researchclaw/pipeline/opencode_bridge.py
+    qualname: OpenCodeBridge._prepare_workspace
+    ordinal: 2
+    category: A
+    env: inherit
+    reason: "git add in workspace"
+    owner: P-106
+    expires: null
+
+  - id: S-053
+    relpath: researchclaw/pipeline/opencode_bridge.py
+    qualname: OpenCodeBridge._prepare_workspace
+    ordinal: 3
+    category: A
+    env: inherit
+    reason: "git commit in workspace"
+    owner: P-106
+    expires: null
+
+  - id: S-054
+    relpath: researchclaw/pipeline/opencode_bridge.py
+    qualname: OpenCodeBridge._invoke_opencode
+    ordinal: 1
+    category: B
+    env: allowlist
+    reason: "E-6: opencode runs the model prompt"
+    owner: P-106
+    expires: null
+
+  - id: S-055
+    relpath: researchclaw/templates/compiler.py
+    qualname: _run_pdflatex
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "pdflatex CLI"
+    owner: P-106
+    expires: null
+
+  - id: S-056
+    relpath: researchclaw/templates/compiler.py
+    qualname: _run_bibtex
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "bibtex CLI"
+    owner: P-106
+    expires: null
+
+  - id: S-057
+    relpath: researchclaw/vendor/auto_prover/sandbox/evaluator.py
+    qualname: SafeEvaluator._start
+    ordinal: 1
+    category: B
+    env: "sourced:_worker_env"
+    reason: "_worker_env/_sandbox_env keep an explicit _KEEP_ENV allowlist (evaluator.py:203-216)"
+    owner: P-106
+    expires: null
+
+  - id: S-058
+    relpath: researchclaw/wizard/validator.py
+    qualname: detect_environment
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "interpreter probe"
+    owner: P-106
+    expires: null
+
+  - id: S-059
+    relpath: researchclaw/hardware.py
+    qualname: list_gpu_devices
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "nvidia-smi -L device listing"
+    owner: P-106
+    expires: null
+
+  - id: S-060
+    relpath: researchclaw/runtime/host_profile.py
+    qualname: _probe_toolchain
+    ordinal: 1
+    category: A
+    env: allowlist
+    reason: "fixed <toolchain> --version probe under build_subprocess_env"
+    owner: P-106
+    expires: null
+
+write_sites:
+  - id: W-001
+    relpath: researchclaw/experiment/code_agent.py
+    qualname: _seed_workdir
+    ordinal: 1
+    policy: safe_join
+    reason: "workspace file seeded from the agent plan"
+    owner: P-106
+    expires: null
+
+  - id: W-002
+    relpath: researchclaw/hitl/adapters/mcp_adapter.py
+    qualname: MCPHITLAdapter._handle_inject
+    ordinal: 1
+    policy: safe_join
+    reason: "human-injected guidance file"
+    owner: P-106
+    expires: null
+
+  - id: W-003
+    relpath: researchclaw/hitl/adapters/ws_adapter.py
+    qualname: WebSocketHITLAdapter._handle_inject_guidance
+    ordinal: 1
+    policy: safe_join
+    reason: "human-injected guidance file"
+    owner: P-106
+    expires: null
+
+  - id: W-004
+    relpath: researchclaw/hitl/collaboration.py
+    qualname: CollaborationSession.human_edits_artifact
+    ordinal: 1
+    policy: safe_join
+    reason: "human-edited artifact"
+    owner: P-106
+    expires: null
+
+  - id: W-005
+    relpath: researchclaw/hitl/collaboration.py
+    qualname: CollaborationSession.ai_proposes_edit
+    ordinal: 1
+    policy: safe_join
+    reason: "AI-proposed artifact edit"
+    owner: P-106
+    expires: null
+
+  - id: W-006
+    relpath: researchclaw/hitl/collaboration.py
+    qualname: CollaborationSession.finalize
+    ordinal: 1
+    policy: safe_join
+    reason: "finalized artifact"
+    owner: P-106
+    expires: null
+
+  - id: W-007
+    relpath: researchclaw/hitl/collaboration.py
+    qualname: CollaborationSession.finalize
+    ordinal: 2
+    policy: safe_join
+    reason: "revision log"
+    owner: P-106
+    expires: null
+
+  - id: W-008
+    relpath: researchclaw/hitl/store.py
+    qualname: HITLStore.save_guidance
+    ordinal: 1
+    policy: safe_join
+    reason: "guidance file"
+    owner: P-106
+    expires: null
+
+  - id: W-009
+    relpath: researchclaw/pipeline/_helpers.py
+    qualname: _multi_perspective_generate
+    ordinal: 1
+    policy: safe_join
+    reason: "per-perspective output"
+    owner: P-106
+    expires: null
+
+  - id: W-010
+    relpath: researchclaw/pipeline/debate.py
+    qualname: run_debate
+    ordinal: 1
+    policy: safe_join
+    reason: "debate round log"
+    owner: P-106
+    expires: null
+
+  - id: W-011
+    relpath: researchclaw/pipeline/debate.py
+    qualname: run_debate
+    ordinal: 2
+    policy: safe_join
+    reason: "debate round log"
+    owner: P-106
+    expires: null
+
+  - id: W-012
+    relpath: researchclaw/pipeline/experiment_repair.py
+    qualname: run_repair_loop
+    ordinal: 1
+    policy: safe_join
+    reason: "repaired experiment file"
+    owner: P-106
+    expires: null
+
+  - id: W-013
+    relpath: researchclaw/pipeline/runner.py
+    qualname: _package_deliverables
+    ordinal: 1
+    policy: safe_join
+    reason: "packaged deliverable"
+    owner: P-106
+    expires: null
+
+  - id: W-014
+    relpath: researchclaw/pipeline/runner.py
+    qualname: _promote_best_stage14
+    ordinal: 1
+    policy: exempt
+    reason: "fname is drawn from a fixed literal tuple (analysis/experiment summary names); no external input reaches this loop"
+    owner: P-106
+    expires: "2027-06-30"
+
+  - id: W-015
+    relpath: researchclaw/pipeline/stage_impls/_analysis.py
+    qualname: _bump_retry_count
+    ordinal: 1
+    policy: safe_join
+    reason: "retry counter file"
+    owner: P-106
+    expires: null
+
+  - id: W-016
+    relpath: researchclaw/pipeline/stage_impls/_code_generation.py
+    qualname: _execute_agent_plan_generation
+    ordinal: 1
+    policy: safe_join
+    reason: "plan markdown"
+    owner: P-106
+    expires: null
+
+  - id: W-017
+    relpath: researchclaw/pipeline/stage_impls/_code_generation.py
+    qualname: _execute_agent_plan_generation
+    ordinal: 2
+    policy: safe_join
+    reason: "experiment spec json"
+    owner: P-106
+    expires: null
+
+  - id: W-018
+    relpath: researchclaw/pipeline/stage_impls/_code_generation.py
+    qualname: _execute_agent_plan_generation
+    ordinal: 3
+    policy: safe_join
+    reason: "plan markdown"
+    owner: P-106
+    expires: null
+
+  - id: W-019
+    relpath: researchclaw/pipeline/stage_impls/_code_generation.py
+    qualname: _execute_code_generation
+    ordinal: 1
+    policy: safe_join
+    reason: "generated experiment source"
+    owner: P-106
+    expires: null
+
+  - id: W-020
+    relpath: researchclaw/pipeline/stage_impls/_code_generation.py
+    qualname: _execute_code_generation
+    ordinal: 2
+    policy: safe_join
+    reason: "auto-fixed experiment source"
+    owner: P-106
+    expires: null
+
+  - id: W-021
+    relpath: researchclaw/pipeline/stage_impls/_code_generation.py
+    qualname: _execute_code_generation
+    ordinal: 3
+    policy: safe_join
+    reason: "regenerated experiment source"
+    owner: P-106
+    expires: null
+
+  - id: W-022
+    relpath: researchclaw/pipeline/stage_impls/_code_generation.py
+    qualname: _execute_code_generation
+    ordinal: 4
+    policy: safe_join
+    reason: "review-fixed experiment source"
+    owner: P-106
+    expires: null
+
+  - id: W-023
+    relpath: researchclaw/pipeline/stage_impls/_code_generation.py
+    qualname: _execute_code_generation
+    ordinal: 5
+    policy: safe_join
+    reason: "re-aligned experiment source"
+    owner: P-106
+    expires: null
+
+  - id: W-024
+    relpath: researchclaw/pipeline/stage_impls/_code_generation.py
+    qualname: _execute_code_generation
+    ordinal: 6
+    policy: safe_join
+    reason: "ablation-repaired experiment source"
+    owner: P-106
+    expires: null
+
+  - id: W-025
+    relpath: researchclaw/pipeline/stage_impls/_execution.py
+    qualname: _execute_experiment_run
+    ordinal: 1
+    policy: safe_join
+    reason: "per-run result json"
+    owner: P-106
+    expires: null
+
+  - id: W-026
+    relpath: researchclaw/pipeline/stage_impls/_execution.py
+    qualname: _execute_experiment_run
+    ordinal: 2
+    policy: safe_join
+    reason: "per-run result json"
+    owner: P-106
+    expires: null
+
+  - id: W-027
+    relpath: researchclaw/pipeline/stage_impls/_execution.py
+    qualname: _execute_iterative_refine
+    ordinal: 1
+    policy: safe_join
+    reason: "per-agent results markdown"
+    owner: P-106
+    expires: null
+
+  - id: W-028
+    relpath: researchclaw/pipeline/stage_impls/_execution.py
+    qualname: _execute_iterative_refine._write_project
+    ordinal: 1
+    policy: safe_join
+    reason: "existing safe_join consumer (unchanged, registered for two-way consistency)"
+    owner: P-106
+    expires: null
+
+  - id: W-029
+    relpath: researchclaw/pipeline/stage_impls/_literature.py
+    qualname: _execute_knowledge_extract
+    ordinal: 1
+    policy: safe_join
+    reason: "per-card knowledge markdown"
+    owner: P-106
+    expires: null
+
+  - id: W-030
+    relpath: researchclaw/pipeline/stage_impls/_review_publish.py
+    qualname: _execute_export_publish
+    ordinal: 1
+    policy: safe_join
+    reason: "code export artifact"
+    owner: P-106
+    expires: null
+
+  - id: W-031
+    relpath: researchclaw/pipeline/tournament.py
+    qualname: run_tournament
+    ordinal: 1
+    policy: safe_join
+    reason: "tournament output markdown"
+    owner: P-106
+    expires: null

@@ -27,6 +27,7 @@ from researchclaw.pipeline._helpers import (
 )
 from researchclaw.pipeline.stages import Stage, StageStatus
 from researchclaw.prompts import PromptManager
+from researchclaw.utils.paths import safe_join
 
 logger = logging.getLogger(__name__)
 
@@ -959,7 +960,7 @@ def _read_retry_count(run_dir: Path) -> int:
 
 def _bump_retry_count(run_dir: Path) -> int:
     n = _read_retry_count(run_dir) + 1
-    (run_dir / _REQUIREMENTS_RETRY_FILE).write_text(str(n), encoding="utf-8")
+    safe_join(run_dir, _REQUIREMENTS_RETRY_FILE).write_text(str(n), encoding="utf-8")
     return n
 
 

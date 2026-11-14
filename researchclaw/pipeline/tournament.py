@@ -29,6 +29,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from researchclaw.utils.paths import safe_join
+
 logger = logging.getLogger(__name__)
 
 
@@ -167,7 +169,7 @@ def run_tournament(
         kept = len(candidates)
         candidates.append(text)
         cand_models.append(model)
-        (out_dir / f"{label}_{kept}.md").write_text(text, encoding="utf-8")
+        safe_join(out_dir, f"{label}_{kept}.md").write_text(text, encoding="utf-8")
         logger.info(
             "Tournament candidate=%d model=%s (%d chars)", kept, model, len(text),
         )

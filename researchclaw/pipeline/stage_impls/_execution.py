@@ -708,7 +708,7 @@ def _execute_experiment_run(
                 "completed_at": _utcnow_iso(),
             }
             run_id = str(payload["run_id"])
-            (runs_dir / f"{_safe_filename(run_id)}.json").write_text(
+            safe_join(runs_dir, f"{_safe_filename(run_id)}.json").write_text(
                 json.dumps(payload, indent=2), encoding="utf-8"
             )
     else:
@@ -729,7 +729,7 @@ def _execute_experiment_run(
                 "completed_at": _utcnow_iso(),
             }
             run_id = str(payload["run_id"])
-            (runs_dir / f"{_safe_filename(run_id)}.json").write_text(
+            safe_join(runs_dir, f"{_safe_filename(run_id)}.json").write_text(
                 json.dumps(payload, indent=2), encoding="utf-8"
             )
     # ---- Hard guard: block pipeline when experiment produced no real data ----
@@ -944,7 +944,7 @@ def _execute_iterative_refine(
                 if _item.is_file():
                     _shutil.copy2(_item, _dst)
         else:
-            (final_dir / f"{agent_label}_results.md").write_text(
+            safe_join(final_dir, f"{agent_label}_results.md").write_text(
                 f"# {agent_pretty} Results\n\nExperiment executed via {agent_pretty} in Stage 12.\n",
                 encoding="utf-8",
             )

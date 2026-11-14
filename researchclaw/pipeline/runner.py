@@ -24,6 +24,7 @@ from researchclaw.pipeline.stages import (
     Stage,
     StageStatus,
 )
+from researchclaw.utils.paths import safe_join
 
 
 def _utcnow_iso() -> str:
@@ -1392,7 +1393,7 @@ def _package_deliverables(
         tpl = get_template(effective_conf)
         style_files = tpl.get_style_files()
         for sf in style_files:
-            shutil.copy2(sf, dest / sf.name)
+            shutil.copy2(sf, safe_join(dest, sf.name))
             packaged.append(sf.name)
         if style_files:
             logger.info(

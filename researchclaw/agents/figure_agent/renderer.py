@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from researchclaw.agents.base import BaseAgent, AgentStepResult
+from researchclaw.utils.env import build_subprocess_env
 from researchclaw.utils.sanitize import sanitize_figure_id
 
 logger = logging.getLogger(__name__)
@@ -268,6 +269,7 @@ class RendererAgent(BaseAgent):
                 encoding="utf-8",
                 errors="replace",
                 timeout=self._timeout,
+                env=build_subprocess_env(),
                 # BUG-20: Use output_dir as CWD so relative paths
                 # like fig.savefig("comparison.png") resolve correctly
                 cwd=str(output_dir.resolve()),

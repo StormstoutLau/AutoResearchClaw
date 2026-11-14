@@ -204,6 +204,27 @@ def _detect_nvidia() -> HardwareProfile | None:
         return None
 
 
+def list_gpu_devices() -> tuple[str, ...]:
+    """All GPU lines from ``nvidia-smi -L``; () when unavailable."""
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "-L"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return ()
+    if result.returncode != 0:
+        return ()
+    return tuple(
+        line.strip() for line in (result.stdout or "").splitlines() if line.strip()
+    )
+
+
 def _detect_mps() -> HardwareProfile | None:
     """Detect macOS Apple Silicon GPU (MPS)."""
     if platform.system() != "Darwin":

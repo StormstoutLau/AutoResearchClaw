@@ -28,6 +28,7 @@ from researchclaw.pipeline.experiment_diagnosis import (
     assess_experiment_quality,
     diagnose_experiment,
 )
+from researchclaw.utils.paths import safe_join
 
 logger = logging.getLogger(__name__)
 
@@ -413,7 +414,7 @@ def run_repair_loop(
         exp_dir.mkdir(parents=True, exist_ok=True)
 
         for fname, content in fixed_code.items():
-            (exp_dir / fname).write_text(content, encoding="utf-8")
+            safe_join(exp_dir, fname).write_text(content, encoding="utf-8")
         logger.info(
             "[%s] Repair cycle %d: saved %d files to %s",
             run_id, cycle, len(fixed_code), exp_dir,

@@ -25,6 +25,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from researchclaw.utils.env import build_subprocess_env
+
 logger = logging.getLogger(__name__)
 
 
@@ -208,12 +210,13 @@ class HookRegistry:
         """Execute a shell/Python script hook."""
         import time
 
-        env = os.environ.copy()
-        env["RC_STAGE_NUM"] = str(stage_num)
-        env["RC_STAGE_NAME"] = stage_name
-        env["RC_HOOK_NAME"] = hook_name
+        overrides = {
+            "RC_STAGE_NUM": str(stage_num),
+            "RC_STAGE_NAME": stage_name,
+            "RC_HOOK_NAME": hook_name,
+        }
         if self.run_dir:
-            env["RC_RUN_DIR"] = str(self.run_dir)
+            overrides["RC_RUN_DIR"] = str(self.run_dir)
 
         t0 = time.monotonic()
         try:
@@ -222,7 +225,7 @@ class HookRegistry:
                 capture_output=True,
                 text=True,
                 timeout=30,
-                env=env,
+                env=build_subprocess_env(overrides),
                 cwd=str(self.run_dir) if self.run_dir else None,
             )
             return HookResult(

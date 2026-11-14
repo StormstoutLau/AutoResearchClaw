@@ -27,6 +27,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from researchclaw.utils.paths import safe_join
+
 logger = logging.getLogger(__name__)
 
 
@@ -157,7 +159,7 @@ def run_debate(
             )
             continue
         current[name] = text
-        (out_dir / f"{name}.r0.md").write_text(text, encoding="utf-8")
+        safe_join(out_dir, f"{name}.r0.md").write_text(text, encoding="utf-8")
         logger.info(
             "Debate r0 role=%s model=%s (%d chars)",
             name, _model_name(role_model[name]), len(text),
@@ -193,7 +195,7 @@ def run_debate(
                 )
                 continue
             current[name] = text
-            (out_dir / f"{name}.r{r}.md").write_text(text, encoding="utf-8")
+            safe_join(out_dir, f"{name}.r{r}.md").write_text(text, encoding="utf-8")
 
     if not current:
         raise RuntimeError("debate produced no perspectives")

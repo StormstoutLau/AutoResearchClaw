@@ -28,6 +28,8 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from researchclaw.config import RCConfig
+from researchclaw.utils.env import build_subprocess_env
+from researchclaw.utils.paths import safe_join
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +134,7 @@ def _seed_workdir(workdir: Path, files: dict[str, str]) -> None:
     """Pre-populate workdir with files for refinement/repair."""
     workdir.mkdir(parents=True, exist_ok=True)
     for fname, content in files.items():
-        (workdir / fname).write_text(content, encoding="utf-8")
+        safe_join(workdir, fname).write_text(content, encoding="utf-8")
 
 
 def format_feedback_for_agent(
@@ -459,7 +461,7 @@ class _CliAgentBase:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=workdir,
-            env={**os.environ, **self._env_extra},
+            env=build_subprocess_env(self._env_extra),
             start_new_session=True,
         )
         try:

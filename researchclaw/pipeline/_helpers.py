@@ -23,6 +23,7 @@ from researchclaw.pipeline.stages import (
     StageStatus,
 )
 from researchclaw.prompts import PromptManager
+from researchclaw.utils.paths import safe_join
 
 logger = logging.getLogger(__name__)
 
@@ -1771,7 +1772,7 @@ def _multi_perspective_generate(
                 system=system,
             )
             results[role_name] = resp.content
-            (perspectives_dir / f"{role_name}.md").write_text(
+            safe_join(perspectives_dir, f"{role_name}.md").write_text(
                 resp.content, encoding="utf-8"
             )
             logger.info("Debate perspective '%s' generated (%d chars)", role_name, len(resp.content))

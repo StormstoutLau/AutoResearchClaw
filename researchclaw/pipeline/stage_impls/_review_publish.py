@@ -42,6 +42,7 @@ from researchclaw.pipeline.review_service import (
 )
 from researchclaw.pipeline.stages import Stage, StageStatus
 from researchclaw.prompts import PromptManager
+from researchclaw.utils.paths import safe_join
 
 logger = logging.getLogger(__name__)
 
@@ -2571,7 +2572,7 @@ def _execute_export_publish(
         all_code_combined = ""
         code_file_names: list[str] = []
         for src in sorted(Path(exp_final_dir_path).glob("*.py")):
-            (code_dir / src.name).write_bytes(src.read_bytes())
+            safe_join(code_dir, src.name).write_bytes(src.read_bytes())
             all_code_combined += src.read_text(encoding="utf-8") + "\n"
             code_file_names.append(src.name)
 
