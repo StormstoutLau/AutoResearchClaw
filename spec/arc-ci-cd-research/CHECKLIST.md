@@ -3,7 +3,7 @@
 ---
 id: arc-ci-cd-research-CHECKLIST
 type: design
-version: 1.2
+version: 1.3
 status: pending
 date: 2026-11-15
 depends: [arc-ci-cd-research-IMPLEMENTATION, arc-ci-cd-research-DESIGN]
@@ -17,7 +17,7 @@ upstream: null
 > **基于实施**: [IMPLEMENTATION.md](./IMPLEMENTATION.md)（v1.2 / verified）
 > **基于设计**: [DESIGN.md](./DESIGN.md)（v1.3 / verified）
 
-> **验收边界（诚实声明）**：P-110 只建立验收基线，不实施 B1/B2。凡需运行代码、改 workflow 或改仓库设置的验收项一律标 ☐，**不得预填** ✅；仅「已发生的文档事实」（四文档链对齐、既有配置一手实测）可标 ✅。因此本文件当前为 `pending`，§10.2 三选项均不勾选，代码项等待 B1/B2 实施后回填。2026-11-15 首轮回填（P-114）：B1/B2 已实施（P-112），本机可验项回填 ✅；push 依赖项保持 ☐，§10.2 按三选项口径勾选「有条件通过」，待第二轮回填终裁。
+> **验收边界（诚实声明）**：P-110 只建立验收基线，不实施 B1/B2。凡需运行代码、改 workflow 或改仓库设置的验收项一律标 ☐，**不得预填** ✅；仅「已发生的文档事实」（四文档链对齐、既有配置一手实测）可标 ✅。因此本文件当前为 `pending`，§10.2 三选项均不勾选，代码项等待 B1/B2 实施后回填。2026-11-15 首轮回填（P-114）：B1/B2 已实施（P-112），本机可验项回填 ✅；push 依赖项保持 ☐，§10.2 按三选项口径勾选「有条件通过」，待第二轮回填终裁。2026-11-15 第二轮回填（P-122）：CI 连续两次全绿（run 43711274731 attempt 1/2）达成、分支保护按 runbook 应用并读回，§2.3 行 89、§2.5 行 105 与 §4 I-5 翻 ✅，§10.1 复算 86/50/0/36。
 
 ---
 
@@ -86,7 +86,7 @@ upstream: null
 | `workflow_dispatch` 可手动触发 | Actions 页面手动 Run workflow | 出现并成功启动 | ☐ | push 依赖项，留待第二轮回填（遗留待办） |
 | 同分支连推取消前序 | 连续两次 push 同分支 | 前序 run 状态为 Cancelled | ☐ | push 依赖项（run 43635083591 为单推、无取消事件），留待第二轮回填（遗留待办） |
 | 超时与 pip 缓存 | 读 run 日志 | 5 个 job 均有 `timeout-minutes`；`cache: pip` 命中 | ☐ | ci.yml 静态半项已验（5 job `timeout-minutes` 15/15/30/10/20）；缓存命中日志待后续 run 取证（run 43635083591 首轮 miss 属正常，Roadmap job 有「no dependencies to cache」提示） |
-| actions 版本与 job name | 读 ci.yml + 分支保护读回 | `checkout@v7` / `setup-python@v7`；5 个 job `name:` 未改 | ☐ | ci.yml 静态半项已验（`checkout@v7` / `setup-python@v7`，P-112 `gh api` 实测 latest v7.0.1 / v7.1.0；5 个 `name:` 未改）；分支保护读回半项待分支保护执行（遗留待办） |
+| actions 版本与 job name | 读 ci.yml + 分支保护读回 | `checkout@v7` / `setup-python@v7`；5 个 job `name:` 未改 | ✅ | ci.yml 静态半项已验（`checkout@v7` / `setup-python@v7`，P-112 `gh api` 实测 latest v7.0.1 / v7.1.0；5 个 `name:` 未改）；分支保护读回半项已验（P-122：7 个 required contexts 全部由现行 job `name:` 派生——`Packaging / wheel smoke` / `Extras import` / `Tests (3.11..3.13)` / `Roadmap coverage gates` / `Spec gates (pre-commit all-files)`，改名即失效的约束下读回成功） |
 
 ### 2.4 D-5：覆盖闭合守卫（B2）
 
@@ -102,8 +102,8 @@ upstream: null
 
 | 验收项 | 测试方法 | 通过条件 | 状态 | 证据 |
 |--------|---------|---------|------|------|
-| 7 个必需检查名读回 | `gh api repos/<owner>/<repo>/branches/main/protection` | 7 名逐字符一致；`Tests (3.14)` 不在集 | ☐ | 分支保护未应用——runbook 前置「CI 连续两次全绿」未满足（run 43635083591 红面登记为遗留待办），挂起待分支保护执行（遗留待办） |
-| 无 admin 旁路且红即阻断 | 读回 `enforce_admins` + 一次故意违规 PR | `enforce_admins=true`；违规 PR 被阻断后 revert | ☐ | 同上，挂起待分支保护执行（遗留待办；PUT 后读回 + 失败 PR 实证一并取证） |
+| 7 个必需检查名读回 | `gh api repos/<owner>/<repo>/branches/main/protection` | 7 名逐字符一致；`Tests (3.14)` 不在集 | ✅ | P-122 已应用并读回：7 名逐字符一致（`Packaging / wheel smoke` / `Extras import` / `Tests (3.11)` / `Tests (3.12)` / `Tests (3.13)` / `Roadmap coverage gates` / `Spec gates (pre-commit all-files)`），实测 `Tests (3.14)` 不在集；前置「CI 连续两次全绿」= commit `e34ad40` 的 run 43711274731 **attempt 1 与 attempt 2 均 `success`**（8/8 job 全绿） |
+| 无 admin 旁路且红即阻断 | 读回 `enforce_admins` + 一次故意违规 PR | `enforce_admins=true`；违规 PR 被阻断后 revert | ☐ | 前半项已验（P-122 读回 `enforce_admins.enabled=true`、`required_pull_request_reviews.required_approving_review_count=0`、`allow_force_pushes.enabled=false`、`allow_deletions.enabled=false`）；「一次故意违规 PR」阻断实证未执行——需临时分支 + 一次故意 red push，留待后续回填（遗留待办） |
 
 ### 2.6 D-6：依赖自动化与徽章（B2）
 
@@ -165,7 +165,7 @@ upstream: null
 | I-2 可重现元数据 | `vendor_source_sync --check` exit 0；27 例全绿 | ✅（P-114 复跑 exit 0，29 条目；34 passed） |
 | I-3 覆盖闭合 | `ci_coverage_check --check` exit 0 + `--selftest` 三类违规可判 | ✅（P-114 复跑 exit 0，L=148 / R=0 / C=148；selftest 4/4） |
 | I-4 单一真值 | 人工核对 README 无「未经 CI 实测」的数字徽章 | ✅（P-114 实读 README：静态 `Tests-2699 passed` 已删） |
-| I-5 红即阻断 | 分支保护 API 读回逐字段核对（7 必需名 / `enforce_admins=true` / 3.14 不入集） | ☐（待分支保护执行（遗留待办）：前置「CI 连续两次全绿」未满足，run 43635083591 红面待修复批） |
+| I-5 红即阻断 | 分支保护 API 读回逐字段核对（7 必需名 / `enforce_admins=true` / 3.14 不入集） | ✅（P-122 读回：7 必需名逐字符一致、`Tests (3.14)` 不在集、`enforce_admins.enabled=true`、PR 必走且 `required_approving_review_count=0`；前置两次全绿 = run 43711274731 attempt 1/2 均 `success`） |
 | I-6 本地=CI | 两处 entry 字符串一致 + `pre-commit run ci-coverage` 与 job 同判 | ✅（P-114：entry 逐字符相等 + 钩子 Passed；CI 侧 env 差异红面登记为遗留待办） |
 
 ## 5. 错误处理验收
@@ -262,14 +262,14 @@ upstream: null
 | 类别 | 总数 | 通过 | 失败 | 待办 |
 |------|------|------|------|------|
 | 文档一致性 | 15 | 15 | 0 | 0 |
-| 功能 | 25 | 17 | 0 | 8 |
+| 功能 | 25 | 19 | 0 | 6 |
 | 接口 | 15 | 0 | 0 | 15 |
-| 不变式 | 6 | 5 | 0 | 1 |
+| 不变式 | 6 | 6 | 0 | 0 |
 | 错误处理 | 6 | 0 | 0 | 6 |
 | 性能 | 3 | 3 | 0 | 0 |
 | 兼容性 | 8 | 1 | 0 | 7 |
 | ADD 审计 | 8 | 6 | 0 | 2 |
-| **总计** | **86** | **47** | **0** | **39** |
+| **总计** | **86** | **50** | **0** | **36** |
 
 > **统计口径（RULE-2）**：上表来自本文件**逐项核对**（每一项均有独立标记），非事后汇总推算。
 >
@@ -278,10 +278,12 @@ upstream: null
 ### 10.2 验收决定
 
 - [ ] **验收通过**：所有 P1 项通过，无阻塞性问题
-- [x] **有条件通过**：本机可验项全部通过（§2.1 / §2.2 / §2.4 / §2.6 形态 / §2.7 / §4 I-1..I-4、I-6 / §6），push 依赖项（§2.3 4 项、§2.5 2 项、§2.6 2 项、I-5）保持 ☐ 待第二次回填；CI push run 43635083591 红面（D-5 全量收集暴露存量 22/16 失败 + spec-gates 缺 `mcp` extra 致覆盖守卫 collect error）须先修复（遗留待办：CI 红面修复批），分支保护前置「CI 连续两次全绿」未满足（遗留待办：分支保护执行）
+- [x] **有条件通过**：本机可验项全部通过（§2.1 / §2.2 / §2.4 / §2.6 形态 / §2.7 / §4 I-1..I-6 / §6），push 依赖项（§2.3 3 项、§2.5 1 项、§2.6 2 项）保持 ☐ 待后续回填；CI push run 43635083591 红面已由修复批（P-121，commit `e34ad40`）转绿——run 43711274731 attempt 1/2 均全绿；分支保护已按 runbook 应用并读回（P-122）
 - [ ] **验收失败**：<原因>
 
 > 首轮回填（P-114，2026-11-15）：B1/B2 已实施（P-112），本机可验项回填 ✅ 并复算 §10.1（86/47/0/39）；「有条件通过」已勾选——条件为 CI 红面修复批与分支保护执行（均遗留待办）完成后，push 依赖项第二轮回填（遗留待办）再按实际读数复算并终裁。
+>
+> 第二轮回填（P-122，2026-11-15）：两项前置已闭环——① CI 红面修复批（P-121）使 commit `e34ad40` 的 run 43711274731 **连续两次全绿**（attempt 1 与 rerun 的 attempt 2 均 `success`，8/8 job）；② 分支保护按 IMPLEMENTATION §10 Step 5 runbook 应用，`gh api .../branches/main/protection` 读回 7 必需名逐字符一致、`Tests (3.14)` 不在集、`enforce_admins.enabled=true`、PR 必走且 approvals=0。§2.5 行 105、§2.3 行 89、§4 I-5 翻 ✅，§10.1 复算 **86/50/0/36**（功能 19/0/6、不变式 6/0/0）。仍维持「有条件通过」：§2.3 2 项、§2.5「故意违规 PR」阻断实证、§2.6 2 项、§3/§5/§7 未验项待回填后终裁。
 
 ### 10.3 签字
 
@@ -297,9 +299,9 @@ upstream: null
 |------|--------|------|------|
 | B1 步骤 1-2：`vendor_source_sync.py` + 断言改锚 blob | 实施者 | B1 | ✅（P-112） |
 | B1 步骤 3-4：`tracked` 校验 + 21 处链接改写 | 实施者 | B1 | ✅（P-112 / P-113） |
-| B1 步骤 5：分支保护 runbook（CI 连续两次绿后） | 实施者 | B1 | ☐（挂起待分支保护执行（遗留待办）：前置 CI 两次绿未满足） |
+| B1 步骤 5：分支保护 runbook（CI 连续两次绿后） | 实施者 | B1 | ✅（P-122：run 43711274731 两次全绿后应用并读回 7 名 / `enforce_admins=true` / 3.14 不入集） |
 | B2 步骤 6-9：workflow 硬化 / 登记表 / 覆盖守卫 / dependabot | 实施者 | B2 | ✅（P-112） |
-| 回填 §2-§6 并复算 §10.1，择一勾选 §10.2 | 审查者 | B2 后 | 首轮完成（P-114：本机项 + 有条件通过）；第二轮待 CI 红面修复与分支保护（遗留待办）后终裁 |
+| 回填 §2-§6 并复算 §10.1，择一勾选 §10.2 | 审查者 | B2 后 | 首轮完成（P-114：本机项 + 有条件通过）；第二轮完成（P-122：分支保护应用 + 两次全绿，复算 86/50/0/36）；终裁待剩余 ☐ 项回填 |
 | DESIGN v1.3 订正 §4.1 返回注解（IMPL O-4） | 设计者 | 下一设计版 | ✅（P-111 已订正） |
 | 更新 PROGRESS.md | 实施者 | 每批 | ✅（P-114） |
 | 记录开发日志 | 实施者 | 每批 | ✅（P-114） |
