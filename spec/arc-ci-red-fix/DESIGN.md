@@ -1,7 +1,7 @@
 ---
 id: arc-ci-red-fix-DESIGN
 type: design
-version: 1.2
+version: 1.3
 status: draft
 date: 2026-11-15
 depends: [arc-ci-red-fix-RESEARCH]
@@ -12,9 +12,9 @@ upstream: arc-ci-red-fix-RESEARCH
 
 > **Feature**：P-116，CI 红面修复设计（承接 P-115 调研，零生产代码）。
 > **创建日期**：2026-11-15
-> **状态**：草稿（Step 4 自审已执行；第二基座独立复审未执行，见 U-7）
+> **状态**：草稿（Step 4 自审 + 第二基座独立复审均已执行，见 §9.3 与 §11.1）
 > **Spec 步骤**：Step 3-4（T3 设计批）
-> **基于调研**：[调研文档 v1.5](RESEARCH.md)
+> **基于调研**：[调研文档 v1.6](RESEARCH.md)
 
 ## 1. 设计目标
 
@@ -288,7 +288,7 @@ def test_keyword_surface_matches_protocol(method):
 
 - [x] 职责边界清晰（§2.3 区分职责外与能力边界）
 - [x] 不越界：不纳入 lint/覆盖率（D-8）、不纳入 Windows 矩阵（D-9）、不改 Docker 语义、不重构 sandbox 架构
-- [ ] **第二基座独立复审未执行**：本版为同基座自审 + 逐行复核；按 P-108 先例的证伪式独立复审登记为 U-7，不伪称已执行
+- [x] **第二基座独立复审已执行（P-120，2026-11-15）**：复审基座 = GLM 家族（GLM-5.3-Flash），异构于撰写基座（DeepSeek 家族，P-115..P-118 session 记录），符合 SPEC_PROCESS RULE-5 MAD 原则。证伪式抽查 §2.1.1/§4/§8：14 处签名行号、三 agent 后端 `run` 首位置参 `prompt_text: str`（collider:73/biology:82/stat:65）与 `timeout_sec: int | None = None`（:75/:84/:67）、`code: str` + `timeout_sec: int = 300` 系其余四类、7 个实现类名与 §4.3 `_IMPLS` 一致、Protocol :301-309 与 ExperimentSandbox :358-366 现状 keyword-only 面与 §4.1 改后蓝图自洽、三处 `run_project` 体内 `return self.run(prompt_text, timeout_sec=timeout_sec)` 不转发新参（I-2 成立）、`_stop` 八行与 :268 类外引用——**全部证实，零证伪项**。
 
 ## 10. 对实施的输入
 
@@ -347,11 +347,12 @@ def test_keyword_surface_matches_protocol(method):
 - **U-7 第二基座独立复审**
   - **判据**：由不同基座子代理对 §2.1.1/§4/§8 做证伪式复核并签字
   - **触发条件**：进入实施批前（推荐），或首轮 CI 绿后补做
-  - **当前倾向**：推荐实施批前补做；本版不伪称已完成（§9.3 末项）
-  - **证据等级**：—（流程项）
+  - **当前倾向**：**已执行（P-120）**——GLM 家族异构基座于实施批前完成证伪式复核，抽查证实、零证伪项；签字见 §9.3 与 Review 签字行
+  - **证据等级**：E1（复审记录见 §9.3 末项与 session specwf-p120）
 
 **11.2 决策矩阵**：D-1..D-7 全部为 **Type-2（可逆）**——单文件/单词层改动，可单点回滚；不启动矩阵。
 
 ---
 
 **Review 签字**：同基座自审（Step 4 清单 + 逐行复核） 日期: 2026-11-15
+**第二基座签字（P-120）**：GLM-5.3-Flash（GLM 家族，异构于撰写基座）证伪式复核 §2.1.1/§4/§8——抽查全部证实、零证伪项，U-7 关闭 日期: 2026-11-15

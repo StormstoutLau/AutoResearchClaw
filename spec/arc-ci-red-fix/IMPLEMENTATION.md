@@ -1,7 +1,7 @@
 ---
 id: arc-ci-red-fix-IMPLEMENTATION
 type: design
-version: 1.0
+version: 1.1
 status: draft
 date: 2026-11-15
 depends: [arc-ci-red-fix-DESIGN, arc-ci-red-fix-RESEARCH]
@@ -400,7 +400,7 @@ def test_keyword_surface_matches_protocol(method: str) -> None:
 - [x] 无新增 I/O（契约测试只反射签名）
 - [x] 无重复计算
 
-**未执行项**：第二基座独立复审（U-7）仍未执行，本文件为同基座施工单；若用户要求，可在实施前补做。
+**未执行项**：~~第二基座独立复审（U-7）仍未执行~~ **已清空（P-120，2026-11-15）**：第二基座独立复审已于实施前执行——GLM 家族异构基座对 DESIGN §2.1.1/§4/§8 证伪式抽查，全部证实、零证伪项（见 DESIGN §9.3）；实施批无前置，可直接开工。
 
 ## 10. 实施步骤
 

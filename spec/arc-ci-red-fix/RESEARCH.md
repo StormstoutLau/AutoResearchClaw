@@ -1,7 +1,7 @@
 ---
 id: arc-ci-red-fix-RESEARCH
 type: design
-version: 1.5
+version: 1.6
 status: draft
 date: 2026-11-15
 depends: [arc-ci-cd-research, arc-g4-m4-sandbox-limits, arc-g4-m3-tool-events]
@@ -246,7 +246,7 @@ upstream: null
 1. **R-4 半径修正（§3.3/§5/§8.3）**：`_stop` 并非「仅类内使用」——[`tests/test_sandbox_boundary.py#L268`](../../tests/test_sandbox_boundary.py#L268) 断言 `watcher._stop.is_set()`，是类外引用。改名必须同步该行。故总半径由 **11 文件**（10 改 + 1 新）更正为 **12 文件**（11 改 + 1 新）。
 2. **契约测试口径修正（§8.1 验收段）**：「7 个实现的 `run`/`run_project` 形参名集合逐项一致」不可按字面执行——`run` 首位置参名 `code`（sandbox/docker/ssh/colab）与 `prompt_text`（collider/biology/stat）本就不同，且 `timeout_sec` 默认值协议为 `300`、三个 agent 后端为 `None`。故契约面收窄为 **keyword-only 形参名集合 + 顺序**（并要求含 `run_id`），默认值与首位置参名不纳入。详见 DESIGN.md §2.1.1、§4.3。
 
-**U-7（新增）**：第二基座独立复审未在本设计批执行（本版为同基座自审 + 逐行复核），触发条件与倾向见 DESIGN.md §11.1。
+**U-7（已关闭，P-120）**：第二基座独立复审已于实施批前执行（2026-11-15）——GLM 家族基座异构于撰写基座（DeepSeek 家族），对 DESIGN §2.1.1/§4/§8 做证伪式抽查，全部证实、零证伪项，见 DESIGN §9.3 复审签字与 §11.1。
 
 ## 11. U-2 定位闭合（P-118 文档补强批，v1.4）
 
@@ -276,7 +276,7 @@ upstream: null
 
 > 审计对象：本文件 v1.4 / [DESIGN.md](DESIGN.md) v1.1 / [IMPLEMENTATION.md](IMPLEMENTATION.md) v1.0 / [docs/PROGRESS.md](../../docs/PROGRESS.md) 的 P-115..P-118 行。方法：交叉复算 + 源码 anchor 抽查 + 命令实跑（dc_validator / step-gate）。
 
-**通过面**：frontmatter 链与版本引用链；算术自洽（76 = 22×2+16×2、22 = 14+6+1+1、16 = 14+1+1、14 处签名 = 7 类 × 2、12 文件 = 11 改 + 1 新、`_stop` 8 行、四文件合集 56+19+6 = 81、Step 0..10）；U-1..U-7 四文档互洽（U-2 双处关闭且 IMPLEMENTATION 零引用、U-4/U-5 四元块与「明确不做」互洽、U-7 三处如实登记未执行）；R-1..R-5 → D-1..D-7 → I-1..I-7 映射一一承载；修复面三处对齐（DESIGN §3.2 ↔ IMPLEMENTATION §2.3 ↔ 本文件 §10/§11.4）；验收读数表（DESIGN §10.3 ↔ IMPLEMENTATION §8.2 六行逐行）；回滚顺序（R-5→R-3→R-2→R-4→R-1，R-1 与契约测试成对）；anchor 抽查（14 处签名行号、`_stop` 8 行、`test_sandbox_boundary.py#L268`、`ci.yml#L121/#L166`、`test_web_platform.py#L33/#L35`、api.js 常量、`factory.py#L29`、`event_log.py#L40`、Docker `#L237/#L255` 已有 `run_id`）全部命中。
+**通过面**：frontmatter 链与版本引用链；算术自洽（76 = 22×2+16×2、22 = 14+6+1+1、16 = 14+1+1、14 处签名 = 7 类 × 2、12 文件 = 11 改 + 1 新、`_stop` 8 行、四文件合集 56+19+6 = 81、Step 0..10）；U-1..U-7 四文档互洽（U-2 双处关闭且 IMPLEMENTATION 零引用、U-4/U-5 四元块与「明确不做」互洽、U-7 三处如实登记未执行）；R-1..R-5 → D-1..D-7 → I-1..I-7 映射一一承载；修复面三处对齐（DESIGN §3.2 ↔ IMPLEMENTATION §2.3 ↔ 本文件 §10/§11.4）；验收读数表（DESIGN §10.3 ↔ IMPLEMENTATION §8.2 六行逐行）；回滚顺序（R-5→R-3→R-2→R-4→R-1，R-1 与契约测试成对）；（v1.6 注：U-7 已由 P-120 第二基座复审执行关闭，见 DESIGN §9.3/§11.1；本节其余记录为 P-119 时点状态，不变。）anchor 抽查（14 处签名行号、`_stop` 8 行、`test_sandbox_boundary.py#L268`、`ci.yml#L121/#L166`、`test_web_platform.py#L33/#L35`、api.js 常量、`factory.py#L29`、`event_log.py#L40`、Docker `#L237/#L255` 已有 `run_id`）全部命中。
 
 **发现并就地加注订正 3 处（均 P3，不改变 D-1..D-7 裁决、修复面 12 文件与验收读数）**
 
