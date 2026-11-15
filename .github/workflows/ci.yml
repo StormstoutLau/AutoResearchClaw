@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: [main]        # P-127：分支推送不再触发，PR 分支一律走 pull_request，消除同 commit 双 run
   pull_request:
   workflow_dispatch:        # D-4：允许手动触发排障与重跑
 
