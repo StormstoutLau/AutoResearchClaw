@@ -73,6 +73,7 @@ class ColliderAgentSandbox:
         prompt_text: str,
         *,
         timeout_sec: int | None = None,
+        run_id: str | None = None,
     ) -> SandboxResult:
         """Run the ColliderAgent pipeline for the given physics prompt.
 
@@ -178,6 +179,7 @@ class ColliderAgentSandbox:
         timeout_sec: int = 300,
         args: list[str] | None = None,
         env_overrides: dict[str, str] | None = None,
+        run_id: str | None = None,
     ) -> SandboxResult:
         """``SandboxProtocol.run_project`` adapter for ColliderAgent.
 

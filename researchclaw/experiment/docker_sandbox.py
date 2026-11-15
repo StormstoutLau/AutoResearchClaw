@@ -69,12 +69,12 @@ class _TtlWatcher(threading.Thread):
         self._ttl = float(ttl_sec)
         self._grace = float(kill_grace_sec)
         self._poll = float(poll_sec)
-        self._stop = threading.Event()
+        self._stop_event = threading.Event()
         self._fired = False
 
     def stop(self) -> None:
         """Signal the watcher to give up (called from the main flow)."""
-        self._stop.set()
+        self._stop_event.set()
 
     @property
     def fired(self) -> bool:
@@ -88,22 +88,22 @@ class _TtlWatcher(threading.Thread):
         if not self._wait_for_container():
             return
         deadline = time.monotonic() + self._ttl
-        while not self._stop.is_set():
+        while not self._stop_event.is_set():
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
-            if self._stop.wait(min(self._poll, remaining)):
+            if self._stop_event.wait(min(self._poll, remaining)):
                 return  # stopped before deadline — container exited normally
-        if self._stop.is_set():
+        if self._stop_event.is_set():
             return
         self._fire()
 
     def _wait_for_container(self) -> bool:
         """Wait until this watcher's container exists; False if stopped first."""
-        while not self._stop.is_set():
+        while not self._stop_event.is_set():
             if self._container_exists():
                 return True
-            if self._stop.wait(min(self._poll, 1.0)):
+            if self._stop_event.wait(min(self._poll, 1.0)):
                 return False
         return False
 
@@ -140,7 +140,7 @@ class _TtlWatcher(threading.Thread):
         # impossible kill must never fabricate an attribution.
         self._fired = True
         # Grace window: harness SIGTERM handler finalizes artifacts here.
-        if self._stop.wait(self._grace):
+        if self._stop_event.wait(self._grace):
             return  # container exited during grace (main flow stopped us)
         logger.warning(
             "Container %s survived TTL grace (%.0fs) — sending SIGKILL",

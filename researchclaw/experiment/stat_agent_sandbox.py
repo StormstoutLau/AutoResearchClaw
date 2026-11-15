@@ -65,6 +65,7 @@ class StatAgentSandbox:
         prompt_text: str,
         *,
         timeout_sec: int | None = None,
+        run_id: str | None = None,
     ) -> SandboxResult:
         """Run the stat_research_agent pipeline for the given statistics prompt."""
         timeout_sec = timeout_sec if timeout_sec is not None else self.config.timeout_sec
@@ -155,6 +156,7 @@ class StatAgentSandbox:
         timeout_sec: int = 300,
         args: list[str] | None = None,
         env_overrides: dict[str, str] | None = None,
+        run_id: str | None = None,
     ) -> SandboxResult:
         """Re-entry adapter for SandboxProtocol parity. See
         :meth:`BiologyAgentSandbox.run_project` for the contract."""

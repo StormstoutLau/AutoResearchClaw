@@ -265,7 +265,7 @@ class TestTtlWatcher:
         assert len(_watcher_log) == 1
         watcher = _watcher_log[0]
         assert not watcher.is_alive()
-        assert watcher._stop.is_set()
+        assert watcher._stop_event.is_set()
 
     @patch("subprocess.run")
     def test_t10_watcher_targets_only_own_container(self, mock_run, tmp_path,

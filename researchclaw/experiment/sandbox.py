@@ -294,9 +294,14 @@ class SandboxResult:
 
 
 class SandboxProtocol(Protocol):
-    """Structural type for sandbox backends (ExperimentSandbox, DockerSandbox)."""
+    """Structural type for sandbox backends (ExperimentSandbox, DockerSandbox).
 
-    def run(self, code: str, *, timeout_sec: int = 300) -> SandboxResult: ...
+    ``run_id`` is only consumed by container backends (``rc.run`` label and
+    TTL gating); non-container backends accept the parameter but ignore it.
+    """
+
+    def run(self, code: str, *, timeout_sec: int = 300,
+            run_id: str | None = None) -> SandboxResult: ...
 
     def run_project(
         self,
@@ -306,6 +311,7 @@ class SandboxProtocol(Protocol):
         timeout_sec: int = 300,
         args: list[str] | None = None,
         env_overrides: dict[str, str] | None = None,
+        run_id: str | None = None,
     ) -> SandboxResult: ...
 
 
@@ -316,7 +322,8 @@ class ExperimentSandbox:
         self.workdir.mkdir(parents=True, exist_ok=True)
         self._run_counter: int = 0
 
-    def run(self, code: str, *, timeout_sec: int = 300) -> SandboxResult:
+    def run(self, code: str, *, timeout_sec: int = 300,
+            run_id: str | None = None) -> SandboxResult:
         script_path = self._next_script_path()
         self._write_script(script_path, code)
 
@@ -363,6 +370,7 @@ class ExperimentSandbox:
         timeout_sec: int = 300,
         args: list[str] | None = None,
         env_overrides: dict[str, str] | None = None,
+        run_id: str | None = None,
     ) -> SandboxResult:
         """Run a multi-file experiment project in the sandbox.
 
