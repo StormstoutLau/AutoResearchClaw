@@ -1,8 +1,8 @@
 ---
 id: arc-ci-flaky-heavy-CHECKLIST
 type: design
-version: 1.0
-status: pending
+version: 1.1
+status: accepted
 date: 2026-11-16
 depends: [arc-ci-flaky-heavy-IMPLEMENTATION, arc-ci-flaky-heavy-DESIGN]
 upstream: null
@@ -14,7 +14,7 @@ upstream: null
 > **Spec 步骤**：Step 7-8。
 > **基于实施**：[IMPLEMENTATION.md](./IMPLEMENTATION.md)（v1.0 / verified）。
 > **基于设计**：[DESIGN.md](./DESIGN.md)（v1.0 / verified）。
-> **验收边界**：本批全部验收项均可在**本机**完成（守卫脚本 + pytest 收集 + 读码），唯一例外是「四矩阵兼容」需 PR checks 的四版本实跑，故该行标 ☐ 并写回填窗口。凡标 ✅ 的项均附一手读数或行号，不预填。
+> **验收边界**：本批全部验收项均可在**本机**完成（守卫脚本 + pytest 收集 + 读码），唯一例外是「四矩阵兼容」需 PR checks 的四版本实跑，故该行标 ☐ 并写回填窗口。凡标 ✅ 的项均附一手读数或行号，不预填。（2026-11-16 回填注：四矩阵行已按 PR #6 checks 实跑读数翻 ✅，见 §7 与 §10.1/§10.2。）
 
 ---
 
@@ -120,7 +120,7 @@ upstream: null
 
 | 项 | 测试方法 | 通过条件 | 状态 | 证据 |
 |----|---------|---------|------|------|
-| Python 3.11-3.14 | PR checks 四矩阵 | 四矩阵均绿且均 2 deselected | ☐ | 待本批 PR 实跑回填（窗口：合入前 `gh pr checks`） |
+| Python 3.11-3.14 | PR checks 四矩阵 | 四矩阵均绿且均 2 deselected | ✅ | PR #6 双 run 43736549562（push）/ 43736560954（pull_request）四矩阵 8 job 全 pass（耗时由 job startedAt/completedAt 复算：3.11 112s+120s / 3.12 117s+120s / 3.13 110s+113s / 3.14 118s+117s）；四个矩阵 job 日志**逐一实证** `3712 passed, 66 skipped, 2 deselected`（3712+66=3778 与本地收集基线一致） |
 | CI 命令不变 | 读 `ci.yml` | 仍为 `-m "not heavy"`，无新增 flag/job | ✅ | L124 未改 |
 | 本地钩子同判 | `pre-commit run ci-coverage --all-files` | 与 spec-gates job 同 entry 同结论 | ✅ | 本批门禁运行 Passed（entry 未改，P-114 已比对一致） |
 | 收集基线 | `--collect-only` | 明确 3780 全量 / 3778 CI 集 | ✅ | IMPL §5 第 2 行 |
@@ -159,16 +159,16 @@ upstream: null
 | 不变式 | 5 | 5 | 0 | 0 |
 | 错误处理 | 3 | 3 | 0 | 0 |
 | 性能 | 2 | 2 | 0 | 0 |
-| 兼容性 | 4 | 3 | 0 | 1 |
+| 兼容性 | 4 | 4 | 0 | 0 |
 | 交付面 | 6 | 6 | 0 | 0 |
-| **总计** | **45** | **44** | **0** | **1** |
+| **总计** | **45** | **45** | **0** | **0** |
 
-双算术：45 = 14+11+0+5+3+2+4+6；44 = 14+11+0+5+3+2+3+6；待办 1 = §7 四矩阵行（PR 实跑后回填）。
+双算术：45 = 14+11+0+5+3+2+4+6；通过 45 = 14+11+0+5+3+2+4+6；待办 0（§7 四矩阵行已按 PR #6 实跑读数回填，2026-11-16）。
 
 ### 10.2 验收结论
 
-- [x] **有条件通过**：本机可验项 100% 通过（44/45），唯一 ☐ 为「Python 3.11-3.14 四矩阵」——它只能由 PR checks 产生，且本批改动不触碰版本相关面；回填窗口 = 本批 PR 的 `gh pr checks` 读数。
-- [ ] 验收通过：待 §7 四矩阵行回填后勾选。
+- [ ] **有条件通过**（P-125 时点口径，已由下行「验收通过」取代）：本机可验项 100% 通过（44/45），唯一 ☐ 为「Python 3.11-3.14 四矩阵」——它只能由 PR checks 产生，且本批改动不触碰版本相关面；回填窗口 = 本批 PR 的 `gh pr checks` 读数。该条件已于 2026-11-16 由 PR #6 四矩阵全绿满足。
+- [x] 验收通过：§7 四矩阵行已按 PR #6 实跑读数回填（run 43736549562 / 43736560954，均 `2 deselected`），45/45 全通过；status 翻 accepted（CHECKLIST 词表：pending/accepting/accepted）。
 - [ ] 验收不通过：无阻塞项。
 
 > 诚实边界：本批把两条行为从 CI 阻断面**转移**到 heavy 集合，不修复其竞争本质（RESEARCH §6.3、U-1）。因此「44/45 通过」只表示隔离实施正确，不表示 F-1/F-2 已治愈。
@@ -177,6 +177,6 @@ upstream: null
 
 | 行动 | 负责 | 时机 | 状态 |
 |------|------|------|------|
-| §7 四矩阵行回填 | 审查者 | 本批 PR checks 完成后 | pending |
+| §7 四矩阵行回填 | 审查者 | 本批 PR checks 完成后 | done（PR #6 读数回填，2026-11-16） |
 | U-1 根因专项（F-1 读/解析窗口、F-2 调度前提） | 后续批 | heavy 复核连续 2 次失败或功能回归时 | pending |
 | U-2 heavy 定期执行路径（schedule / pre-push） | 后续批 | CI 触发器扩容排期时，或连续 2 批未跑 `pytest -m heavy` | pending |
