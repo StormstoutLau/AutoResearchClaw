@@ -3,7 +3,7 @@
 ---
 id: arc-ci-cd-research-CHECKLIST
 type: design
-version: 1.4
+version: 1.5
 status: pending
 date: 2026-11-15
 depends: [arc-ci-cd-research-IMPLEMENTATION, arc-ci-cd-research-DESIGN]
@@ -17,7 +17,7 @@ upstream: null
 > **基于实施**: [IMPLEMENTATION.md](./IMPLEMENTATION.md)（v1.2 / verified）
 > **基于设计**: [DESIGN.md](./DESIGN.md)（v1.3 / verified）
 
-> **验收边界（诚实声明）**：P-110 只建立验收基线，不实施 B1/B2。凡需运行代码、改 workflow 或改仓库设置的验收项一律标 ☐，**不得预填** ✅；仅「已发生的文档事实」（四文档链对齐、既有配置一手实测）可标 ✅。因此本文件当前为 `pending`，§10.2 三选项均不勾选，代码项等待 B1/B2 实施后回填。2026-11-15 首轮回填（P-114）：B1/B2 已实施（P-112），本机可验项回填 ✅；push 依赖项保持 ☐，§10.2 按三选项口径勾选「有条件通过」，待第二轮回填终裁。2026-11-15 第二轮回填（P-122）：CI 连续两次全绿（run 43711274731 attempt 1/2）达成、分支保护按 runbook 应用并读回，§2.3 行 89、§2.5 行 105 与 §4 I-5 翻 ✅，§10.1 复算 86/50/0/36。2026-11-15 第三轮回填（P-122 续）：故意违规 PR #2 实证阻断（`BLOCKED` + `--admin` 亦被拒 `3 of 7 required status checks are failing`），直推 `main` 被拒；§2.5 行 106 翻 ✅，§10.1 复算 86/51/0/35。
+> **验收边界（诚实声明）**：P-110 只建立验收基线，不实施 B1/B2。凡需运行代码、改 workflow 或改仓库设置的验收项一律标 ☐，**不得预填** ✅；仅「已发生的文档事实」（四文档链对齐、既有配置一手实测）可标 ✅。因此本文件当前为 `pending`，§10.2 三选项均不勾选，代码项等待 B1/B2 实施后回填。2026-11-15 首轮回填（P-114）：B1/B2 已实施（P-112），本机可验项回填 ✅；push 依赖项保持 ☐，§10.2 按三选项口径勾选「有条件通过」，待第二轮回填终裁。2026-11-15 第二轮回填（P-122）：CI 连续两次全绿（run 43711274731 attempt 1/2）达成、分支保护按 runbook 应用并读回，§2.3 行 89、§2.5 行 105 与 §4 I-5 翻 ✅，§10.1 复算 86/50/0/36。2026-11-15 第三轮回填（P-122 续）：故意违规 PR #2 实证阻断（`BLOCKED` + `--admin` 亦被拒 `3 of 7 required status checks are failing`），直推 `main` 被拒；§2.5 行 106 翻 ✅，§10.1 复算 86/51/0/35。2026-11-15 第四轮回填（P-124）：push 依赖项 5 项取证——`workflow_dispatch` 手动触发 run 43727171392 attempt 2 全绿、同分支连推前序 run 43727211211 `cancelled`、pip 缓存命中日志（`Cache restored from key: …`）、徽章 URL `200 image/svg+xml`；§2.3 行 86/87/88 与 §2.6 行 114 翻 ✅，§2.6 行 113（dependabot 首个分组 PR）受自然月周期约束维持 ☐（下次窗口 2026-12），§10.1 复算 86/55/0/31。
 
 ---
 
@@ -83,9 +83,9 @@ upstream: null
 
 | 验收项 | 测试方法 | 通过条件 | 状态 | 证据 |
 |--------|---------|---------|------|------|
-| `workflow_dispatch` 可手动触发 | Actions 页面手动 Run workflow | 出现并成功启动 | ☐ | push 依赖项，留待第二轮回填（遗留待办） |
-| 同分支连推取消前序 | 连续两次 push 同分支 | 前序 run 状态为 Cancelled | ☐ | push 依赖项（run 43635083591 为单推、无取消事件），留待第二轮回填（遗留待办） |
-| 超时与 pip 缓存 | 读 run 日志 | 5 个 job 均有 `timeout-minutes`；`cache: pip` 命中 | ☐ | ci.yml 静态半项已验（5 job `timeout-minutes` 15/15/30/10/20）；缓存命中日志待后续 run 取证（run 43635083591 首轮 miss 属正常，Roadmap job 有「no dependencies to cache」提示） |
+| `workflow_dispatch` 可手动触发 | Actions 页面手动 Run workflow | 出现并成功启动 | ✅ | P-124 实测：`gh workflow run ci.yml --ref main` 于 2026-11-15T14:57:36Z 创建 run 43727171392（event=`workflow_dispatch`、headBranch=`main`），8 个 job 全部启动；attempt 1 仅 `Tests (3.13)` 红且为 F-1 flaky 复现（`assert <HumanAction.ABORT> == <HumanAction.REJECT>`，P-123 登记同一断言），attempt 2 rerun **8/8 job 全绿** ⇒ 手动触发面可用，与 push 路径同判 |
+| 同分支连推取消前序 | 连续两次 push 同分支 | 前序 run 状态为 Cancelled | ✅ | P-124 实测：临时分支 `probe/concurrency-cancel` 上间隔 34s 连续两次 push（`ff718f5` → `2438158`）——前序 run 43727211211（`ff718f5`）结论 **`cancelled`**，后继 run 43727260130（`2438158`）继续执行至完成；机制对应 `ci.yml` L11-L13 的 `concurrency.group = ci-${{ github.workflow }}-${{ github.ref }}` + `cancel-in-progress: true`。探针分支（远端 + 本地）已删除，`main` 无探针提交 |
+| 超时与 pip 缓存 | 读 run 日志 | 5 个 job 均有 `timeout-minutes`；`cache: pip` 命中 | ✅ | P-124 双半项齐备：① 静态——5 个 job `timeout-minutes` = 15/15/30/10/20（`ci.yml` L19/L77/L101/L129/L151），5 处 `cache: pip`（L26/L84/L116/L136/L160）；② 运行时——run 43719194339 的 `Tests (3.11)` job 日志含 `Cache hit for: setup-python-Linux-x64-26.04-Ubuntu-python-3.11.18-pip-87c0ef52…`、`Cache Size: ~44 MB (46580374 B)`、`Cache restored successfully`、`Cache restored from key: setup-python-Linux-x64-26.04-Ubuntu-python-3.11.18-pip-87c0ef52…`（首轮 run 43635083591 的 miss 属缓存尚未建立） |
 | actions 版本与 job name | 读 ci.yml + 分支保护读回 | `checkout@v7` / `setup-python@v7`；5 个 job `name:` 未改 | ✅ | ci.yml 静态半项已验（`checkout@v7` / `setup-python@v7`，P-112 `gh api` 实测 latest v7.0.1 / v7.1.0；5 个 `name:` 未改）；分支保护读回半项已验（P-122：7 个 required contexts 全部由现行 job `name:` 派生——`Packaging / wheel smoke` / `Extras import` / `Tests (3.11..3.13)` / `Roadmap coverage gates` / `Spec gates (pre-commit all-files)`，改名即失效的约束下读回成功） |
 
 ### 2.4 D-5：覆盖闭合守卫（B2）
@@ -110,8 +110,8 @@ upstream: null
 | 验收项 | 测试方法 | 通过条件 | 状态 | 证据 |
 |--------|---------|---------|------|------|
 | dependabot 配置形态 | 读 `.github/dependabot.yml` | github-actions 与 pip 均 monthly + `groups` 全量 patterns | ✅ | P-114 实读：两 package-ecosystem 均 monthly + `groups` 全量 patterns |
-| 首个分组 PR | 观察一个周期 | 每月 1 个 actions PR + 1 个 python PR，非逐条 | ☐ | push 依赖项，dependabot 首轮调度待第二次回填（遗留待办） |
-| 徽章单一真值 | 读 README + 请求徽章 URL | 静态 `Tests-2699 passed` 已删；`ci.yml/badge.svg?branch=main` 可解析 | ☐ | README 半项已验（静态数字徽章已删，改 `ci.yml/badge.svg?branch=main`，P-114 实读）；徽章 URL 请求取证待第二次回填（遗留待办） |
+| 首个分组 PR | 观察一个周期 | 每月 1 个 actions PR + 1 个 python PR，非逐条 | ☐ | P-124 复核：`.github/dependabot.yml` 于 commit `b135b4f`（2026-11-15T03:58+08）入库，两 ecosystem 均 `interval: monthly` + `groups` 全量 `patterns: ["*"]`；`gh pr list --state all --author app/dependabot` 当前 **0 条**（尚未走完一个自然月周期）⇒ 维持 ☐，下次回填窗口 **2026-12**（月周期首次调度后） |
+| 徽章单一真值 | 读 README + 请求徽章 URL | 静态 `Tests-2699 passed` 已删；`ci.yml/badge.svg?branch=main` 可解析 | ✅ | P-124 实测：`curl -I https://github.com/StormstoutLau/AutoResearchClaw/actions/workflows/ci.yml/badge.svg?branch=main` → `HTTP/1.1 200 OK`、`Content-Type: image/svg+xml; charset=utf-8`、`Content-Length: 2263`；README 半项 P-114 已验（静态 `Tests-2699 passed` 已删） |
 
 ### 2.7 I-6：本地与 CI 同判接线（B2）
 
@@ -262,14 +262,14 @@ upstream: null
 | 类别 | 总数 | 通过 | 失败 | 待办 |
 |------|------|------|------|------|
 | 文档一致性 | 15 | 15 | 0 | 0 |
-| 功能 | 25 | 20 | 0 | 5 |
+| 功能 | 25 | 24 | 0 | 1 |
 | 接口 | 15 | 0 | 0 | 15 |
 | 不变式 | 6 | 6 | 0 | 0 |
 | 错误处理 | 6 | 0 | 0 | 6 |
 | 性能 | 3 | 3 | 0 | 0 |
 | 兼容性 | 8 | 1 | 0 | 7 |
 | ADD 审计 | 8 | 6 | 0 | 2 |
-| **总计** | **86** | **51** | **0** | **35** |
+| **总计** | **86** | **55** | **0** | **31** |
 
 > **统计口径（RULE-2）**：上表来自本文件**逐项核对**（每一项均有独立标记），非事后汇总推算。
 >
@@ -278,7 +278,7 @@ upstream: null
 ### 10.2 验收决定
 
 - [ ] **验收通过**：所有 P1 项通过，无阻塞性问题
-- [x] **有条件通过**：本机可验项全部通过（§2.1 / §2.2 / §2.4 / §2.6 形态 / §2.7 / §4 I-1..I-6 / §6），push 依赖项（§2.3 3 项、§2.6 2 项）保持 ☐ 待后续回填；CI push run 43635083591 红面已由修复批（P-121，commit `e34ad40`）转绿——run 43711274731 attempt 1/2 均全绿；分支保护已按 runbook 应用并读回，且经故意违规 PR 实证阻断（P-122）
+- [x] **有条件通过**：本机可验项全部通过（§2.1 / §2.2 / §2.4 / §2.6 形态 / §2.7 / §4 I-1..I-6 / §6）；push 依赖项 §2.3 3 项已于第四轮回填关闭（P-124：dispatch 手动触发 / 连推取消前序 / pip 缓存命中），仅剩 §2.6 行 113（dependabot 首个分组 PR，受自然月周期约束，回填窗口 2026-12）与 §3/§5/§7 未验项；CI 红面已由修复批（P-121，commit `e34ad40`）转绿——run 43711274731 attempt 1/2 均全绿；分支保护已按 runbook 应用并读回，且经故意违规 PR 实证阻断（P-122）
 - [ ] **验收失败**：<原因>
 
 > 首轮回填（P-114，2026-11-15）：B1/B2 已实施（P-112），本机可验项回填 ✅ 并复算 §10.1（86/47/0/39）；「有条件通过」已勾选——条件为 CI 红面修复批与分支保护执行（均遗留待办）完成后，push 依赖项第二轮回填（遗留待办）再按实际读数复算并终裁。
@@ -286,6 +286,8 @@ upstream: null
 > 第二轮回填（P-122，2026-11-15）：两项前置已闭环——① CI 红面修复批（P-121）使 commit `e34ad40` 的 run 43711274731 **连续两次全绿**（attempt 1 与 rerun 的 attempt 2 均 `success`，8/8 job）；② 分支保护按 IMPLEMENTATION §10 Step 5 runbook 应用，`gh api .../branches/main/protection` 读回 7 必需名逐字符一致、`Tests (3.14)` 不在集、`enforce_admins.enabled=true`、PR 必走且 approvals=0。§2.5 行 105、§2.3 行 89、§4 I-5 翻 ✅，§10.1 复算 **86/50/0/36**（功能 19/0/6、不变式 6/0/0）。仍维持「有条件通过」：§2.3 3 项、§2.6 2 项、§3/§5/§7 未验项待回填后终裁。
 >
 > 第三轮回填（P-122 续，2026-11-15）：§2.5 行 106「无 admin 旁路且红即阻断」由故意违规 PR 实证关闭——PR #2（`probe/bp-violation`，新增失败断言用例）`mergeStateStatus=BLOCKED`，`gh pr merge --squash` 与 `--admin` 均被拒（后者报 `3 of 7 required status checks are failing`，`Tests (3.14)` 的 fail 不计入），且直推 `main` 被拒（`Changes must be made through a pull request` / `7 of 7 required status checks are expected`）；PR 已关闭、分支已删，`main` 无探针提交。§10.1 复算 **86/51/0/35**（功能 20/0/5）。剩余 ☐：§2.3 3 项、§2.6 2 项、§3/§5/§7 未验项。
+>
+> 第四轮回填（P-124，2026-11-15）：push 依赖项 5 项一次性取证，全部为运行态实测而非静态推断——① `workflow_dispatch`：`gh workflow run ci.yml --ref main` → run 43727171392，8 job 全部启动，attempt 1 的 `Tests (3.13)` 红为 F-1 flaky 复现（P-123 同断言），attempt 2 rerun 8/8 全绿 ⇒ 关闭（行 86）；② 同分支连推：`probe/concurrency-cancel` 上间隔 34s 两次 push，前序 run 43727211211 `cancelled`、后继正常执行 ⇒ 关闭（行 87）；③ 超时与缓存：5 job `timeout-minutes` 15/15/30/10/20 + run 43719194339 的 `Cache restored from key: …`（~44 MB）⇒ 关闭（行 88）；④ 徽章 URL：`HTTP 200` / `image/svg+xml` / 2263 B ⇒ 关闭（行 114）；⑤ dependabot 首个分组 PR：配置于 `b135b4f` 入库、当前 0 条 PR，未走完自然月周期 ⇒ 维持 ☐（行 113，窗口 2026-12）。§10.1 复算 **86/55/0/31**（功能 24/0/1；逐行与 8 类列和双算术成立）。仍维持「有条件通过」：终裁待行 113 与 §3/§5/§7 回填。附带观测：F-1 在本批取证中第三次（dispatch 的 3.13）与第四次（探针分支的 3.12）复现，四矩阵位已全数命中，heavy 化/时序稳健化移交下一实施批（P-123 已留触发记录）。
 
 ### 10.3 签字
 
@@ -303,7 +305,7 @@ upstream: null
 | B1 步骤 3-4：`tracked` 校验 + 21 处链接改写 | 实施者 | B1 | ✅（P-112 / P-113） |
 | B1 步骤 5：分支保护 runbook（CI 连续两次绿后） | 实施者 | B1 | ✅（P-122：run 43711274731 两次全绿后应用并读回 7 名 / `enforce_admins=true` / 3.14 不入集） |
 | B2 步骤 6-9：workflow 硬化 / 登记表 / 覆盖守卫 / dependabot | 实施者 | B2 | ✅（P-112） |
-| 回填 §2-§6 并复算 §10.1，择一勾选 §10.2 | 审查者 | B2 后 | 首轮完成（P-114：本机项 + 有条件通过）；第二轮完成（P-122：分支保护应用 + 两次全绿）；第三轮完成（P-122 续：违规 PR 阻断实证），复算 86/51/0/35；终裁待剩余 ☐ 项回填 |
+| 回填 §2-§6 并复算 §10.1，择一勾选 §10.2 | 审查者 | B2 后 | 首轮完成（P-114：本机项 + 有条件通过）；第二轮完成（P-122：分支保护应用 + 两次全绿）；第三轮完成（P-122 续：违规 PR 阻断实证）；第四轮完成（P-124：push 依赖项 5 项取证，复算 86/55/0/31）；终裁待 §2.6 行 113（2026-12）与 §3/§5/§7 回填 |
 | DESIGN v1.3 订正 §4.1 返回注解（IMPL O-4） | 设计者 | 下一设计版 | ✅（P-111 已订正） |
 | 更新 PROGRESS.md | 实施者 | 每批 | ✅（P-114） |
 | 记录开发日志 | 实施者 | 每批 | ✅（P-114） |
