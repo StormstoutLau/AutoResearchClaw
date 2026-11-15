@@ -1,7 +1,7 @@
 ---
 id: arc-ci-red-fix-RESEARCH
 type: design
-version: 1.2
+version: 1.3
 status: draft
 date: 2026-11-15
 depends: [arc-ci-cd-research, arc-g4-m4-sandbox-limits, arc-g4-m3-tool-events]
@@ -238,3 +238,12 @@ upstream: null
 2. **§8.1 取证 4 调用点清单**：由「4 传 + repair 不传」补全为「4 传 + 4 不传」（另 3 处良性：`_execution.py:289`、`:472`、`pipeline/code_agent.py:1394`）；契约测试范围注明排除 `_SandboxLike` 本地 Protocol 与未实现 `run`/`run_project` 的 `agentic_sandbox.py`、`experiment/code_agent.py`（§8.1 验收段）。
 
 **U-6 收窄**：README 无 `0.0.0.0` 声明，命中均为历史记录文档，无需订正（见 §6）。
+
+## 10. 后续批登记修订（P-116 设计批，v1.3）
+
+> 设计批按 Step 4 自审逐行复核本文件，发现两处口径不成立；D1 裁决与全部行号读数不变。
+
+1. **R-4 半径修正（§3.3/§5/§8.3）**：`_stop` 并非「仅类内使用」——[`tests/test_sandbox_boundary.py#L268`](../../tests/test_sandbox_boundary.py#L268) 断言 `watcher._stop.is_set()`，是类外引用。改名必须同步该行。故总半径由 **11 文件**（10 改 + 1 新）更正为 **12 文件**（11 改 + 1 新）。
+2. **契约测试口径修正（§8.1 验收段）**：「7 个实现的 `run`/`run_project` 形参名集合逐项一致」不可按字面执行——`run` 首位置参名 `code`（sandbox/docker/ssh/colab）与 `prompt_text`（collider/biology/stat）本就不同，且 `timeout_sec` 默认值协议为 `300`、三个 agent 后端为 `None`。故契约面收窄为 **keyword-only 形参名集合 + 顺序**（并要求含 `run_id`），默认值与首位置参名不纳入。详见 DESIGN.md §2.1.1、§4.3。
+
+**U-7（新增）**：第二基座独立复审未在本设计批执行（本版为同基座自审 + 逐行复核），触发条件与倾向见 DESIGN.md §11.1。
