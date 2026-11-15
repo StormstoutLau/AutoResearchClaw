@@ -1,7 +1,7 @@
 ---
 id: arc-ci-red-fix-DESIGN
 type: design
-version: 1.1
+version: 1.2
 status: draft
 date: 2026-11-15
 depends: [arc-ci-red-fix-RESEARCH]
@@ -14,7 +14,7 @@ upstream: arc-ci-red-fix-RESEARCH
 > **创建日期**：2026-11-15
 > **状态**：草稿（Step 4 自审已执行；第二基座独立复审未执行，见 U-7）
 > **Spec 步骤**：Step 3-4（T3 设计批）
-> **基于调研**：[调研文档 v1.4](RESEARCH.md)
+> **基于调研**：[调研文档 v1.5](RESEARCH.md)
 
 ## 1. 设计目标
 

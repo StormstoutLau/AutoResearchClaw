@@ -1,7 +1,7 @@
 ---
 id: arc-ci-red-fix-RESEARCH
 type: design
-version: 1.4
+version: 1.5
 status: draft
 date: 2026-11-15
 depends: [arc-ci-cd-research, arc-g4-m4-sandbox-limits, arc-g4-m3-tool-events]
@@ -82,7 +82,7 @@ upstream: null
 
 **性质**：不是产品逻辑缺陷（TTL 行为本身正确），而是**与解释器私有实现的命名冲突**。在 3.11/3.12 的受支持矩阵内属真实红面，必须修。
 
-**修复候选**：改名为 `self._stop_event`（内部私有，无外部引用）；或改用 `threading.Event` 但遮蔽 `Thread._stop` 的风险仍在，改名是唯一根治。需全仓 grep 确认无测试直接读 `_watcher._stop`（本批已验证 `_stop` 仅在类内使用）。
+**修复候选**：改名为 `self._stop_event`（内部私有，无外部引用）；或改用 `threading.Event` 但遮蔽 `Thread._stop` 的风险仍在，改名是唯一根治。需全仓 grep 确认无测试直接读 `_watcher._stop`（v1.2 时点结论「仅在类内使用」；**v1.3 订正**：[`test_sandbox_boundary.py#L268`](../../tests/test_sandbox_boundary.py#L268) 存在类外引用 `watcher._stop.is_set()`，改名须同步该行，见 §10）。
 
 ### 3.4 R-2：前端事件常量缺 `tool.orphan_call`
 
@@ -133,7 +133,7 @@ upstream: null
 | P1 | R-5 spec-gates 补 extras | `.github/workflows/ci.yml`（:166 `".[dev]"` → `".[dev,server,mcp]"`） | 1 行 |
 | P2 | R-3 对齐陈旧断言 | `test_web_platform.py`（:33 `host`、:35 `cors_origins`） | 2 行 |
 
-建议**单批交付**：五项互不冲突，总半径 = **10 个修改文件 + 1 个新增契约测试 = 11 文件**（R-1 六文件 + R-4/R-2/R-5/R-3 各一；原估 5 文件偏低，因 `run_id` 崩溃面覆盖 6 个后端）。R-3 按 §8.2 裁决只改测试，不动 `config.py`。
+建议**单批交付**：五项互不冲突，总半径 = **10 个修改文件 + 1 个新增契约测试 = 11 文件**（R-1 六文件 + R-4/R-2/R-5/R-3 各一；原估 5 文件偏低，因 `run_id` 崩溃面覆盖 6 个后端）。（**v1.3 更正**：R-4 另含 `test_sandbox_boundary.py:268` 一行，总半径为 11 改 + 1 新 = **12 文件**，见 §10。）R-3 按 §8.2 裁决只改测试，不动 `config.py`。
 
 ## 6. 未决问题（供 DESIGN 裁决）
 
@@ -213,7 +213,7 @@ upstream: null
 
 ### 8.3 对 §5 的修正
 
-原 §5 将 R-1 估为「2 处签名 + 1 处透传」，实际为 **14 处签名**（Protocol 2 + 6 个非 Docker 后端各 2）；R-3 由「1 行 + 用例调整」收紧为「测试 2 行」。总半径 5 文件 → **11 文件**。
+原 §5 将 R-1 估为「2 处签名 + 1 处透传」，实际为 **14 处签名**（Protocol 2 + 6 个非 Docker 后端各 2）；R-3 由「1 行 + 用例调整」收紧为「测试 2 行」。总半径 5 文件 → **11 文件**（**v1.3 再更正为 12 文件**，见 §10）。
 
 ## 9. 独立性审查记录（2026-11-15，v1.2）
 
@@ -229,7 +229,7 @@ upstream: null
 | R-3 双陈旧断言 | 读 `config.py:752-782`、`test_web_platform.py:28-37`、`test_cors_default.py` 全文 + 复跑 | ✅ `:33`/`:35` 均与实现相反 |
 | R-4 `_stop` 定义+7 使用 | grep 全文件（恰 8 行命中）+ 读码 :40-150 | ✅ |
 | §8.1 取证 1-7、§8.2 取证 1-5 | 逐条重新定位 | ✅ 全部吻合 |
-| CI 定量读数 | `gh run view 43635083591 --log-failed` 逐 job 统计 FAILED 行 | ✅ 总 76 = 22+22+16+16；`run_id` 52 = 13×4 矩阵；`not callable` 12 = 6×2（仅 3.11/3.12）；R-2/R-3 各 4 = 1×4；job 结论 failure、head=b135b4f |
+| CI 定量读数 | `gh run view 43635083591 --log-failed` 逐 job 统计 FAILED 行 | ✅ 总 76 = 22+22+16+16；`run_id` 52 = 13×4 矩阵（**v1.4 订正**：实为 56 = 14×4，见 §11）；`not callable` 12 = 6×2（仅 3.11/3.12）；R-2/R-3 各 4 = 1×4；job 结论 failure、head=b135b4f |
 | spec-gates 根因 | CI 日志 grep ImportError | ✅ `MCP support requires the 'mcp' extra`（守卫文案，出 `researchclaw/mcp/server.py:27-28`） |
 
 **v1.2 订正（2 处，均不改变 D1 裁决）**
@@ -271,3 +271,17 @@ upstream: null
 3. §6 U-2 关闭。
 
 **11.4 影响面**：修复面 12 文件、D-1 契约测试范围、验收读数（14 failed → 0）均不变；U-2 不再作为设计批能力边界与实施批前置。
+
+## 12. 四文档一致性审计（P-119 审计批，v1.5）
+
+> 审计对象：本文件 v1.4 / [DESIGN.md](DESIGN.md) v1.1 / [IMPLEMENTATION.md](IMPLEMENTATION.md) v1.0 / [docs/PROGRESS.md](../../docs/PROGRESS.md) 的 P-115..P-118 行。方法：交叉复算 + 源码 anchor 抽查 + 命令实跑（dc_validator / step-gate）。
+
+**通过面**：frontmatter 链与版本引用链；算术自洽（76 = 22×2+16×2、22 = 14+6+1+1、16 = 14+1+1、14 处签名 = 7 类 × 2、12 文件 = 11 改 + 1 新、`_stop` 8 行、四文件合集 56+19+6 = 81、Step 0..10）；U-1..U-7 四文档互洽（U-2 双处关闭且 IMPLEMENTATION 零引用、U-4/U-5 四元块与「明确不做」互洽、U-7 三处如实登记未执行）；R-1..R-5 → D-1..D-7 → I-1..I-7 映射一一承载；修复面三处对齐（DESIGN §3.2 ↔ IMPLEMENTATION §2.3 ↔ 本文件 §10/§11.4）；验收读数表（DESIGN §10.3 ↔ IMPLEMENTATION §8.2 六行逐行）；回滚顺序（R-5→R-3→R-2→R-4→R-1，R-1 与契约测试成对）；anchor 抽查（14 处签名行号、`_stop` 8 行、`test_sandbox_boundary.py#L268`、`ci.yml#L121/#L166`、`test_web_platform.py#L33/#L35`、api.js 常量、`factory.py#L29`、`event_log.py#L40`、Docker `#L237/#L255` 已有 `run_id`）全部命中。
+
+**发现并就地加注订正 3 处（均 P3，不改变 D-1..D-7 裁决、修复面 12 文件与验收读数）**
+
+1. §9 表行「`run_id` 52 = 13×4」——已被 §11 证伪（实为 56 = 14×4）；同源数字在 PROGRESS P-115 行已被 P-118 就地订正，本节系漏订点，加 v1.4 订正注。
+2. §3.3「本批已验证 `_stop` 仅在类内使用」——已被 §10 证伪（`test_sandbox_boundary.py#L268` 类外引用），加 v1.3 订正注。
+3. §5/§8.3 的「11 文件」——被 §10 更正为 12 文件（R-4 +1 测试行），两处加 v1.3 更正注；§10 标题声称修正对象含 §3.3/§5/§8.3 而正文此前无标注，本次统一补齐。
+
+配套：DESIGN 同批升 v1.2（仅「基于调研」引用行同步本版 v1.5，设计内容零变化）；IMPLEMENTATION 与 PROGRESS 历史行零改动。
