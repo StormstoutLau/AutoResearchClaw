@@ -1,7 +1,7 @@
 ---
 id: arc-ci-red-fix-RESEARCH
 type: design
-version: 1.3
+version: 1.4
 status: draft
 date: 2026-11-15
 depends: [arc-ci-cd-research, arc-g4-m4-sandbox-limits, arc-g4-m3-tool-events]
@@ -38,7 +38,7 @@ upstream: null
 
 | ID | 现象 | 本地读数 | CI 读数 | 性质 |
 |---|---|---|---|---|
-| R-1 | `ExperimentSandbox.run_project() got an unexpected keyword argument 'run_id'` | **14 failed / 193 passed**（test_rc_executor.py，114.58s） | 3.11/3.12/3.13/3.14 四矩阵均红（CI 记 13 条，与本地差 1，见 U-2） | **真实生产回归** |
+| R-1 | `ExperimentSandbox.run_project() got an unexpected keyword argument 'run_id'` | **14 failed / 193 passed**（test_rc_executor.py，114.58s） | 3.11/3.12/3.13/3.14 四矩阵均红，**各 14 条**，与本地一致（v1.4 复核，见 §11） | **真实生产回归** |
 | R-2 | `test_frontend_event_types_match_runtime` 集合不相等，缺 `tool.orphan_call` | 1 failed（test_event_stream.py） | 全矩阵红 | 实现/文档漂移 |
 | R-3 | `test_server_config_defaults`：`assert '127.0.0.1' == '0.0.0.0'` | 1 failed（test_web_platform.py） | 全矩阵红 | 真值冲突（待裁决） |
 | R-4 | `TypeError: 'Event' object is not callable`（`_Recorder` repr 即抛） | **0 failed**（test_sandbox_boundary.py 19 passed，TtlWatcher 子集 5 passed） | **仅 3.11/3.12 红 6 条** | CPython 版本相关 |
@@ -116,10 +116,10 @@ upstream: null
 
 | 版本档 | 失败数 | 组成 |
 |---|---|---|
-| 3.11 / 3.12 | 22 | R-1(13) + R-4(6) + R-2(1) + R-3(1) + 其他环境性(1) |
-| 3.13 / 3.14 | 16 | R-1(13) + R-2(1) + R-3(1) + 其他环境性(1) |
+| 3.11 / 3.12 | 22 | R-1(14) + R-4(6) + R-2(1) + R-3(1) |
+| 3.13 / 3.14 | 16 | R-1(14) + R-2(1) + R-3(1) |
 
-> 差额 6 全部由 R-4 解释。R-1 在 CI 记 13 而本地记 14，差 1 条待查（U-2），不影响根因判断。
+> 差额 6 全部由 R-4 解释。**v1.4 订正**：R-1 在 CI 亦为 14 条（与本地一致），原表「R-1(13) + 其他环境性(1)」是为凑总数而设的错误拆分，已按 §11 逐 job 实测订正。
 
 **排除项（本批不修）**：keras3/transformers 相关 4 条、bash 缺失 2 条、hitl shell 1 条——均为第三方或宿主环境依赖，与本次红面归因无关，登记为本批边界外。
 
@@ -138,7 +138,7 @@ upstream: null
 ## 6. 未决问题（供 DESIGN 裁决）
 
 - ~~**U-1**~~：**已裁决（§8.1）**——协议面统一可选参数，非容器后端 no-op。
-- **U-2**：R-1 CI 13 条 vs 本地 14 条的差异条目待定位（疑似某用例依赖 bash 或外部工具在 CI 跳过）。
+- ~~**U-2**~~：**已关闭（§11，v1.4）**——CI 四矩阵 R-1 均为 14 条，与本地一一对应，「13 条」系计数假象，不存在差额。
 - ~~**U-3**~~：**已裁决（§8.2）**——以 `ServerConfig` 为真值，修正测试两条陈旧断言。
 - **U-6（v1.2 已收窄）**：全仓 `*.md` 检索 `0.0.0.0`——**README.md 无任何默认 host 声明**；命中均为历史记录性质（`arc-master-roadmap.md:754` Q19 行、`spec/arc-roadmap-gaps/{RESEARCH,CHECKLIST}.md`、`docs/arc-g1-readiness-research-20261108.md:120`），记录的是 P-006 加固前的状态，**无需订正**。
 - **U-4**：R-5 是否同时给 `ci_coverage_check` 增加「收集阶段失败」专属提示（增强，非必需）。
@@ -247,3 +247,27 @@ upstream: null
 2. **契约测试口径修正（§8.1 验收段）**：「7 个实现的 `run`/`run_project` 形参名集合逐项一致」不可按字面执行——`run` 首位置参名 `code`（sandbox/docker/ssh/colab）与 `prompt_text`（collider/biology/stat）本就不同，且 `timeout_sec` 默认值协议为 `300`、三个 agent 后端为 `None`。故契约面收窄为 **keyword-only 形参名集合 + 顺序**（并要求含 `run_id`），默认值与首位置参名不纳入。详见 DESIGN.md §2.1.1、§4.3。
 
 **U-7（新增）**：第二基座独立复审未在本设计批执行（本版为同基座自审 + 逐行复核），触发条件与倾向见 DESIGN.md §11.1。
+
+## 11. U-2 定位闭合（P-118 文档补强批，v1.4）
+
+> **结论**：「CI 13 条」是**计数假象**，不存在差额。CI 四矩阵的 R-1 均为 **14 条**，与本地 14 条逐条同名；原 §4 表中的「其他环境性(1)」是为让 `13+6+1+1+1=22` 成立而补的占位项，实际不存在。
+
+**11.1 逐 job 实测**（`gh run view --job <id> --log-failed` + `FAILED tests/...` 计数）
+
+| run | job | 失败总数 | R-1 | R-4 | R-2 | R-3 |
+|---|---|---|---|---|---|---|
+| 43635083591 | Tests (3.11) 132570033888 | 22 | 14 | 6 | 1 | 1 |
+| 43635083591 | Tests (3.12) 132570033742 | 22 | 14 | 6 | 1 | 1 |
+| 43635083591 | Tests (3.13) 132570033907 | 16 | 14 | 0 | 1 | 1 |
+| 43635083591 | Tests (3.14) 132570033732 | 16 | 14 | 0 | 1 | 1 |
+| 43637285912 | Tests (3.11) 132576762525 | — | 14 | — | — | — |
+
+**11.2 本地对照**：`python -m pytest tests/test_rc_executor.py -q --tb=no` → **14 failed / 193 passed / 87.61s**，14 条全为 `ExperimentSandbox.run_project() got an unexpected keyword argument 'run_id'`，与 CI 同名同数：TestIterativeRefine ×4、TestPartialTimeoutStatus ×1、TestTimeoutAwareRefine ×1、TestRefineTimeoutAndIterationCap ×1、TestStdoutTruncation ×1、TestNoImproveStreakFix ×1、TestStdoutFailureDetection ×2、TestConditionCoverageDetection ×2、TestRefineFilePreservation ×1。
+
+**11.3 订正落点**
+
+1. §3.1 R-1 的 CI 读数由「记 13 条」改为「各 14 条」。
+2. §4 组成表：22 = R-1(14) + R-4(6) + R-2(1) + R-3(1)；16 = R-1(14) + R-2(1) + R-3(1)；删除占位项。
+3. §6 U-2 关闭。
+
+**11.4 影响面**：修复面 12 文件、D-1 契约测试范围、验收读数（14 failed → 0）均不变；U-2 不再作为设计批能力边界与实施批前置。

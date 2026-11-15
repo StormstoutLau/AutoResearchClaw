@@ -1,7 +1,7 @@
 ---
 id: arc-ci-red-fix-DESIGN
 type: design
-version: 1.0
+version: 1.1
 status: draft
 date: 2026-11-15
 depends: [arc-ci-red-fix-RESEARCH]
@@ -14,7 +14,7 @@ upstream: arc-ci-red-fix-RESEARCH
 > **创建日期**：2026-11-15
 > **状态**：草稿（Step 4 自审已执行；第二基座独立复审未执行，见 U-7）
 > **Spec 步骤**：Step 3-4（T3 设计批）
-> **基于调研**：[调研文档 v1.2](RESEARCH.md)
+> **基于调研**：[调研文档 v1.4](RESEARCH.md)
 
 ## 1. 设计目标
 
@@ -56,7 +56,7 @@ upstream: arc-ci-red-fix-RESEARCH
 
 - **职责内**：`SandboxProtocol` 与其实现的签名一致性、`_TtlWatcher` 私有属性命名、前端事件常量镜像、`test_web_platform.py` 陈旧断言、spec-gates 安装面。
 - **职责外**（有独立范式，本设计不回答）：CI 平台能力扩展（lint/类型/覆盖率、Windows 矩阵，已在 arc-ci-cd-research D-8/D-9 显式不实施）；`researchclaw/vendor/**` 内容。
-- **能力边界**（本设计做不到，不承诺）：本机无 3.11/3.12 解释器，R-4 的转绿**只能由 CI 矩阵证明**，本地仅能证明 3.13 不回归；U-2 的 1 条差额无法在无 CI 重跑的情况下静态闭合。
+- **能力边界**（本设计做不到，不承诺）：本机无 3.11/3.12 解释器，R-4 的转绿**只能由 CI 矩阵证明**，本地仅能证明 3.13 不回归；U-2 的「1 条差额」已由 P-118 用 CI 日志闭合（四矩阵均 14 条，无差额，RESEARCH §11），不再是前置。
 - **明确不动**：`config.py` 的 `127.0.0.1` / 显式 cors / `validate_server_security`（Q19 fail-closed 真值）；Docker 的 TTL 门控与 `rc.run` 标签逻辑；`ExperimentConfig.mode` 默认值。
 
 ## 3. 架构设计
@@ -330,11 +330,7 @@ def test_keyword_surface_matches_protocol(method):
 
 **11.1 未决项登记**
 
-- **U-2 R-1 CI 13 条 vs 本地 14 条的 1 条差额**
-  - **判据**：修复后 CI 四矩阵 `run_id` 类失败归零，且差额条目被指名（用例名 + 跳过原因）
-  - **触发条件**：实施批首次 push 后读 CI 日志
-  - **当前倾向**：某用例依赖 bash/外部工具在 CI 跳过；不影响根因与修复面
-  - **证据等级**：待核（需 CI 读数）
+- ~~**U-2 R-1 CI 13 条 vs 本地 14 条的 1 条差额**~~：**已关闭（P-118，v1.1）**——CI 四矩阵逐 job 复核 R-1 均为 14 条，与本地同名同数，「13 条」系计数假象；判据「差额条目被指名」不再适用（无差额），证据见 RESEARCH §11。
 
 - **U-4 `ci_coverage_check` 收集失败专属提示**
   - **判据**：出现「收集失败被误读为覆盖差异」的第二次实例
