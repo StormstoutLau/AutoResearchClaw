@@ -3,7 +3,7 @@
 ---
 id: arc-ci-cd-research-CHECKLIST
 type: design
-version: 1.3
+version: 1.4
 status: pending
 date: 2026-11-15
 depends: [arc-ci-cd-research-IMPLEMENTATION, arc-ci-cd-research-DESIGN]
@@ -17,7 +17,7 @@ upstream: null
 > **基于实施**: [IMPLEMENTATION.md](./IMPLEMENTATION.md)（v1.2 / verified）
 > **基于设计**: [DESIGN.md](./DESIGN.md)（v1.3 / verified）
 
-> **验收边界（诚实声明）**：P-110 只建立验收基线，不实施 B1/B2。凡需运行代码、改 workflow 或改仓库设置的验收项一律标 ☐，**不得预填** ✅；仅「已发生的文档事实」（四文档链对齐、既有配置一手实测）可标 ✅。因此本文件当前为 `pending`，§10.2 三选项均不勾选，代码项等待 B1/B2 实施后回填。2026-11-15 首轮回填（P-114）：B1/B2 已实施（P-112），本机可验项回填 ✅；push 依赖项保持 ☐，§10.2 按三选项口径勾选「有条件通过」，待第二轮回填终裁。2026-11-15 第二轮回填（P-122）：CI 连续两次全绿（run 43711274731 attempt 1/2）达成、分支保护按 runbook 应用并读回，§2.3 行 89、§2.5 行 105 与 §4 I-5 翻 ✅，§10.1 复算 86/50/0/36。
+> **验收边界（诚实声明）**：P-110 只建立验收基线，不实施 B1/B2。凡需运行代码、改 workflow 或改仓库设置的验收项一律标 ☐，**不得预填** ✅；仅「已发生的文档事实」（四文档链对齐、既有配置一手实测）可标 ✅。因此本文件当前为 `pending`，§10.2 三选项均不勾选，代码项等待 B1/B2 实施后回填。2026-11-15 首轮回填（P-114）：B1/B2 已实施（P-112），本机可验项回填 ✅；push 依赖项保持 ☐，§10.2 按三选项口径勾选「有条件通过」，待第二轮回填终裁。2026-11-15 第二轮回填（P-122）：CI 连续两次全绿（run 43711274731 attempt 1/2）达成、分支保护按 runbook 应用并读回，§2.3 行 89、§2.5 行 105 与 §4 I-5 翻 ✅，§10.1 复算 86/50/0/36。2026-11-15 第三轮回填（P-122 续）：故意违规 PR #2 实证阻断（`BLOCKED` + `--admin` 亦被拒 `3 of 7 required status checks are failing`），直推 `main` 被拒；§2.5 行 106 翻 ✅，§10.1 复算 86/51/0/35。
 
 ---
 
@@ -103,7 +103,7 @@ upstream: null
 | 验收项 | 测试方法 | 通过条件 | 状态 | 证据 |
 |--------|---------|---------|------|------|
 | 7 个必需检查名读回 | `gh api repos/<owner>/<repo>/branches/main/protection` | 7 名逐字符一致；`Tests (3.14)` 不在集 | ✅ | P-122 已应用并读回：7 名逐字符一致（`Packaging / wheel smoke` / `Extras import` / `Tests (3.11)` / `Tests (3.12)` / `Tests (3.13)` / `Roadmap coverage gates` / `Spec gates (pre-commit all-files)`），实测 `Tests (3.14)` 不在集；前置「CI 连续两次全绿」= commit `e34ad40` 的 run 43711274731 **attempt 1 与 attempt 2 均 `success`**（8/8 job 全绿） |
-| 无 admin 旁路且红即阻断 | 读回 `enforce_admins` + 一次故意违规 PR | `enforce_admins=true`；违规 PR 被阻断后 revert | ☐ | 前半项已验（P-122 读回 `enforce_admins.enabled=true`、`required_pull_request_reviews.required_approving_review_count=0`、`allow_force_pushes.enabled=false`、`allow_deletions.enabled=false`）；「一次故意违规 PR」阻断实证未执行——需临时分支 + 一次故意 red push，留待后续回填（遗留待办） |
+| 无 admin 旁路且红即阻断 | 读回 `enforce_admins` + 一次故意违规 PR | `enforce_admins=true`；违规 PR 被阻断后 revert | ✅ | P-122 取证三连（临时 PR #2 已关闭、分支已删，`main` 未留探针提交）：① 直推 `main` 被服务端拒绝——`- Changes must be made through a pull request.` / `7 of 7 required status checks are expected.`；② 故意违规 PR（`probe/bp-violation` 新增 `tests/test_bp_probe_violation.py` 断言失败）`mergeStateStatus=BLOCKED`、8 项检查 fail，`gh pr merge --squash` 报 `the base branch policy prohibits the merge`；③ 管理员绕过 `gh pr merge --admin` 仍被拒——`GraphQL: 3 of 7 required status checks are failing`（`Tests (3.14)` 的 fail 不计入，恰证必需集为 7 名）。读回侧：`enforce_admins.enabled=true`、approvals=0、force_push/deletions 均 false |
 
 ### 2.6 D-6：依赖自动化与徽章（B2）
 
@@ -262,14 +262,14 @@ upstream: null
 | 类别 | 总数 | 通过 | 失败 | 待办 |
 |------|------|------|------|------|
 | 文档一致性 | 15 | 15 | 0 | 0 |
-| 功能 | 25 | 19 | 0 | 6 |
+| 功能 | 25 | 20 | 0 | 5 |
 | 接口 | 15 | 0 | 0 | 15 |
 | 不变式 | 6 | 6 | 0 | 0 |
 | 错误处理 | 6 | 0 | 0 | 6 |
 | 性能 | 3 | 3 | 0 | 0 |
 | 兼容性 | 8 | 1 | 0 | 7 |
 | ADD 审计 | 8 | 6 | 0 | 2 |
-| **总计** | **86** | **50** | **0** | **36** |
+| **总计** | **86** | **51** | **0** | **35** |
 
 > **统计口径（RULE-2）**：上表来自本文件**逐项核对**（每一项均有独立标记），非事后汇总推算。
 >
@@ -278,12 +278,14 @@ upstream: null
 ### 10.2 验收决定
 
 - [ ] **验收通过**：所有 P1 项通过，无阻塞性问题
-- [x] **有条件通过**：本机可验项全部通过（§2.1 / §2.2 / §2.4 / §2.6 形态 / §2.7 / §4 I-1..I-6 / §6），push 依赖项（§2.3 3 项、§2.5 1 项、§2.6 2 项）保持 ☐ 待后续回填；CI push run 43635083591 红面已由修复批（P-121，commit `e34ad40`）转绿——run 43711274731 attempt 1/2 均全绿；分支保护已按 runbook 应用并读回（P-122）
+- [x] **有条件通过**：本机可验项全部通过（§2.1 / §2.2 / §2.4 / §2.6 形态 / §2.7 / §4 I-1..I-6 / §6），push 依赖项（§2.3 3 项、§2.6 2 项）保持 ☐ 待后续回填；CI push run 43635083591 红面已由修复批（P-121，commit `e34ad40`）转绿——run 43711274731 attempt 1/2 均全绿；分支保护已按 runbook 应用并读回，且经故意违规 PR 实证阻断（P-122）
 - [ ] **验收失败**：<原因>
 
 > 首轮回填（P-114，2026-11-15）：B1/B2 已实施（P-112），本机可验项回填 ✅ 并复算 §10.1（86/47/0/39）；「有条件通过」已勾选——条件为 CI 红面修复批与分支保护执行（均遗留待办）完成后，push 依赖项第二轮回填（遗留待办）再按实际读数复算并终裁。
 >
-> 第二轮回填（P-122，2026-11-15）：两项前置已闭环——① CI 红面修复批（P-121）使 commit `e34ad40` 的 run 43711274731 **连续两次全绿**（attempt 1 与 rerun 的 attempt 2 均 `success`，8/8 job）；② 分支保护按 IMPLEMENTATION §10 Step 5 runbook 应用，`gh api .../branches/main/protection` 读回 7 必需名逐字符一致、`Tests (3.14)` 不在集、`enforce_admins.enabled=true`、PR 必走且 approvals=0。§2.5 行 105、§2.3 行 89、§4 I-5 翻 ✅，§10.1 复算 **86/50/0/36**（功能 19/0/6、不变式 6/0/0）。仍维持「有条件通过」：§2.3 2 项、§2.5「故意违规 PR」阻断实证、§2.6 2 项、§3/§5/§7 未验项待回填后终裁。
+> 第二轮回填（P-122，2026-11-15）：两项前置已闭环——① CI 红面修复批（P-121）使 commit `e34ad40` 的 run 43711274731 **连续两次全绿**（attempt 1 与 rerun 的 attempt 2 均 `success`，8/8 job）；② 分支保护按 IMPLEMENTATION §10 Step 5 runbook 应用，`gh api .../branches/main/protection` 读回 7 必需名逐字符一致、`Tests (3.14)` 不在集、`enforce_admins.enabled=true`、PR 必走且 approvals=0。§2.5 行 105、§2.3 行 89、§4 I-5 翻 ✅，§10.1 复算 **86/50/0/36**（功能 19/0/6、不变式 6/0/0）。仍维持「有条件通过」：§2.3 3 项、§2.6 2 项、§3/§5/§7 未验项待回填后终裁。
+>
+> 第三轮回填（P-122 续，2026-11-15）：§2.5 行 106「无 admin 旁路且红即阻断」由故意违规 PR 实证关闭——PR #2（`probe/bp-violation`，新增失败断言用例）`mergeStateStatus=BLOCKED`，`gh pr merge --squash` 与 `--admin` 均被拒（后者报 `3 of 7 required status checks are failing`，`Tests (3.14)` 的 fail 不计入），且直推 `main` 被拒（`Changes must be made through a pull request` / `7 of 7 required status checks are expected`）；PR 已关闭、分支已删，`main` 无探针提交。§10.1 复算 **86/51/0/35**（功能 20/0/5）。剩余 ☐：§2.3 3 项、§2.6 2 项、§3/§5/§7 未验项。
 
 ### 10.3 签字
 
@@ -301,7 +303,7 @@ upstream: null
 | B1 步骤 3-4：`tracked` 校验 + 21 处链接改写 | 实施者 | B1 | ✅（P-112 / P-113） |
 | B1 步骤 5：分支保护 runbook（CI 连续两次绿后） | 实施者 | B1 | ✅（P-122：run 43711274731 两次全绿后应用并读回 7 名 / `enforce_admins=true` / 3.14 不入集） |
 | B2 步骤 6-9：workflow 硬化 / 登记表 / 覆盖守卫 / dependabot | 实施者 | B2 | ✅（P-112） |
-| 回填 §2-§6 并复算 §10.1，择一勾选 §10.2 | 审查者 | B2 后 | 首轮完成（P-114：本机项 + 有条件通过）；第二轮完成（P-122：分支保护应用 + 两次全绿，复算 86/50/0/36）；终裁待剩余 ☐ 项回填 |
+| 回填 §2-§6 并复算 §10.1，择一勾选 §10.2 | 审查者 | B2 后 | 首轮完成（P-114：本机项 + 有条件通过）；第二轮完成（P-122：分支保护应用 + 两次全绿）；第三轮完成（P-122 续：违规 PR 阻断实证），复算 86/51/0/35；终裁待剩余 ☐ 项回填 |
 | DESIGN v1.3 订正 §4.1 返回注解（IMPL O-4） | 设计者 | 下一设计版 | ✅（P-111 已订正） |
 | 更新 PROGRESS.md | 实施者 | 每批 | ✅（P-114） |
 | 记录开发日志 | 实施者 | 每批 | ✅（P-114） |
