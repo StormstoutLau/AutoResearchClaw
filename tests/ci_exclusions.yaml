@@ -1,8 +1,17 @@
 version: 1
-exclusions: []
-# 首条登记形态（占位示例，非现有文件）：
-#  - path: tests/test_<真实外部依赖用例>.py
-#    reason: 需要真实 <服务/守护进程>；runner 可用而本地开发者未必具备
-#    marker: heavy
-#    owner: P-112
-#    since: 2026-11-15
+exclusions:
+  - path: tests/test_hitl_advanced.py
+    reason: "F-1 时序竞争：test_poll_with_delayed_response 的读/解析窗口与写入线程交错，已四次误红（3.11/3.14/3.13/3.12），见 spec/arc-ci-flaky-heavy/RESEARCH.md §3.1"
+    marker: heavy
+    owner: P-125
+    since: 2026-11-16
+  - path: tests/test_supervisor.py
+    reason: "F-2 时序竞争：test_lease_keeper_reports_loss 依赖「墙钟 sleep ≥ 若干续期检查周期」的隐式前提，见 spec/arc-ci-flaky-heavy/RESEARCH.md §3.2"
+    marker: heavy
+    owner: P-125
+    since: 2026-11-16
+# 契约（ci_coverage_check.py 校验）：
+#   - 粒度 = 文件（path 必须 ∈ git ls-files tests/test_*.py）
+#   - 五字段 path / reason / marker / owner / since 均必填；marker 固定为 heavy
+#   - 文件内含 pytest.mark.heavy ⇔ 必须在此登记（声明源与运行时开关同改）
+#   - reason 须区分「真实外部依赖」与「时序竞争」，不得套用模板话术
