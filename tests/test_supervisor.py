@@ -7,7 +7,14 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from researchclaw.runtime import exit_codes
-from researchclaw.runtime.lease import LeaseKeeper, acquire, read_lease
+import researchclaw.runtime.lease as lease_mod
+from researchclaw.runtime.lease import (
+    LeaseKeeper,
+    LeaseLost,
+    acquire,
+    read_lease,
+    renew,
+)
 from researchclaw.runtime.supervisor import Supervisor, full_jitter
 
 
@@ -114,3 +121,53 @@ def test_lease_keeper_reports_loss(tmp_path):
     time.sleep(0.15)
     keeper.stop()
     assert lost, "keeper 必须在租约丢失时回调"
+
+
+def test_renew_holds_lease_lock(tmp_path, monkeypatch):
+    """P-134：renew 必须在 lease.lock 保护下读取租约。"""
+    lease = acquire(tmp_path, owner="me:1", ttl=300)
+    lock_seen = []
+    real_read = lease_mod.read_lease
+
+    def spy_read(run_dir):
+        lock_seen.append((tmp_path / "lease.lock").exists())
+        return real_read(run_dir)
+
+    monkeypatch.setattr(lease_mod, "read_lease", spy_read)
+    renew(tmp_path, lease)
+
+    assert lock_seen and all(lock_seen), "renew 读取租约时未持锁"
+
+
+def test_renew_maps_busy_lock_to_lease_lost(tmp_path):
+    """P-134：锁被他人持有时，renew 以 LeaseLost 结束。"""
+    lease = acquire(tmp_path, owner="me:1", ttl=300)
+    (tmp_path / "lease.lock").write_text("other", encoding="utf-8")
+
+    with pytest.raises(LeaseLost):
+        renew(tmp_path, lease)
+
+
+def test_renew_after_takeover_raises(tmp_path):
+    """P-134：接管后续约必须 LeaseLost，且 fencing 不回滚。"""
+    lease = acquire(tmp_path, owner="me:1", ttl=300)
+    acquire(
+        tmp_path,
+        owner="other:2",
+        ttl=300,
+        now=datetime.now(timezone.utc) + timedelta(hours=1),
+    )
+
+    with pytest.raises(LeaseLost):
+        renew(tmp_path, lease)
+    assert read_lease(tmp_path).fencing == lease.fencing + 1
+
+
+def test_renew_same_owner_keeps_fencing(tmp_path):
+    """P-134：无接管时续约成功且 fencing 不变。"""
+    lease = acquire(tmp_path, owner="me:1", ttl=300)
+
+    renewed = renew(tmp_path, lease)
+
+    assert renewed.fencing == lease.fencing
+    assert read_lease(tmp_path).fencing == lease.fencing

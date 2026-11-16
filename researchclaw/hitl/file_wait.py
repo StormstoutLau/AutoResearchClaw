@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,26 @@ DEFAULT_POLL_INTERVAL_SEC = 2.0
 DEFAULT_TIMEOUT_SEC = 86400  # 24 hours
 
 
+def atomic_write_text(path: Path, text: str) -> None:
+    """Atomically publish ``text`` at ``path`` (temp file + ``os.replace``).
+
+    P-134: readers poll these files concurrently. A plain ``write_text``
+    truncates first, so a reader can observe an empty/partial file.
+    """
+    tmp = path.with_name("%s.tmp.%d" % (path.name, os.getpid()))
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+
+
 def write_waiting(hitl_dir: Path, waiting: WaitingState) -> Path:
     """Write waiting state for external tools to discover."""
     hitl_dir.mkdir(parents=True, exist_ok=True)
@@ -44,9 +65,7 @@ def write_response(hitl_dir: Path, human_input: HumanInput) -> Path:
     """Write a response file (used by ``attach``, ``approve``, etc)."""
     hitl_dir.mkdir(parents=True, exist_ok=True)
     path = hitl_dir / "response.json"
-    path.write_text(
-        json.dumps(human_input.to_dict(), indent=2), encoding="utf-8"
-    )
+    atomic_write_text(path, json.dumps(human_input.to_dict(), indent=2))
     return path
 
 
@@ -83,6 +102,7 @@ def poll_for_response(
 
     consecutive_errors = 0
     max_consecutive_errors = 5
+    last_error_signature: tuple[int, int] | None = None
 
     while time.monotonic() < deadline:
         # Atomic read attempt — skip exists() check to avoid TOCTOU race
@@ -97,16 +117,31 @@ def poll_for_response(
             )
             return human_input
         except FileNotFoundError:
-            pass  # Normal — no response yet
+            consecutive_errors = 0
+            last_error_signature = None
         except (json.JSONDecodeError, KeyError, ValueError) as exc:
-            consecutive_errors += 1
+            # P-134: an empty/partial file is "not ready", not corruption.
+            # Only a file whose size/mtime stay unchanged across retries is
+            # treated as persistently corrupt and cleaned up.
+            try:
+                stat = response_path.stat()
+                signature = (stat.st_size, stat.st_mtime_ns)
+            except OSError:
+                signature = None
+            if signature is not None and signature == last_error_signature:
+                consecutive_errors += 1
+            else:
+                consecutive_errors = 1
+                last_error_signature = signature
             logger.warning(
                 "Invalid response file (attempt %d/%d): %s",
-                consecutive_errors, max_consecutive_errors, exc,
+                consecutive_errors,
+                max_consecutive_errors,
+                exc,
             )
-            response_path.unlink(missing_ok=True)
             if consecutive_errors >= max_consecutive_errors:
                 logger.error("Too many invalid response files — aborting poll")
+                response_path.unlink(missing_ok=True)
                 break
         except OSError:
             pass  # File access issue — retry

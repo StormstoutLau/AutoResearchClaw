@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -112,17 +113,16 @@ def is_expired(lease: Lease, *, now: datetime | None = None) -> bool:
         return True
 
 
-def acquire(
-    run_dir: str | Path,
-    *,
-    owner: str | None = None,
-    ttl: int = DEFAULT_TTL_SECONDS,
-    now: datetime | None = None,
-) -> Lease:
-    """Acquire or renew the run lease. Raises :class:`LeaseBusy` on conflict."""
-    run_dir = Path(run_dir)
+@contextmanager
+def _lease_lock(run_dir: Path, owner: str, *, ttl: int = DEFAULT_TTL_SECONDS,
+                now: datetime | None = None):
+    """Hold the cross-process lease lock for the duration of the block (P-134).
+
+    ``renew`` used to be an unlocked read-modify-write; a stale read could
+    overwrite a concurrent takeover and roll ``fencing`` back. Both paths now
+    share this lock.
+    """
     run_dir.mkdir(parents=True, exist_ok=True)
-    me = owner or default_owner()
     lock = run_dir / LOCK_NAME
     try:
         fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
@@ -141,8 +141,29 @@ def acquire(
             raise LeaseBusy("could not take the lease lock") from exc
 
     try:
-        os.write(fd, me.encode("utf-8"))
-        os.close(fd)
+        try:
+            os.write(fd, owner.encode("utf-8"))
+        finally:
+            os.close(fd)
+        yield
+    finally:
+        try:
+            lock.unlink()
+        except OSError:
+            pass
+
+
+def acquire(
+    run_dir: str | Path,
+    *,
+    owner: str | None = None,
+    ttl: int = DEFAULT_TTL_SECONDS,
+    now: datetime | None = None,
+) -> Lease:
+    """Acquire or renew the run lease. Raises :class:`LeaseBusy` on conflict."""
+    run_dir = Path(run_dir)
+    me = owner or default_owner()
+    with _lease_lock(run_dir, me, ttl=ttl, now=now):
         current = read_lease(run_dir)
         moment = _now(now)
         if current is not None and not current.released and not is_expired(current, now=moment):
@@ -167,11 +188,6 @@ def acquire(
         )
         _write(run_dir, lease)
         return lease
-    finally:
-        try:
-            lock.unlink()
-        except OSError:
-            pass
 
 
 def renew(
@@ -182,18 +198,23 @@ def renew(
     now: datetime | None = None,
 ) -> Lease:
     """Extend a lease. Raises :class:`LeaseLost` if we no longer own it."""
-    current = read_lease(run_dir)
-    if current is None or current.owner != lease.owner or current.fencing != lease.fencing:
-        raise LeaseLost("lease is no longer owned by %s" % lease.owner)
-    moment = _now(now)
-    updated = Lease(
-        owner=lease.owner, pid=lease.pid,
-        acquired_at=lease.acquired_at,
-        expires_at=_iso(moment + timedelta(seconds=ttl)),
-        fencing=lease.fencing,
-    )
-    _write(Path(run_dir), updated)
-    return updated
+    run_dir = Path(run_dir)
+    try:
+        with _lease_lock(run_dir, lease.owner, ttl=ttl, now=now):
+            current = read_lease(run_dir)
+            if current is None or current.owner != lease.owner or current.fencing != lease.fencing:
+                raise LeaseLost("lease is no longer owned by %s" % lease.owner)
+            moment = _now(now)
+            updated = Lease(
+                owner=lease.owner, pid=lease.pid,
+                acquired_at=lease.acquired_at,
+                expires_at=_iso(moment + timedelta(seconds=ttl)),
+                fencing=lease.fencing,
+            )
+            _write(run_dir, updated)
+            return updated
+    except LeaseBusy as exc:
+        raise LeaseLost("lease is no longer owned by %s" % lease.owner) from exc
 
 
 def release(run_dir: str | Path, lease: Lease) -> None:

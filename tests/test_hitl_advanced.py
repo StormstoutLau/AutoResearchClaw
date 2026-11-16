@@ -87,6 +87,50 @@ class TestFileWait:
         t.join()
         assert result.action == HumanAction.REJECT
 
+    def test_poll_does_not_delete_partial_response(self, tmp_path: Path) -> None:
+        """P-134：空/半截文件是 not-ready，不应删除唯一副本。"""
+        hitl_dir = tmp_path / "hitl"
+        hitl_dir.mkdir(parents=True)
+        response_path = hitl_dir / "response.json"
+        response_path.write_text("", encoding="utf-8")
+
+        result = poll_for_response(hitl_dir, poll_interval_sec=0.005, timeout_sec=0.015)
+
+        assert result.action == HumanAction.ABORT
+        assert response_path.exists(), "poll 不应删除尚未解析成功的响应文件"
+
+    def test_poll_recovers_after_empty_read(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """P-134：首次读到空内容后，后续完整内容仍被消费。"""
+        hitl_dir = tmp_path / "hitl"
+        hitl_dir.mkdir(parents=True)
+        response_path = hitl_dir / "response.json"
+        response_path.write_text("", encoding="utf-8")
+
+        real_read_text = Path.read_text
+        calls = {"n": 0}
+
+        def fake_read_text(self, *args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                response_path.write_text(
+                    json.dumps(
+                        HumanInput(
+                            action=HumanAction.REJECT, message="bad"
+                        ).to_dict()
+                    ),
+                    encoding="utf-8",
+                )
+                return ""
+            return real_read_text(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", fake_read_text)
+
+        result = poll_for_response(hitl_dir, poll_interval_sec=0, timeout_sec=1)
+
+        assert result.action == HumanAction.REJECT
+
     def test_poll_timeout_auto_proceed(self, tmp_path: Path) -> None:
         hitl_dir = tmp_path / "hitl"
         hitl_dir.mkdir(parents=True)

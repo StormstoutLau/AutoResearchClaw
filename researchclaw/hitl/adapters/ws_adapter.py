@@ -18,6 +18,7 @@ import logging
 from pathlib import Path
 from typing import Any, Protocol
 
+from researchclaw.hitl.file_wait import atomic_write_text
 from researchclaw.hitl.intervention import (
     HumanAction,
     HumanInput,
@@ -444,8 +445,9 @@ class WebSocketHITLAdapter:
 
         self._hitl_dir.mkdir(parents=True, exist_ok=True)
         response_path = self._hitl_dir / "response.json"
-        response_path.write_text(
-            json.dumps(human_input.to_dict(), indent=2), encoding="utf-8"
+        atomic_write_text(
+            response_path,
+            json.dumps(human_input.to_dict(), indent=2),
         )
 
     async def _check_and_push_updates(self) -> None:
