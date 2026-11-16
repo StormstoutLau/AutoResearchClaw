@@ -1,7 +1,7 @@
 ---
 id: arc-ci-dispatch-group-isolation-CHECKLIST
 type: design
-version: 1.0
+version: 1.1
 status: accepted
 date: 2026-11-16
 depends: [arc-ci-dispatch-group-isolation-IMPLEMENTATION, arc-ci-dispatch-group-isolation-DESIGN]
@@ -122,8 +122,9 @@ upstream: null
 
 | 事项 | 状态 | 说明 |
 |------|------|------|
-| 本批 PR 合并 | 待执行 | 合并产生 push run `P` 后立即执行行为探针 |
-| 合并后行为探针 | 待执行 | ① 触发 `D1`（dispatch）：`P` 应保持 `in_progress` 并最终 `success`；② 立即触发 `D2`：`D1` 应 `cancelled`；取得读数后手动取消 `D2` |
+| 本批 PR 合并 | 已完成 | PR #13 squash 合并为 `df1187e`（2026-11-16）；远端 `spec/p131-ci-dispatch-group-isolation` 已删除，本地 `main` 已同步 |
+| 合并后行为探针 | ✅ 已兑现 | 三点探针（同 sha `df1187e`）：`P` = push `43817824212`（06:35:45Z 创建；D1 启动与被取消期间保持 `in_progress`，最终 8/8 job `success`）；`D1` = dispatch `43817890986`（06:36:20Z 创建，`cancelled`）；`D2` = dispatch `43817946007`（06:36:48Z 创建，取证后人工取消）。读数：D1 未能取消 P（J-8 成立），D2 取消 D1（I-4 同事件取消语义保留） |
+| 回填机制 | 记录 | 按 P-126/P-130 先例新建 P-132 五步 session 绑定新文档态；P-131 session 一行未动 |
 | U-1 组名无 API 直读 | 观察 | 静态表达式 + 合并后行为双证据；官方新增字段时补直读 |
 | U-3 未来加 schedule | 观察 | 组键已含事件维，天然隔离 |
-| U-4 探针 run 成本 | 执行时处置 | 取得取消读数后 `gh run cancel` 掉 `D2` |
+| U-4 探针 run 成本 | 已处置 | `D2` 在取得取消读数后由 `gh run cancel` 人工取消 |
