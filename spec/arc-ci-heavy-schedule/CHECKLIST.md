@@ -1,7 +1,7 @@
 ---
 id: arc-ci-heavy-schedule-CHECKLIST
 type: design
-version: 1.0
+version: 1.1
 status: accepted
 date: 2026-11-16
 depends: [arc-ci-heavy-schedule-IMPLEMENTATION, arc-ci-heavy-schedule-DESIGN]
@@ -129,10 +129,12 @@ upstream: null
 
 | 事项 | 状态 | 说明 |
 |------|------|------|
-| 本批 PR 合并 | 待执行 | 合入后按 cron 产生首次 schedule run；手动 dispatch 可即时验证 |
-| 合并后并发观察 | 观察 | main push run 与一次 Heavy dispatch 同时存在时，两者结论均非 `cancelled`（J-1/J-2 行为读数） |
+| 本批 PR 合并 | 已完成 | PR #11 squash 合并为 `e0c9ebb`（2026-11-16）；远端 `spec/p129-ci-heavy-schedule` 已删除，本地 `main` 已同步 |
+| 合并后并发观察 | ✅ 已兑现 | 同 sha `e0c9ebb` 两 run 并发：CI push `43788354421`（8/8 job success）、Heavy dispatch `43788370830`（success；日志 `concurrency_key=heavy-Heavy-workflow_dispatch-refs/heads/main`，`2 passed / 3778 deselected in 7.32s`）；CI 在 Heavy 运行期间保持 `in_progress` 并最终 success ⇒ J-1/J-2 行为读数成立 |
+| 首次 schedule run | 待观察 | 下周一 17:18 UTC 后核对 `event=schedule` 与 `concurrency_key=heavy-Heavy-schedule-refs/heads/main`（U-2） |
+| 回填机制 | 记录 | 按 P-126 先例新建 P-130 五步 session 绑定新文档态；P-129 session 一行未动 |
 | U-1 组名无 API 直读 | 观察 | 现以静态 + 回显 + 行为三重证据替代；官方新增字段时补直读 |
 | U-2 首次 schedule 延迟 | 观察 | 官方明示整点高负载会延迟/丢弃；本批已避开整点并登记 |
 | U-3 heavy 根因专项 | 遗留 | F-1/F-2 的时序竞争未修，周级红灯属已知噪声 |
 | U-4 60 天自动禁用 | 观察 | 低活动期用 `workflow_dispatch` 补跑 |
-| P-130 接口 | 未立项 | `ci.yml` 组键补 `event_name`，修 dispatch 撞 push |
+| P-131 接口 | 未立项 | `ci.yml` 组键补 `event_name`，修 dispatch 撞 push |
