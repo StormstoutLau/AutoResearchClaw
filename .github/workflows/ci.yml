@@ -10,7 +10,8 @@ permissions:
   contents: read            # D-4：最小权限（显式收紧 GITHUB_TOKEN）
 
 concurrency:                # D-4：同分支连续 push 取消前序 run
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # P-131：事件进组键，隔离 dispatch 与 push；同事件同 ref 仍取消
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
