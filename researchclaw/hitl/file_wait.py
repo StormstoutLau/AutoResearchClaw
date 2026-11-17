@@ -55,9 +55,7 @@ def write_waiting(hitl_dir: Path, waiting: WaitingState) -> Path:
     """Write waiting state for external tools to discover."""
     hitl_dir.mkdir(parents=True, exist_ok=True)
     path = hitl_dir / "waiting.json"
-    path.write_text(
-        json.dumps(waiting.to_dict(), indent=2), encoding="utf-8"
-    )
+    atomic_write_text(path, json.dumps(waiting.to_dict(), indent=2))
     return path
 
 

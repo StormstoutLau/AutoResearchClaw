@@ -69,8 +69,6 @@ class FeedbackHandler:
     def read_feedback_response(self) -> Feedback | None:
         """Read feedback response from file (written by UI or CLI)."""
         response_path = self.run_dir / "copilot_feedback_response.json"
-        if not response_path.exists():
-            return None
         try:
             data = json.loads(response_path.read_text(encoding="utf-8"))
             action = data.get("action", "approve")
@@ -90,6 +88,8 @@ class FeedbackHandler:
                 ),
                 timestamp=str(data.get("timestamp", "")),
             )
+        except FileNotFoundError:
+            return None
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
             logger.warning("Failed to parse feedback response: %s", exc)
             return None
