@@ -202,7 +202,12 @@ def renew(
     try:
         with _lease_lock(run_dir, lease.owner, ttl=ttl, now=now):
             current = read_lease(run_dir)
-            if current is None or current.owner != lease.owner or current.fencing != lease.fencing:
+            if (
+                current is None
+                or current.released
+                or current.owner != lease.owner
+                or current.fencing != lease.fencing
+            ):
                 raise LeaseLost("lease is no longer owned by %s" % lease.owner)
             moment = _now(now)
             updated = Lease(
