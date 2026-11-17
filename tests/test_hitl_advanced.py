@@ -53,6 +53,23 @@ class TestFileWait:
         data = json.loads(path.read_text())
         assert data["stage"] == 8
 
+    def test_write_waiting_uses_atomic_publish(self, tmp_path: Path, monkeypatch) -> None:
+        """U-3/J-1: waiting.json must be published via atomic_write_text."""
+        import researchclaw.hitl.file_wait as file_wait
+
+        ws = WaitingState(stage=8, stage_name="HYPOTHESIS_GEN", reason=PauseReason.POST_STAGE)
+        hitl_dir = tmp_path / "hitl"
+        calls = []
+        real = file_wait.atomic_write_text
+
+        def spy(path, text):
+            calls.append(Path(path))
+            return real(path, text)
+
+        monkeypatch.setattr(file_wait, "atomic_write_text", spy)
+        path = write_waiting(hitl_dir, ws)
+        assert calls == [path]
+
     def test_write_response(self, tmp_path: Path) -> None:
         hi = HumanInput(action=HumanAction.APPROVE, message="LGTM")
         hitl_dir = tmp_path / "hitl"
