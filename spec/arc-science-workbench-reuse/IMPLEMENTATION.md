@@ -52,11 +52,20 @@ upstream: null
 
 读数为 2026-11-19 GitHub API 快照，会变化。
 
+**补充读数（P-140 修订）**：
+
+| 编号 | 读数 | 来源 |
+|---|---|---|
+| E1-7 | cscience README 自述为「patched build of Claude Science」：Acorn 解析 ~9MB minified JS，打 13 个补丁后分发；BYOK Anthropic key，支持 `ANTHROPIC_BASE_URL`、`OPERON_MODELS`；无可复用许可证 | Haleclipse/cscience README |
+| E1-8 | claude-science-api-bridge 是本地 Anthropic-compatible 代理（127.0.0.1:9876），把 `/v1/messages`、`/v1/models`、OAuth/profile 转第三方 provider；支持流式/工具/图片/token 计数；MIT | Jyx0208/claude-science-api-bridge README |
+
 ## 4. 结论
 
 - 最值得吸收：证据/动作账本、pipeline-as-skill（P0）；Plan 合同、模型路由、连接器、产物时间线（P1）。
 - 持久内核与算力编排列 P2，单独立项。
-- 社区逆向作品中，MIT/Apache 项目可做思路/接口/局部代码复用；无许可证与泄漏源码零复用。
+- 社区逆向作品中，MIT/Apache 项目可做思路/接口/局部代码复用；无许可证/NOASSERTION 只允许 clean-room 重写，并保留 provenance 与许可证评审记录。
+- **cscience 不是独立源码实现，而是补丁版闭源 bundle**：只作 UI/交互参考，不接入、不分发、不作为 clean-room 输入。
+- **原版 Claude Science + API 桥接**：只作能力对标/评测基准；本地模型接入走本仓 provider/router 原生实现，不复制桥接层。
 
 ## 5. 门禁读数
 
@@ -74,6 +83,7 @@ upstream: null
 - `researchclaw/`、`tests/`、`.github/workflows/`、`tests/ci_exclusions.yaml` 零改动。
 - 批外 vendor CRLF 不纳入本批。
 - 未复制任何第三方代码或资产。
+- 未接触泄漏源码或补丁版二进制；cscience 仅引用其公开 README 描述。
 
 ## 7. 遗留与接缝
 
