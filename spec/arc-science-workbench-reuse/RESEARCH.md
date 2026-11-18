@@ -43,7 +43,28 @@ upstream: null
 | exon-research/genomi | Apache-2.0 | DNA 专家 agent | 低：领域专用 |
 | 「KAIROS / Claude Code leak」逆向 | 基于泄漏源码 | 记忆架构分析 | **禁止**：法律风险高，仅可作反面案例 |
 
-**复用纪律**：MIT/Apache 代码可复用但必须保留 NOTICE/版权；NOASSERTION/无许可证只做行为观察；闭源产品只做能力对标，不复制 UI/资产/文案；泄漏源码一律不接触。
+**复用纪律（P-140 修订）**：
+
+- MIT/Apache：可复用代码，保留 NOTICE/版权。
+- 无许可证/NOASSERTION：不直接复用代码；允许 **clean-room 重写**——一方只依据公开文档、公开行为与接口契约写规格，另一方在不见源码/二进制的前提下独立实现，并登记来源、日期、评审人与许可证结论。
+- 闭源产品：只做能力对标，不复制 UI/资产/文案。
+- 泄漏源码：不接触、不保存、不引用；clean-room 规格也不得来源于泄漏内容。
+- **cscience 特别说明**：其 README 自述为「patched build of Claude Science」——用 Acorn 解析 ~9MB minified JS 并打 13 个补丁后分发。它不是独立源码实现，**不能作为 clean-room 的输入**，且分发补丁版闭源软件本身有法律风险。
+
+## 2.1 与本框架的接入对比
+
+| 维度 | haleclipse/cscience | 原版 Claude Science + claude-science-api-bridge | AutoResearchClaw |
+|---|---|---|---|
+| 形态 | 补丁版 Claude Science（bun 全局包，起服务 + 浏览器） | 闭源桌面应用 + 本地 Anthropic-compatible 代理（127.0.0.1:9876） | 开源 CLI/服务端，23 阶段流水线 + HITL |
+| 模型接入 | 自有 Anthropic API key；支持 `ANTHROPIC_BASE_URL` 与 `OPERON_MODELS` | 桥接 DeepSeek/Kimi/OpenAI/DashScope/智谱/自建 OpenAI-compatible；支持流式/工具/图片 | 已有 provider 配置；可原生扩展 OpenAI-compatible 与本地模型 |
+| 产品保真度 | 高（直接补丁原版 UI/流程） | 最高（原版 + 连接器生态） | 中（无桌面壳，重流水线与证据） |
+| 许可/合规 | **无许可证**；分发补丁版闭源软件，法律风险高 | 桥接 MIT，但绕过官方计费/认证，可能违反 ToS；更新易失效 | MIT；无第三方补丁/闭源资产 |
+| 可维护性 | 依赖原版 bundle 结构，版本升级即需重打补丁 | 依赖 Claude Science 客户端与私有协议，升级脆弱 | 自有代码与测试，升级可控 |
+| 审计/证据 | 无 | 原版有可审计产物；桥接层不改证据链 | 已有 event_log/evidence，可扩展动作账本 |
+| 适配判断 | 仅作 UI/交互参考；不接入、不分发 | 仅作能力对标/评测基准；不作为依赖 | **作为本框架主线**；吸收思路而非壳 |
+
+**结论**：cscience 与「原版 + 桥接」都不适合作为 AutoResearchClaw 的依赖或 Fork 基础；本地模型接入应在本仓 provider/router 层**原生实现**，两者只作为对比基准与 UX 参考。clean-room 重写仅适用于「无许可证但可公开观察行为」的作品，不适用于补丁版二进制或泄漏源码。
+
 
 ## 3. 与本仓的组件映射
 

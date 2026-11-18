@@ -40,7 +40,9 @@ upstream: null
 | D-4 | Scientific Model Router 先做静态能力表，写入选择理由 | RESEARCH §3 P1 |
 | D-5 | 连接器优先 UniProt/PDB/ChEMBL/PubMed/arXiv 五个 | RESEARCH §3 P1 |
 | D-6 | 持久内核与算力编排列 P2，单独立项 | RESEARCH §4 P2 |
-| D-7 | 只复用 MIT/Apache 且保留 NOTICE；无许可证/泄漏源码零复用 | RESEARCH §2 |
+| D-7 | MIT/Apache 可复用并保留 NOTICE；无许可证/NOASSERTION 只允许 **clean-room 重写**，不允许直接复用 | RESEARCH §2 |
+| D-8 | clean-room 协议：规格只取公开文档/公开行为；实现者不见源码/二进制；登记来源、日期、评审人与许可证结论 | RESEARCH §2 修订 |
+| D-9 | **不 Fork cscience、不依赖原版+桥接**；本地模型在 provider/router 层原生接入；两者仅作对比基准与 UX 参考 | RESEARCH §2.1 |
 
 ## 3. 目标架构映射
 
@@ -63,7 +65,7 @@ upstream: null
 | J-3 | 流水线可固化为技能并重载 | 同一 manifest 两次加载一致；版本号递增 |
 | J-4 | 计划先于执行 | Stage 9 前存在计划产物；无审批不执行 |
 | J-5 | 路由可追溯 | 每次模型选择有理由与候选集 |
-| J-6 | 许可证合规 | 第三方代码有 NOTICE/版权；无泄漏源码 |
+| J-6 | 许可证/clean-room 合规 | 第三方代码有 NOTICE/版权；无许可证作品有 clean-room 规格与独立实现记录；无补丁二进制/泄漏源码 |
 
 ## 5. 优先级
 
@@ -86,3 +88,5 @@ upstream: null
 
 - P0 可作为下一实施批；P1 拆分；P2 单独立项。
 - 与 P-139（U-3/U-2 修复）无代码重叠；合并顺序按窗口 2 后的统一安排。
+- **对比结论**：cscience 是补丁版闭源 bundle（无许可证），只作 UI/交互参考；原版 + API 桥接只作能力对标/评测基准，不进入依赖链；本框架的本地模型接入走原生 provider/router，不复制桥接层。
+- **clean-room 重写**：仅对「可公开观察行为、无许可证」的作品开放；规格与实现分人、分时、分目录，保留 provenance 记录，先过许可证评审再立项。
