@@ -116,6 +116,18 @@ upstream: null
 
 **延迟处置**：官方明示 schedule 可能延迟；若 03:17 北京前仍无 run，判为 schedule-delay（P-129 U-2），不判红；整周无 run 则手动 dispatch 补跑，但标注 `event=workflow_dispatch`，不能替代 schedule 读数。
 
+### 4.1 人工兜底约定（窗口 2 结论必录）
+
+- **触发**：11-24 23:00 北京场（第 4 次核对）仍无 `event=schedule` 且 `createdAt > 2026-11-23T18:00:00Z` 的 run。
+- **动作**：11-25 上午人工执行一次 `gh run list --workflow heavy.yml --limit 5 --json databaseId,event,status,conclusion,headSha,createdAt`，只读；不 `workflow_dispatch`、不改仓库、不合并 PR。
+- **分流判定**：
+  - **类别 A（极端延迟）**：出现 schedule run，按 §4 五项读数核对；窗口 2 视为成立，不重排窗口 3。
+  - **类别 B（schedule 缺失）**：仍无 run，且 workflow 未被禁用、fork 的 schedule 未被关闭、无 Actions 平台事故；记为 schedule 缺失，重排窗口 3（2026-11-30 18:17 UTC），该周不计入连续绿。
+  - **类别 C（配置性失效）**：仍无 run，且 workflow 被禁用、仓库 60 天无 push 活动或 fork 未启用 schedule；先修复配置再重排窗口 3；不得用 dispatch 补跑顶替 schedule 读数。
+- **结论落点**：核对时刻、run id、§4 五项读数、类别判定与后续动作写入窗口 2 回填批（编号在立项时确定）的 RESEARCH.md；结论写入前不启动合并序列。
+- **时间盒**：人工核对截止 11-25 12:00 北京；逾时记为「无读数」，仍不合并，直至分类完成。
+- **不变式**：全程只读；任何仓库写操作与合并需单独授权。
+
 ## 5. 合并冲突预案
 
 1. 合并 P-135（先）。
