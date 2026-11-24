@@ -88,6 +88,7 @@ const EVENT_TYPES = [
   'stage.started', 'stage.completed', 'stage.failed', 'stage.retried',
   'tool.call', 'tool.result', 'tool.orphan_call', 'llm.call', 'llm.result',
   'approval.required', 'effect.queued', 'effect.started', 'effect.done',
+  'budget_exhausted',
   'pipeline.summary',
   'event_log_truncated', 'event_log_rolled',
 ];
