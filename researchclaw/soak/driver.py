@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -24,6 +25,7 @@ from researchclaw.soak.verifier import RunVerification, verify_run
 
 FIELD_WALL_SECONDS = 72 * 3600
 MIN_FIELD_RESTARTS = 3
+_SIGKILL = getattr(signal, "SIGKILL", 9)
 
 
 def _iso() -> str:
@@ -66,8 +68,38 @@ class SoakResult:
     session: list[dict] = field(default_factory=list)
 
 
+def _spawn_kwargs(os_name: str | None = None) -> dict[str, bool]:
+    """POSIX children start their own session so their whole tree is killable."""
+    return {} if (os_name or os.name) == "nt" else {"start_new_session": True}
+
+
+def _posix_kill_tree(proc, *, getpgid=None, killpg=None, kill=None) -> str:
+    """Kill a POSIX child's process group only when it is the group leader.
+
+    A custom ``spawn`` may not have created a new session; in that case the
+    child's pgid equals the driver's and ``killpg`` would kill the driver, so
+    we fall back to a single-process kill.
+    """
+    getpgid = getpgid or os.getpgid
+    killpg = killpg or os.killpg
+    kill = kill or proc.kill
+    try:
+        pgid = getpgid(proc.pid)
+    except OSError:
+        kill()
+        return "process"
+    if pgid == proc.pid:
+        try:
+            killpg(pgid, _SIGKILL)
+            return "group"
+        except OSError:
+            pass
+    kill()
+    return "process"
+
+
 def _default_spawn(cmd, **kwargs):
-    return subprocess.Popen(cmd, **kwargs)
+    return subprocess.Popen(cmd, **{**_spawn_kwargs(), **kwargs})
 
 
 def _default_kill(proc) -> None:
@@ -78,7 +110,7 @@ def _default_kill(proc) -> None:
             capture_output=True, check=False,
         )
     else:
-        proc.kill()
+        _posix_kill_tree(proc)
 
 
 class SoakDriver:
@@ -113,20 +145,14 @@ class SoakDriver:
 
     # ------------------------------------------------------------ state
 
-    def _progress(self) -> tuple[int, int]:
-        """Return ``(checkpoint_stage, checkpoint_mtime_ns)``; never raises."""
+    def _progress(self) -> int:
+        """Return the checkpoint stage; never raises."""
         path = self.config.run_dir / "checkpoint.json"
-        stage = 0
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-            stage = int(data.get("last_completed_stage") or 0)
+            return int(data.get("last_completed_stage") or 0)
         except (OSError, json.JSONDecodeError, TypeError, ValueError):
-            stage = 0
-        try:
-            mtime = path.stat().st_mtime_ns
-        except OSError:
-            mtime = 0
-        return stage, mtime
+            return 0
 
     def _reclaim_stale_lease(self) -> bool:
         """Release only a lease whose owner is provably dead or expired."""
@@ -198,11 +224,6 @@ class SoakDriver:
             },
         )
 
-        if not cfg.run_dir.is_dir():
-            self._record("driver_finished", status="failed",
-                         reason="no_resumable_run")
-            return self._finish(started, "failed", [])
-
         if not self._reclaim_stale_lease():
             self._record("driver_finished", status="failed", reason="lease_held")
             return self._finish(started, "failed", [])
@@ -243,11 +264,10 @@ class SoakDriver:
                 self._record("worker_spawn_failed", error=str(exc))
                 status = "failed"
                 break
-            stage, _mtime = self._progress()
+            stage = self._progress()
             self._record("worker_started", pid=getattr(proc, "pid", None),
                          attempt=attempt, stage=stage)
 
-            killed = False
             action = "exit"
             while True:
                 wall = self._clock() - started
@@ -289,7 +309,7 @@ class SoakDriver:
                         action = "exit"
                     break
 
-                stage, _mtime = self._progress()
+                stage = self._progress()
                 note_progress(stage)
 
                 pending = sorted(s for s in cfg.inject_at_stages

@@ -406,7 +406,7 @@ class EventLog:
         """Cursor read for Last-Event-ID style replay (A1-2 storage half)."""
         return [e for e in self.read_all() if int(e.get("seq", 0)) > seq]
 
-    def verify_chain(self) -> tuple[bool, str]:
+    def verify_chain(self, start_seq: int = 1) -> tuple[bool, str]:
         """Recompute the hash chain and payload digests. Returns (ok, message).
 
         Three checks per line: seq continuity, the ``prev_sha256`` pointer, and
@@ -415,17 +415,25 @@ class EventLog:
         ``events_summary.json`` is current, its ``chain_tail`` must also match
         the recomputed tail, which closes non-payload field tampering.
 
-        Note: after ``apply_retention`` deletes the oldest segment the chain is
-        only partially verifiable and this reports a seq gap; archive-level
-        verification is out of scope (see P-040 O-1).
+        ``start_seq > 1`` verifies an offset chain after ``apply_retention``
+        deleted the oldest segment: the first readable event's ``prev_sha256``
+        points at a deleted line and is therefore unverifiable, but seq
+        continuity, every subsequent pointer and every payload digest are
+        still checked. A zero ``prev_sha256`` on an offset start is rejected
+        as a forged prefix.
         """
+        start = max(1, int(start_seq))
+        offset = start > 1
         prev = ZERO_HASH
-        expect_seq = 1
+        expect_seq = start
         events = self.read_all()
-        for e in events:
+        for index, e in enumerate(events):
             if int(e.get("seq", -1)) != expect_seq:
                 return False, "seq gap at %r (expected %d)" % (e.get("seq"), expect_seq)
-            if e.get("prev_sha256") != prev:
+            if offset and index == 0:
+                if e.get("prev_sha256") == ZERO_HASH:
+                    return False, "offset chain starts with zero prev_sha256"
+            elif e.get("prev_sha256") != prev:
                 return False, "prev_sha256 mismatch at seq %d" % expect_seq
             payload_digest = _sha256(canonical_json(e.get("payload", {})))
             if e.get("payload_sha256") != payload_digest:
@@ -435,7 +443,8 @@ class EventLog:
         ok, msg = self._verify_summary_tail(events, prev)
         if not ok:
             return False, msg
-        return True, "ok (%d events)" % (expect_seq - 1)
+        suffix = ", offset from seq %d" % start if offset else ""
+        return True, "ok (%d events%s)" % (len(events), suffix)
 
     def _verify_summary_tail(self, events: list[dict], tail_hash: str) -> tuple[bool, str]:
         """Compare the recomputed tail with the summary when it is current.
