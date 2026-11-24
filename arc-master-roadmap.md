@@ -1,14 +1,14 @@
 ---
 id: arc-master-roadmap
 type: design
-version: 1.4v
+version: 1.4w
 status: draft
 date: 2026-11-25
 depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-textbook, clawsgo-cleanroom-arc]
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.4v）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.4w）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -134,6 +134,8 @@ upstream: arb-v2-decisions
 > **修订**：v1.4u（2026-11-24，P-154）**G5 三问裁决**：Q4 = A（复用既有 embedding 回退链 API→SBERT→TF-IDF 256d，降级显式 `retrieval_degraded`）；Q6 = A（本地关系词表扩到 17 类，外部 KG 只留 `KnowledgeSource` 接口）；Q7 = A（Paper 首批 500 条高置信度，全量 2,487 登记后续）。G5 实施批可开工；K4 全文仍被 Paper Phase 2 阻断。**106 计数不变**。依据：[P-154 决策](spec/arc-g5-decisions/DESIGN.md)。
 >
 > **修订**：v1.4v（2026-11-25，P-157）**总纲回填：G5 + G8b 收口**：P-155 交付 G5（`researchclaw/knowledge/` 8 模块 + Stage 20 矛盾门 + 计数同源），A5-1..A5-9、GQ-1..GQ-5 共 14 项全过，CHECKLIST **41/41**；P-156 交付 G8b（`plan/ledger.py`/`replan.py`/`decompose.py`/`search.py` + 存储版本化 + Stage 15/9 钩子），A8b-1..4 全过，CHECKLIST **33/33**。**G5 记为 14/14，G8b 记为 4/4**；进度 **86 / 106，开放 20**（G6 5、G7 15）。A5-2 首批 500 条、K4 仍被 Phase 2 阻断；Q15/Q16 仍 provisional。**106 计数不变**。依据：[P-155 实施](spec/arc-g5-implementation/IMPLEMENTATION.md)、[P-156 实施](spec/arc-plan-evolution/IMPLEMENTATION.md)、[本回填](spec/arc-roadmap-g8b/RESEARCH.md)。
+>
+> **修订**：v1.4w（2026-11-25，P-159）**总纲回填：G6 收口**：P-158 交付 G6（`model_policy.yaml` + `llm/model_policy.py` + `ModelPolicyConfig` + `LLMClient` 前置预算/本地检查 + `CostRecord.policy_version` + `budget_exhausted`），Q12 裁决 = 接受 P2 + 默认单层，A6-1..A6-5 全过，CHECKLIST **34/34**，17 passed、回归 431 passed。**G6 记为 5/5**；进度 **91 / 106，开放 15**（仅 G7）。默认 `model_policy.enabled=false`，默认单层，模型链与旧版一致；学习式 router 与跨 provider 比价未做。**106 计数不变**。依据：[P-158 实施](spec/arc-model-policy/IMPLEMENTATION.md)、[本回填](spec/arc-roadmap-g6/RESEARCH.md)。
 
 ---
 
@@ -243,7 +245,7 @@ flowchart LR
 
 ---
 
-### 3.1 当前进度（2026-11-25，v1.4v）
+### 3.1 当前进度（2026-11-25，v1.4w）
 
 | 阶段 | 优先级 | 验收 | 已完成 | 状态 |
 |---|---|---|---|---|
@@ -255,14 +257,14 @@ flowchart LR
 | G3 | P0 | 17 | 17 | 已完成 |
 | G4 | P1 | 10 | 10 | 已完成（P-106；1 项 Linux CI 待确认） |
 | G5 | P1 | 14 | 14 | 已完成（P-155） |
-| G6 | P2 | 5 | 0 | 未开始 |
+| G6 | P2 | 5 | 5 | 已完成（P-158） |
 | G7 | P2 | 15 | 0 | 未开始 |
 | G8a | P1 | 4 | 4 | 已完成（P-152） |
 | G8b | P2 | 4 | 4 | 已完成（P-156） |
-| **合计** | | **106** | **86** | **开放 20** |
+| **合计** | | **106** | **91** | **开放 15** |
 
-- 口径：只统计 G0a..G8b 的 106 项；P-107..P-151 的 CI/CD 治理、heavy 退场、动作账本、pipeline 复用与等价性不计入；P-152 计入 G8a，P-155 计入 G5，P-156 计入 G8b。
-- P0 阶段（G0a/G-1/G0b/G1/G2/G3）与 G4、G5、G8a、G8b 已收口；剩余 20 项集中在 G6/G7（均 P2）。
+- 口径：只统计 G0a..G8b 的 106 项；P-107..P-151 的 CI/CD 治理、heavy 退场、动作账本、pipeline 复用与等价性不计入；P-152 计入 G8a，P-155 计入 G5，P-156 计入 G8b，P-158 计入 G6。
+- P0 阶段（G0a/G-1/G0b/G1/G2/G3）与 G4、G5、G6、G8a、G8b 已收口；剩余 15 项仅 G7（P2）。
 
 ## 4. 逐阶段详述
 
@@ -576,7 +578,9 @@ flowchart LR
 
 ---
 
-### G6｜模型分层与预算治理（P2，前置：G3）——**未开始**
+### G6｜模型分层与预算治理（P2，前置：G3）——**已完成（P-158，2026-11-25）**
+
+> **实施记录**：`model_policy.yaml` + `researchclaw/llm/model_policy.py` 交付策略加载/校验、`role→tier` 确定性路由、显式 trigger 升级、`resolve_model`、`policy_digest`、`pre_call_budget_check`、`check_local_only`；`ModelPolicyConfig`（默认关闭）+ `LLMClient` 调用前预算/本地检查（`budget_exhausted` 事件）+ `CostRecord.policy_version`。Q12 = 接受 P2 + 默认单层（四 role→balanced、tier model 空→primary）。A6-1..A6-5 全过，CHECKLIST **34/34**，17 passed、回归 431 passed。学习式 router 与跨 provider 比价未做。
 
 **目标**：复刻"快/均衡/攻坚 + 子智能体"的策略，但不训练模型。
 
@@ -755,11 +759,11 @@ G0a → G-1 → G0b ─┬→ G1 ─┐
 
 - **必须串行**：`G0a → G-1 → G0b → G2 → G3`。急救必须先于完整治理；契约与门禁必须先于脊柱。串行约束**完整路线**；§1 最小集路径不受此限（其 N/A 语义见 §1）。
 - **可并行**：G1 与 G2（不同目录、不同测试集），都在 G0b 之后启动。
-- **已收口**：G4 / G5（P1）、G8a（P-152）、G8b（P-156）；剩余 G6 与 G7 均为 P2。
+- **已收口**：G4 / G5 / G6（P1/P2）、G8a（P-152）、G8b（P-156）；仅剩 G7（P2）。
 - **G8b 依赖 G8a**：先有可校验的计划对象，再谈重规划与懒惰分解。
 - **G7 最后**：需要 G1 的恢复、G4 的沙箱、G5 的知识；**不再依赖 G6**。
 - **如果只能做三件事**：`G0a → G-1 → G3 最小集`（= §1 定义的最小契约：可信急救 + 事件链最小集 + ClaimRecord 契约），即可让"不产出假结果"成立。
-- **G4/G5/G8a/G8b 已收口后的下一批**：G6（5 项，P2，需先确认 Q12）与 G7（15 项，P2，含 72h soak，建议再拆段）；当前无 P1 批次。
+- **G4/G5/G6/G8a/G8b 已收口后的下一批**：仅 G7（15 项，P2，含 72h soak）；建议拆为「soak 工具链 / 编排评测 / 漂移护栏」三段；当前无 P1 批次。
 
 **每阶段的硬出口**：本阶段验收项全绿 + C 套件中**已生效成员**全绿 + 下一阶段前置的 `spec/` 四文档已齐。
 
@@ -780,7 +784,7 @@ G0a → G-1 → G0b ─┬→ G1 ─┐
 | Q9 | 事件保留期（30 天 / 永久） | G1/G7 | 30 天 + 归档摘要永久 | **已裁决（热30/归档365/摘要永久，P-026）** |
 | Q10 | MCP 协议版本对齐（SDK 2.x vs 2026-07-28 规范） | G4 | 开工前做兼容矩阵 | 待确认 |
 | **Q11** | G0a/G0b 的切分边界（4 道激活钩子是否足够） | G0a/G0b | 4 道足够（dc/step/console/rework）；G0b 再补 m7/repo/blackbox | **已实施确认（P-021）**：G0a 4 道、G0b 6 必需 + 3 守卫 |
-| **Q12** | G6 降为 P2 是否可接受（固定模型 vs 分层路由） | G6 | 可接受；先用预算上限 | 待确认 |
+| **Q12** | G6 降为 P2 是否可接受（固定模型 vs 分层路由） | G6 | 可接受；先用预算上限 | **已裁决（P-158：接受 P2 + 默认单层，分层 opt-in）** |
 | **Q13** | 漂移护栏阈值（`rq_cos=0.35/0.45`、`p_only=0.5`） | G7 | 经验值，需 ARC-Bench 校准 | 待确认 |
 | **Q14** | ArtifactNode 覆盖范围（全阶段 vs Stage 12-14/20/23） | G3 | 先覆盖实验与证据链相关阶段 | 待确认 |
 | **Q15** | 研究计划 `max_versions`（默认 3）与节点上限（40） | G8a/G8b | 先用 3 / 40，按 ARC-Bench 校准 | **provisional（P-152 采用 3 / 40）** |
