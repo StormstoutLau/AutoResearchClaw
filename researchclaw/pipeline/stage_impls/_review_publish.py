@@ -475,6 +475,42 @@ def _execute_quality_gate(
         )
     _claim_artifacts = ("claim_gate.json", "claims.jsonl")
 
+    # GQ-5: contradictions found by the optional Grounded QA stage. Default
+    # policy is "warn"; ``knowledge_base.grounded_qa_policy: block`` refuses to
+    # certify a paper whose sources disagree.
+    _gq_result_path = run_dir / "grounded_qa" / "result.json"
+    if _gq_result_path.is_file():
+        from researchclaw.knowledge.grounded_qa import stage20_contradiction_gate
+
+        try:
+            _gq_result = json.loads(_gq_result_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            logger.warning("Stage 20: unreadable grounded_qa result ignored: %s", exc)
+            _gq_result = {}
+        if isinstance(_gq_result, dict):
+            _gq_policy = getattr(
+                getattr(config, "knowledge_base", None),
+                "grounded_qa_policy",
+                "warn",
+            )
+            _gq_gate = stage20_contradiction_gate(_gq_result, policy=_gq_policy)
+            if _gq_gate["blocked"]:
+                _contradictions = list(_gq_result.get("contradictions") or [])
+                logger.error(
+                    "Stage 20 BLOCKED by grounded QA contradictions: %s",
+                    _contradictions[:5],
+                )
+                return StageResult(
+                    stage=Stage.QUALITY_GATE,
+                    status=StageStatus.FAILED,
+                    artifacts=_claim_artifacts + ("claim_verification.json",),
+                    evidence_refs=("grounded_qa/result.json",),
+                    error=(
+                        "E20_GQ_CONTRADICTION: grounded QA found "
+                        f"{len(_contradictions)} contradiction(s)"
+                    ),
+                )
+
     # D4: a paper built on simulated data may not pass the gate unless the
     # user explicitly opted in (`research.allow_simulated_paper: true`).
     _data_origin = detect_data_origin(run_dir, config)

@@ -95,10 +95,36 @@ def check(path=LOG):
     return 0, "m7_stats: samples=%d（§1 表格 %d 行，§2 声明一致）" % (samples, samples)
 
 
+def knowledge_report(kb_root=None):
+    """K5 (A5-5): recompute knowledge counts from the single source function."""
+    if ROOT not in sys.path:
+        sys.path.insert(0, ROOT)
+    from researchclaw.knowledge.stats import knowledge_counts
+
+    return knowledge_counts(kb_root or os.path.join(ROOT, "docs", "kb"))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="m7_stats", description="M7 证据账本结构门禁")
     ap.add_argument("--path", default=LOG, help="账本路径（默认 docs/M7_EVIDENCE_LOG.md）")
+    ap.add_argument("--knowledge", action="store_true", help="重算知识库计数（K5）")
+    ap.add_argument("--kb-root", default="", help="知识库根目录（默认 docs/kb）")
     args = ap.parse_args(argv)
+    if args.knowledge:
+        counts = knowledge_report(args.kb_root or None)
+        print(
+            "m7_stats: knowledge paper_count=%d paper_duplicates=%d "
+            "kg_nodes=%d kg_edges=%d illegal_edges=%d consistent=%s"
+            % (
+                counts["paper_count"],
+                counts["paper_duplicates"],
+                counts["kg_nodes"],
+                counts["kg_edges"],
+                counts["illegal_edges"],
+                counts["consistent"],
+            )
+        )
+        return 0 if counts["consistent"] else 1
     code, msg = check(args.path)
     print(msg)
     return code
