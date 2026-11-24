@@ -129,3 +129,17 @@ upstream: null
 | Q2 | 部分复用（只取某几阶段） | 首版不支持 |
 | Q3 | 与 builtin 技能重名 | 前缀 `pipeline-`，冲突拒绝 |
 | Q4 | 多 run 合并成一个技能 | 首版不支持 |
+
+## 9. 外部先例对照
+
+| 本设计字段 | 先例 | 同构点 | 有意收窄 |
+|---|---|---|---|
+| `name` / `description` | SKILL.md front-matter、Nextflow `meta.yml` | 复用单元的可发现元数据 | 强制 `kind=pipeline` 与 `metadata.manifest` 指针 |
+| `manifest_version` | CWL `cwlVersion`、Snakemake wrapper 版本目录 | 契约版本化 | 只接受主版本 1，未知即拒绝 |
+| `stages[]` | Nextflow processes、Snakemake rules | 有序执行单元 | 每阶段一节点、重试折叠 |
+| `outputs` + sha256 | Nextflow `publishDir`、nf-core outputs | 产物声明 | 强制内容哈希，而非仅路径 |
+| `tools[].version` | 容器 pin、wrapper 版本目录 | 依赖版本固定 | 版本漂移仅警告、工具缺失拒绝 |
+| `action_id` / `event_seq` | PROV-O Activity/Entity | 动作-产物关联 | 额外绑定哈希链事件区间 |
+| `integrity.manifest_sha256` | Actions ref pin、lockfile | 内容完整性 | 覆盖除自身外全部字段 |
+
+与 GitHub reusable workflow 的关键差异：对方被调用即执行；本设计的 pipeline 技能默认只被发现，执行必须显式调用（D-8）。
