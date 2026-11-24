@@ -1,0 +1,75 @@
+{
+  "schema": "arc-orchestration-task/1",
+  "id": "L4",
+  "class": "L",
+  "title": "Flux-balance knockout with infeasible probe",
+  "source_manifest": "experiments/arc_bench/config/biology/manifests/B01.yaml",
+  "version": 1,
+  "prompt": "Build a flux-balance model, solve a knockout, and verify the flux independently. Also probe a knockout that is expected to be infeasible and mark it explicitly rather than reporting a number.",
+  "delegation_style": "distinct_roles",
+  "subgoals": [
+    {
+      "id": "build",
+      "capability": "fba_build",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["model_json"],
+      "acceptance": "model built from the declared medium"
+    },
+    {
+      "id": "solve",
+      "capability": "fba_solve",
+      "depends_on": ["build"],
+      "inputs": ["model_json"],
+      "outputs": ["raw_flux"],
+      "acceptance": "growth rate from the knockout model"
+    },
+    {
+      "id": "verify",
+      "capability": "fba_verify",
+      "depends_on": ["solve"],
+      "inputs": ["raw_flux"],
+      "outputs": ["verified_flux"],
+      "acceptance": "independent recomputation of the growth rate"
+    },
+    {
+      "id": "infeasible_probe",
+      "capability": "fba_verify",
+      "depends_on": [],
+      "inputs": ["knockout_list"],
+      "outputs": ["probe_status"],
+      "acceptance": "explicit infeasible marker, no fabricated flux"
+    }
+  ],
+  "worker_pool": [
+    {"id": "model_agent", "capabilities": ["fba_build"]},
+    {"id": "solve_agent", "capabilities": ["fba_solve"]},
+    {"id": "verify_agent", "capabilities": ["fba_verify"]},
+    {"id": "probe_agent", "capabilities": ["fba_verify"]}
+  ],
+  "aggregate": {
+    "columns": ["step", "value"],
+    "key": ["step"],
+    "invalid_policy": "exclude",
+    "conflict_required": false,
+    "conflict_rule": null,
+    "arithmetic": null,
+    "group_by": []
+  },
+  "trap": {
+    "kind": "infeasible_subgoal",
+    "subgoals": ["infeasible_probe"],
+    "hint": "the second knockout has no feasible flux distribution"
+  },
+  "budget": {"tokens": 14000, "wall_seconds": 60, "max_workers": 3, "max_depth": 2},
+  "truth": {
+    "rows": [
+      {"subgoal": "build", "step": "build", "value": 1.0},
+      {"subgoal": "solve", "step": "solve", "value": 0.42},
+      {"subgoal": "verify", "step": "verify", "value": 0.42},
+      {"subgoal": "infeasible_probe", "step": "infeasible_probe", "value": null, "valid": false}
+    ],
+    "invalid_subgoals": ["infeasible_probe"],
+    "expected_conflicts": []
+  }
+}

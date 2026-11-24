@@ -1,0 +1,74 @@
+{
+  "schema": "arc-orchestration-task/1",
+  "id": "D1",
+  "class": "D",
+  "title": "Dropout variants x tabular datasets metrics table",
+  "source_manifest": "experiments/arc_bench/config/ml/manifests/ML01.yaml",
+  "version": 1,
+  "prompt": "Compare three dropout variants against a no-dropout control on three sklearn tabular datasets, two seeds each. Produce a metrics table with accuracy and ECE and report per-condition means.",
+  "delegation_style": "capability",
+  "subgoals": [
+    {
+      "id": "breast_cancer",
+      "capability": "ml_metrics",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["metrics_rows"],
+      "acceptance": "6 rows; schema (dataset,condition,seed,accuracy,ece)"
+    },
+    {
+      "id": "digits",
+      "capability": "ml_metrics",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["metrics_rows"],
+      "acceptance": "6 rows; schema (dataset,condition,seed,accuracy,ece)"
+    },
+    {
+      "id": "wine",
+      "capability": "ml_metrics",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["metrics_rows"],
+      "acceptance": "6 rows; schema (dataset,condition,seed,accuracy,ece)"
+    }
+  ],
+  "worker_pool": [
+    {"id": "ml_runner", "capabilities": ["ml_metrics"]}
+  ],
+  "aggregate": {
+    "columns": ["dataset", "condition", "seed", "accuracy", "ece"],
+    "key": ["dataset", "condition", "seed"],
+    "invalid_policy": "exclude",
+    "conflict_required": false,
+    "conflict_rule": null,
+    "arithmetic": "mean_by_group",
+    "group_by": ["condition"]
+  },
+  "trap": null,
+  "budget": {"tokens": 20000, "wall_seconds": 60, "max_workers": 3, "max_depth": 2},
+  "truth": {
+    "rows": [
+      {"subgoal": "breast_cancer", "dataset": "breast_cancer", "condition": "no_dropout", "seed": 1, "accuracy": 0.951, "ece": 0.061},
+      {"subgoal": "breast_cancer", "dataset": "breast_cancer", "condition": "no_dropout", "seed": 2, "accuracy": 0.949, "ece": 0.063},
+      {"subgoal": "breast_cancer", "dataset": "breast_cancer", "condition": "standard_dropout_p30", "seed": 1, "accuracy": 0.958, "ece": 0.048},
+      {"subgoal": "breast_cancer", "dataset": "breast_cancer", "condition": "standard_dropout_p30", "seed": 2, "accuracy": 0.956, "ece": 0.050},
+      {"subgoal": "breast_cancer", "dataset": "breast_cancer", "condition": "mc_dropout_p30", "seed": 1, "accuracy": 0.955, "ece": 0.031},
+      {"subgoal": "breast_cancer", "dataset": "breast_cancer", "condition": "mc_dropout_p30", "seed": 2, "accuracy": 0.957, "ece": 0.033},
+      {"subgoal": "digits", "dataset": "digits", "condition": "no_dropout", "seed": 1, "accuracy": 0.972, "ece": 0.052},
+      {"subgoal": "digits", "dataset": "digits", "condition": "no_dropout", "seed": 2, "accuracy": 0.970, "ece": 0.054},
+      {"subgoal": "digits", "dataset": "digits", "condition": "standard_dropout_p30", "seed": 1, "accuracy": 0.975, "ece": 0.041},
+      {"subgoal": "digits", "dataset": "digits", "condition": "standard_dropout_p30", "seed": 2, "accuracy": 0.973, "ece": 0.043},
+      {"subgoal": "digits", "dataset": "digits", "condition": "mc_dropout_p30", "seed": 1, "accuracy": 0.974, "ece": 0.027},
+      {"subgoal": "digits", "dataset": "digits", "condition": "mc_dropout_p30", "seed": 2, "accuracy": 0.976, "ece": 0.029},
+      {"subgoal": "wine", "dataset": "wine", "condition": "no_dropout", "seed": 1, "accuracy": 0.944, "ece": 0.071},
+      {"subgoal": "wine", "dataset": "wine", "condition": "no_dropout", "seed": 2, "accuracy": 0.946, "ece": 0.069},
+      {"subgoal": "wine", "dataset": "wine", "condition": "standard_dropout_p30", "seed": 1, "accuracy": 0.948, "ece": 0.058},
+      {"subgoal": "wine", "dataset": "wine", "condition": "standard_dropout_p30", "seed": 2, "accuracy": 0.950, "ece": 0.056},
+      {"subgoal": "wine", "dataset": "wine", "condition": "mc_dropout_p30", "seed": 1, "accuracy": 0.947, "ece": 0.039},
+      {"subgoal": "wine", "dataset": "wine", "condition": "mc_dropout_p30", "seed": 2, "accuracy": 0.949, "ece": 0.041}
+    ],
+    "invalid_subgoals": [],
+    "expected_conflicts": []
+  }
+}

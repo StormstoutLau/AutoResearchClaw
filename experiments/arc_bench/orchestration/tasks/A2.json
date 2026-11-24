@@ -1,0 +1,75 @@
+{
+  "schema": "arc-orchestration-task/1",
+  "id": "A2",
+  "class": "A",
+  "title": "Quantum versus classical slices with a degenerate slice",
+  "source_manifest": "experiments/arc_bench/config/quantum/manifests/Q01.yaml",
+  "version": 1,
+  "prompt": "Compare quantum and classical accuracy on three data slices. One slice is expected to be degenerate; flag it explicitly and resolve any source disagreement by sample size.",
+  "delegation_style": "capability",
+  "subgoals": [
+    {
+      "id": "s1",
+      "capability": "quantum_eval",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["evidence_rows"],
+      "acceptance": "two source rows for slice s1"
+    },
+    {
+      "id": "s2",
+      "capability": "quantum_eval",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["evidence_rows"],
+      "acceptance": "two source rows for slice s2"
+    },
+    {
+      "id": "s3",
+      "capability": "quantum_eval",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["evidence_rows"],
+      "acceptance": "explicit degenerate marker for slice s3"
+    }
+  ],
+  "worker_pool": [
+    {"id": "eval_a", "capabilities": ["quantum_eval"]},
+    {"id": "eval_b", "capabilities": ["quantum_eval"]},
+    {"id": "eval_c", "capabilities": ["quantum_eval"]}
+  ],
+  "aggregate": {
+    "columns": ["slice", "quantum_gain"],
+    "key": ["slice"],
+    "invalid_policy": "exclude",
+    "conflict_required": true,
+    "conflict_rule": "prefer_higher_n",
+    "arithmetic": null,
+    "group_by": []
+  },
+  "trap": {
+    "kind": "degenerate_slice",
+    "subgoals": ["s3"],
+    "hint": "slice s3 has no usable labels"
+  },
+  "budget": {"tokens": 16000, "wall_seconds": 60, "max_workers": 3, "max_depth": 2},
+  "truth": {
+    "rows": [
+      {"subgoal": "s1", "slice": "s1", "source": "run_a", "quantum_gain": 0.071, "n": 5},
+      {"subgoal": "s1", "slice": "s1", "source": "run_b", "quantum_gain": 0.069, "n": 3},
+      {"subgoal": "s2", "slice": "s2", "source": "run_a", "quantum_gain": 0.064, "n": 5},
+      {"subgoal": "s2", "slice": "s2", "source": "run_b", "quantum_gain": 0.066, "n": 3},
+      {"subgoal": "s3", "slice": "s3", "source": "run_a", "quantum_gain": null, "n": 0, "valid": false},
+      {"subgoal": "s3", "slice": "s3", "source": "run_b", "quantum_gain": null, "n": 0, "valid": false}
+    ],
+    "invalid_subgoals": ["s3"],
+    "expected_rows": [
+      {"slice": "s1", "quantum_gain": 0.071},
+      {"slice": "s2", "quantum_gain": 0.064}
+    ],
+    "expected_conflicts": [
+      {"id": "s1", "chosen": 0.071, "rule": "prefer_higher_n"},
+      {"id": "s2", "chosen": 0.064, "rule": "prefer_higher_n"}
+    ]
+  }
+}

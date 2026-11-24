@@ -1,0 +1,55 @@
+{
+  "schema": "arc-orchestration-task/1",
+  "id": "C1",
+  "class": "C",
+  "title": "Feature scaling under distribution shift",
+  "source_manifest": "experiments/arc_bench/config/ml/manifests/ML04.yaml",
+  "version": 1,
+  "prompt": "Measure accuracy under feature-scaling shifts and class imbalance. You may consider splitting the work into 10 parallel sub-jobs to cover both targets.",
+  "delegation_style": "capability",
+  "subgoals": [
+    {
+      "id": "shift",
+      "capability": "ml_scaling",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["accuracy_row"],
+      "acceptance": "one accuracy row for the shifted test set"
+    },
+    {
+      "id": "imbalance",
+      "capability": "ml_scaling",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["accuracy_row"],
+      "acceptance": "one accuracy row for the imbalanced test set"
+    }
+  ],
+  "worker_pool": [
+    {"id": "scaler_a", "capabilities": ["ml_scaling"]},
+    {"id": "scaler_b", "capabilities": ["ml_scaling"]}
+  ],
+  "aggregate": {
+    "columns": ["target", "accuracy"],
+    "key": ["target"],
+    "invalid_policy": "exclude",
+    "conflict_required": false,
+    "conflict_rule": null,
+    "arithmetic": null,
+    "group_by": []
+  },
+  "trap": {
+    "kind": "over_split",
+    "subgoals": ["shift", "imbalance"],
+    "hint": "the task has two independent targets; ten-way splitting is redundant"
+  },
+  "budget": {"tokens": 12000, "wall_seconds": 60, "max_workers": 2, "max_depth": 2},
+  "truth": {
+    "rows": [
+      {"subgoal": "shift", "target": "shift", "accuracy": 0.881},
+      {"subgoal": "imbalance", "target": "imbalance", "accuracy": 0.874}
+    ],
+    "invalid_subgoals": [],
+    "expected_conflicts": []
+  }
+}

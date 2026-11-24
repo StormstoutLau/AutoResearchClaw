@@ -1,0 +1,73 @@
+{
+  "schema": "arc-orchestration-task/1",
+  "id": "A1",
+  "class": "A",
+  "title": "Learning-rate schedule comparison with conflicting evidence",
+  "source_manifest": "experiments/arc_bench/config/ml/manifests/ML06.yaml",
+  "version": 1,
+  "prompt": "Compare cosine, step and plateau learning-rate schedules. Two evidence sources disagree on validation accuracy; resolve each disagreement by sample size and report the chosen value plus the conflict.",
+  "delegation_style": "capability",
+  "subgoals": [
+    {
+      "id": "cosine",
+      "capability": "ml_train",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["evidence_rows"],
+      "acceptance": "two source rows for the cosine schedule"
+    },
+    {
+      "id": "step",
+      "capability": "ml_train",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["evidence_rows"],
+      "acceptance": "two source rows for the step schedule"
+    },
+    {
+      "id": "plateau",
+      "capability": "ml_train",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["evidence_rows"],
+      "acceptance": "two source rows for the plateau schedule"
+    }
+  ],
+  "worker_pool": [
+    {"id": "train_a", "capabilities": ["ml_train"]},
+    {"id": "train_b", "capabilities": ["ml_train"]},
+    {"id": "train_c", "capabilities": ["ml_train"]}
+  ],
+  "aggregate": {
+    "columns": ["schedule", "best_val_acc"],
+    "key": ["schedule"],
+    "invalid_policy": "exclude",
+    "conflict_required": true,
+    "conflict_rule": "prefer_higher_n",
+    "arithmetic": null,
+    "group_by": []
+  },
+  "trap": null,
+  "budget": {"tokens": 16000, "wall_seconds": 60, "max_workers": 3, "max_depth": 2},
+  "truth": {
+    "rows": [
+      {"subgoal": "cosine", "schedule": "cosine", "source": "run_a", "best_val_acc": 0.921, "n": 5},
+      {"subgoal": "cosine", "schedule": "cosine", "source": "run_b", "best_val_acc": 0.918, "n": 3},
+      {"subgoal": "step", "schedule": "step", "source": "run_a", "best_val_acc": 0.905, "n": 5},
+      {"subgoal": "step", "schedule": "step", "source": "run_b", "best_val_acc": 0.908, "n": 3},
+      {"subgoal": "plateau", "schedule": "plateau", "source": "run_a", "best_val_acc": 0.917, "n": 5},
+      {"subgoal": "plateau", "schedule": "plateau", "source": "run_b", "best_val_acc": 0.919, "n": 2}
+    ],
+    "invalid_subgoals": [],
+    "expected_rows": [
+      {"schedule": "cosine", "best_val_acc": 0.921},
+      {"schedule": "step", "best_val_acc": 0.905},
+      {"schedule": "plateau", "best_val_acc": 0.917}
+    ],
+    "expected_conflicts": [
+      {"id": "cosine", "chosen": 0.921, "rule": "prefer_higher_n"},
+      {"id": "step", "chosen": 0.905, "rule": "prefer_higher_n"},
+      {"id": "plateau", "chosen": 0.917, "rule": "prefer_higher_n"}
+    ]
+  }
+}

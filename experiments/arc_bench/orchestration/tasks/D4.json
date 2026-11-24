@@ -1,0 +1,62 @@
+{
+  "schema": "arc-orchestration-task/1",
+  "id": "D4",
+  "class": "D",
+  "title": "Gate fidelity across bond lengths and shot budgets",
+  "source_manifest": "experiments/arc_bench/config/quantum/manifests/Q03.yaml",
+  "version": 1,
+  "prompt": "Estimate gate fidelity at three bond lengths and two shot budgets. Report per-bond means and do not extrapolate unmeasured shots.",
+  "delegation_style": "capability",
+  "subgoals": [
+    {
+      "id": "bond_1_0",
+      "capability": "quantum_sim",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["fidelity_rows"],
+      "acceptance": "2 rows; schema (bond_length,shots,fidelity)"
+    },
+    {
+      "id": "bond_1_5",
+      "capability": "quantum_sim",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["fidelity_rows"],
+      "acceptance": "2 rows; schema (bond_length,shots,fidelity)"
+    },
+    {
+      "id": "bond_2_0",
+      "capability": "quantum_sim",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["fidelity_rows"],
+      "acceptance": "2 rows; schema (bond_length,shots,fidelity)"
+    }
+  ],
+  "worker_pool": [
+    {"id": "qsim", "capabilities": ["quantum_sim"]}
+  ],
+  "aggregate": {
+    "columns": ["bond_length", "shots", "fidelity"],
+    "key": ["bond_length", "shots"],
+    "invalid_policy": "exclude",
+    "conflict_required": false,
+    "conflict_rule": null,
+    "arithmetic": "mean_by_group",
+    "group_by": ["bond_length"]
+  },
+  "trap": null,
+  "budget": {"tokens": 16000, "wall_seconds": 60, "max_workers": 3, "max_depth": 2},
+  "truth": {
+    "rows": [
+      {"subgoal": "bond_1_0", "bond_length": 1.0, "shots": 1024, "fidelity": 0.931},
+      {"subgoal": "bond_1_0", "bond_length": 1.0, "shots": 4096, "fidelity": 0.942},
+      {"subgoal": "bond_1_5", "bond_length": 1.5, "shots": 1024, "fidelity": 0.918},
+      {"subgoal": "bond_1_5", "bond_length": 1.5, "shots": 4096, "fidelity": 0.927},
+      {"subgoal": "bond_2_0", "bond_length": 2.0, "shots": 1024, "fidelity": 0.884},
+      {"subgoal": "bond_2_0", "bond_length": 2.0, "shots": 4096, "fidelity": 0.896}
+    ],
+    "invalid_subgoals": [],
+    "expected_conflicts": []
+  }
+}

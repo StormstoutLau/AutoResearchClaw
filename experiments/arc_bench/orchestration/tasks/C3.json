@@ -1,0 +1,55 @@
+{
+  "schema": "arc-orchestration-task/1",
+  "id": "C3",
+  "class": "C",
+  "title": "Majorana nanowire gap at two points",
+  "source_manifest": "experiments/arc_bench/config/physics/manifests/P02.yaml",
+  "version": 1,
+  "prompt": "Estimate the Majorana gap at two nanowire points. You may consider splitting the work into 10 parallel sub-jobs to explore more angles.",
+  "delegation_style": "capability",
+  "subgoals": [
+    {
+      "id": "nanowire_a",
+      "capability": "hep_majorana",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["gap_row"],
+      "acceptance": "one gap value in meV for nanowire a"
+    },
+    {
+      "id": "nanowire_b",
+      "capability": "hep_majorana",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["gap_row"],
+      "acceptance": "one gap value in meV for nanowire b"
+    }
+  ],
+  "worker_pool": [
+    {"id": "majorana_a", "capabilities": ["hep_majorana"]},
+    {"id": "majorana_b", "capabilities": ["hep_majorana"]}
+  ],
+  "aggregate": {
+    "columns": ["target", "gap_mev"],
+    "key": ["target"],
+    "invalid_policy": "exclude",
+    "conflict_required": false,
+    "conflict_rule": null,
+    "arithmetic": null,
+    "group_by": []
+  },
+  "trap": {
+    "kind": "over_split",
+    "subgoals": ["nanowire_a", "nanowire_b"],
+    "hint": "two points are the whole experiment; ten-way splitting is redundant"
+  },
+  "budget": {"tokens": 12000, "wall_seconds": 60, "max_workers": 2, "max_depth": 2},
+  "truth": {
+    "rows": [
+      {"subgoal": "nanowire_a", "target": "nanowire_a", "gap_mev": 0.31},
+      {"subgoal": "nanowire_b", "target": "nanowire_b", "gap_mev": 0.27}
+    ],
+    "invalid_subgoals": [],
+    "expected_conflicts": []
+  }
+}

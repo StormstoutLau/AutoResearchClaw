@@ -1,0 +1,81 @@
+{
+  "schema": "arc-orchestration-task/1",
+  "id": "D3",
+  "class": "D",
+  "title": "Cross-section scan with an infeasible high-energy point",
+  "source_manifest": "experiments/arc_bench/config/physics/manifests/P01.yaml",
+  "version": 1,
+  "prompt": "Scan the production cross-section across the available energy points for two channels, compare with the theory baseline, and probe the highest-energy point. Record infeasible points explicitly instead of imputing values.",
+  "delegation_style": "capability",
+  "subgoals": [
+    {
+      "id": "channel_a",
+      "capability": "hep_scan",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["cross_section_rows"],
+      "acceptance": "4 rows; schema (subgoal,energy_gev,cross_section_pb)"
+    },
+    {
+      "id": "channel_b",
+      "capability": "hep_scan",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["cross_section_rows"],
+      "acceptance": "4 rows; schema (subgoal,energy_gev,cross_section_pb)"
+    },
+    {
+      "id": "theory",
+      "capability": "hep_scan",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["cross_section_rows"],
+      "acceptance": "4 rows; schema (subgoal,energy_gev,cross_section_pb)"
+    },
+    {
+      "id": "high_energy_probe",
+      "capability": "hep_scan",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["probe_status"],
+      "acceptance": "probe result or explicit infeasible marker"
+    }
+  ],
+  "worker_pool": [
+    {"id": "hep_scanner", "capabilities": ["hep_scan"]}
+  ],
+  "aggregate": {
+    "columns": ["subgoal", "energy_gev", "cross_section_pb"],
+    "key": ["subgoal", "energy_gev"],
+    "invalid_policy": "exclude",
+    "conflict_required": false,
+    "conflict_rule": null,
+    "arithmetic": null,
+    "group_by": []
+  },
+  "trap": {
+    "kind": "infeasible_subgoal",
+    "subgoals": ["high_energy_probe"],
+    "hint": "the highest energy point has no usable luminosity; report it as infeasible"
+  },
+  "budget": {"tokens": 16000, "wall_seconds": 60, "max_workers": 4, "max_depth": 2},
+  "truth": {
+    "rows": [
+      {"subgoal": "channel_a", "energy_gev": 8.0, "cross_section_pb": 12.4},
+      {"subgoal": "channel_a", "energy_gev": 9.0, "cross_section_pb": 11.8},
+      {"subgoal": "channel_a", "energy_gev": 10.0, "cross_section_pb": 10.9},
+      {"subgoal": "channel_a", "energy_gev": 11.0, "cross_section_pb": 10.1},
+      {"subgoal": "channel_b", "energy_gev": 8.0, "cross_section_pb": 5.2},
+      {"subgoal": "channel_b", "energy_gev": 9.0, "cross_section_pb": 5.0},
+      {"subgoal": "channel_b", "energy_gev": 10.0, "cross_section_pb": 4.7},
+      {"subgoal": "channel_b", "energy_gev": 11.0, "cross_section_pb": 4.4},
+      {"subgoal": "theory", "energy_gev": 8.0, "cross_section_pb": 12.7},
+      {"subgoal": "theory", "energy_gev": 9.0, "cross_section_pb": 12.0},
+      {"subgoal": "theory", "energy_gev": 10.0, "cross_section_pb": 11.1},
+      {"subgoal": "theory", "energy_gev": 11.0, "cross_section_pb": 10.3},
+      {"subgoal": "high_energy_probe", "energy_gev": 14.0, "cross_section_pb": null, "valid": false}
+    ],
+    "invalid_subgoals": ["high_energy_probe"],
+    "expected_conflicts": []
+  }
+}
