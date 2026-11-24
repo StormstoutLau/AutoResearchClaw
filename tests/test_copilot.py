@@ -117,6 +117,18 @@ class TestFeedbackHandler:
         assert fb.stage == 5
         assert fb.message == "Looks good"
 
+    def test_read_feedback_response_handles_disappearing_file(self, tmp_path: Path, monkeypatch):
+        """U-3/J-2: a missing file between exists() and read must not raise."""
+        handler = FeedbackHandler(tmp_path)
+        resp_path = tmp_path / "copilot_feedback_response.json"
+        resp_path.write_text(json.dumps({"action": "approve", "stage": 5}), encoding="utf-8")
+
+        def boom(self, *args, **kwargs):
+            raise FileNotFoundError(self)
+
+        monkeypatch.setattr(Path, "read_text", boom)
+        assert handler.read_feedback_response() is None
+
     def test_read_feedback_response_invalid_action(self, tmp_path: Path):
         handler = FeedbackHandler(tmp_path)
         response = {"action": "invalid_action", "stage": 5}

@@ -59,6 +59,23 @@ def test_release_then_reacquire_bumps_fencing(tmp_path):
     assert nxt.fencing == 2
 
 
+def test_renew_after_release_raises_lease_lost(tmp_path):
+    """U-2/J-3: released is terminal; renew must not resurrect it."""
+    lease = acquire(tmp_path, owner="host:1")
+    release(tmp_path, lease)
+    with pytest.raises(LeaseLost):
+        renew(tmp_path, lease)
+    assert read_lease(tmp_path).released is True
+
+
+def test_renew_before_release_extends(tmp_path):
+    """U-2/J-4: normal renewal keeps owner/fencing and stays unreleased."""
+    lease = acquire(tmp_path, owner="host:1")
+    renewed = renew(tmp_path, lease)
+    assert renewed.fencing == lease.fencing
+    assert read_lease(tmp_path).released is False
+
+
 def test_check_fencing_semantics(tmp_path):
     lease = acquire(tmp_path, owner="host:1")
     assert check_fencing(lease, 1) is True
