@@ -1,14 +1,14 @@
 ---
 id: arc-master-roadmap
 type: design
-version: 1.3t
+version: 1.4s
 status: draft
 date: 2026-11-11
 depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-textbook, clawsgo-cleanroom-arc]
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.4r）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.4s）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -126,6 +126,8 @@ upstream: arb-v2-decisions
 > **修订**：v1.4q（2026-11-14，P-104）**G4-M3 交付：tool 事件 + orphan_call + 审批门（A4-4/A4-5 达成）**：新建 `tools/invoker.py`（schema 校验 → 审批门 → `tool.call` → handler → `tool.result`；拒绝/校验失败不写 call，保证「有 call 必有 result」）、`tools/approvals.py`（fail-closed 读 + filelock/原子 `grant`）、`mcp/handlers.py`（6 个 per-tool 函数，**删除 `dispatch_tool`/`_default_server` 单例绕行**，关闭 P-103 复核 O-11）；`EVENT_TYPES` 新增 **`tool.orphan_call`**（I-5 M3 裁决）并在 `pipeline.summary` 前幂等扫描；CLI `approvals grant` 最小写通道。**D-Q1 run-scoped 显式注入**：MCP 外部调用 `event_log=None`，不写 run 事件（覆盖边界 DESIGN §5 F-5 显式声明）；`approval.required` 条件化为「有 sink 才写、无论如何拒绝」（F-4，随 M0 §5 回边）。**运行时 schema 校验**（O-10）：必填 null/类型错误 → `E_INVALID_ARGUMENTS`，关闭 P-103 O-10。实测：新增 **19 用例**（先红 collection error → 18/1 failed（T-19 测试自身缺陷修正）→ **19 passed**）；五套件 **98 passed**（registry 25 + dynamic 12 + MCP 42 + tool_events 19），3.11 **98 passed**；CI 全清单 41 文件 **623 passed / 13 skipped 零失败**；wheel **431 entries 零重复** + 装 target strict load 6 工具成功。**106 计数不变**。依据：[P-104 实施](spec/arc-g4-m3-tool-events/IMPLEMENTATION.md)、[P-103 复核](docs/arc-g4-m2-review-20261114.md)。
 >
 > **修订**：v1.4r（2026-11-13，P-105）**G4-M4 交付：沙箱配额 / TTL / 137 归因 / 四类逃逸（A4-2/A4-3/A4-6 达成）**：`DockerSandboxConfig` +5 字段（**真值源分层：config 优先、默认不回退；registry `sandbox_profiles` 留工具化批次消费——U-1 登记**）；`docker run` 默认 `--cpus=2`/`--pids-limit=512` + `--label rc.run=<run_id>`（`rc.tool` 实验路径省略）并**去 `--rm`**；137 可证伪归因 = finally 前 `docker inspect` 回读 `OOMKilled/ExitCode`（不可解析不归因），映射唯一实现 `ttl_timeout > resource_limit > timeout > None`（cpus throttling≠137，P-100 D-3 保持）；per-sandbox TTL 守护线程（TERM → grace 10s → KILL，只管本容器保 §11）+ harness SIGTERM handler + atexit → finalize（A4-6 产物落盘必要条件；SIGKILL 分支不宣称产物，P-100 D-4 保持；僵尸容器全局回收登记 U-2）。实测：T-1..T-14 先红全红 → **17 passed**；五套件 **130 passed**；CI 全清单 43 文件 **687 passed / 13 skipped 零失败**；wheel 三连过；e2e 证据层 **22 passed / 0 failed**（本地 Docker，slim 证据镜像如实登记；容器零残留）；RULE-3 quarantine 四要素登记。M0 受控回边（§6 落地状态块 + §9 M4 行）。**106 计数不变**。依据：[P-105 实施](spec/arc-g4-m4-sandbox-limits/IMPLEMENTATION.md)、[P-100 复核修正输入](docs/arc-g4-m0-design-review-20261114.md)。
+>
+> **修订**：v1.4s（2026-11-24，P-144）**总纲回填：G4 收口 + 当前进度**：P-106 已交付 G4-M5（A4-7 七处 allowlist / A4-8 三十一处 safe_join + 一豁免 / A4-9 HostProfile + 零 shell=True），CHECKLIST **83/84**，唯一待办为 Linux 分支待 CI `ubuntu-latest` 首跑；**G4 记为 10/10**。至此 P0 阶段全部收口，P1 仅剩 G5/G8a：**完成 64 / 106，开放 42**（G5 14、G6 5、G7 15、G8a 4、G8b 4）。P-107..P-143 的 CI/CD 治理、heavy 退场与动作账本属总纲外工作，不改变 106 口径。**106 计数不变**。依据：[P-106 实施](spec/arc-g4-m5-host-boundary/IMPLEMENTATION.md)、[本回填](spec/arc-roadmap-backfill/RESEARCH.md)。
 
 ---
 
@@ -234,6 +236,27 @@ flowchart LR
 > 验收总数：**G0a 4 + G-1 8 + G0b 6 + G1 12 + G2 7 + G3 17 + G4 10 + G5 14 + G6 5 + G7 15 + G8a 4 + G8b 4 = 106 条**。
 
 ---
+
+### 3.1 当前进度（2026-11-24，v1.4s）
+
+| 阶段 | 优先级 | 验收 | 已完成 | 状态 |
+|---|---|---|---|---|
+| G0a | P0-急救 | 4 | 4 | 已完成 |
+| G-1 | P0-急救 | 8 | 8 | 已完成 |
+| G0b | P0 | 6 | 6 | 已完成 |
+| G1 | P0 | 12 | 12 | 已完成 |
+| G2 | P0 | 7 | 7 | 已完成 |
+| G3 | P0 | 17 | 17 | 已完成 |
+| G4 | P1 | 10 | 10 | 已完成（P-106；1 项 Linux CI 待确认） |
+| G5 | P1 | 14 | 0 | 未开始 |
+| G6 | P2 | 5 | 0 | 未开始 |
+| G7 | P2 | 15 | 0 | 未开始 |
+| G8a | P1 | 4 | 0 | 未开始 |
+| G8b | P2 | 4 | 0 | 未开始 |
+| **合计** | | **106** | **64** | **开放 42** |
+
+- 口径：只统计 G0a..G8b 的 106 项；P-107..P-143 的 CI/CD 治理、heavy 退场、动作账本不计入。
+- P0 阶段（G0a/G-1/G0b/G1/G2/G3）与 G4 已全部收口；剩余 42 项集中在 G5/G6/G7/G8a/G8b。
 
 ## 4. 逐阶段详述
 
@@ -461,7 +484,7 @@ flowchart LR
 
 ---
 
-### G4｜工具注册表与沙箱边界（P1，前置：G3）
+### G4｜工具注册表与沙箱边界（P1，前置：G3）——**已完成（M0–M5，P-099..P-106）**
 
 **目标**：任何工具"低成本接入、可审计执行、不可越界"。
 
@@ -500,7 +523,7 @@ flowchart LR
 
 ---
 
-### G5｜知识接入 + Grounded QA（P1，前置：G2、G3）
+### G5｜知识接入 + Grounded QA（P1，前置：G2、G3）——**未开始**
 
 **目标**：Paper 的书目层与 Textbook 的图谱层真正可查、可引用、可复算；文献问答可降级。
 
@@ -545,7 +568,7 @@ flowchart LR
 
 ---
 
-### G6｜模型分层与预算治理（P2，前置：G3）
+### G6｜模型分层与预算治理（P2，前置：G3）——**未开始**
 
 **目标**：复刻"快/均衡/攻坚 + 子智能体"的策略，但不训练模型。
 
@@ -574,7 +597,7 @@ flowchart LR
 
 ---
 
-### G7｜长时程、多并发与双平面（P2，前置：G1、G3、G4、G5）
+### G7｜长时程、多并发与双平面（P2，前置：G1、G3、G4、G5）——**未开始**
 
 **目标**：从"单机单任务"走到"可长时间无人值守、多任务隔离、双平面一致"；并让编排能力可测。
 
@@ -612,7 +635,7 @@ flowchart LR
 
 ---
 
-### G8a｜研究计划基础（P1，前置：G3）
+### G8a｜研究计划基础（P1，前置：G3）——**未开始**
 
 **目标**：把"研究计划"从散文变成可校验、可存储、可追溯的任务图；不做自由 planner。
 
@@ -638,7 +661,7 @@ flowchart LR
 
 ---
 
-### G8b｜计划演进（P2，前置：G8a）
+### G8b｜计划演进（P2，前置：G8a）——**未开始**
 
 **目标**：让计划可重规划、可懒惰分解、可局部搜索，且不重跑已完成工作。
 
@@ -724,6 +747,7 @@ G0a → G-1 → G0b ─┬→ G1 ─┐
 - **G8b 依赖 G8a**：先有可校验的计划对象，再谈重规划与懒惰分解。
 - **G7 最后**：需要 G1 的恢复、G4 的沙箱、G5 的知识；**不再依赖 G6**。
 - **如果只能做三件事**：`G0a → G-1 → G3 最小集`（= §1 定义的最小契约：可信急救 + 事件链最小集 + ClaimRecord 契约），即可让"不产出假结果"成立。
+- **G4 已收口后的下一批 P1**：G8a（4 项，无外部数据依赖，可用 Q15 默认值 provisional 开工）或 G5（14 项，需先裁决 Q4/Q6/Q7）；G6/G7/G8b 仍为 P2。
 
 **每阶段的硬出口**：本阶段验收项全绿 + C 套件中**已生效成员**全绿 + 下一阶段前置的 `spec/` 四文档已齐。
 
