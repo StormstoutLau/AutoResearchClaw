@@ -47,6 +47,7 @@ class CostRecord:
     total_tokens: int
     cost_usd: float
     source: str  # "provider_usage" | "pricing_table" | "unknown"
+    policy_version: int = 0
     schema_version: int = SCHEMA_VERSION
 
     def to_dict(self) -> dict[str, Any]:
@@ -147,6 +148,7 @@ class CostTracker:
         provider_cost: float | None = None,
         input_cost_per_1m: float | None = None,
         output_cost_per_1m: float | None = None,
+        policy_version: int = 0,
     ) -> CostRecord:
         """Build and store a :class:`CostRecord` for one LLM response.
 
@@ -176,6 +178,7 @@ class CostTracker:
             total_tokens=int(total_tokens or 0),
             cost_usd=round(cost_usd, 8),
             source=source,
+            policy_version=int(policy_version or 0),
         )
         self.record(record)
         return record

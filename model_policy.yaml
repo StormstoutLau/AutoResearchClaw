@@ -1,0 +1,21 @@
+version: 1
+default_tier: balanced
+tiers:
+  fast:
+    model: ""
+  balanced:
+    model: ""
+  hard:
+    model: ""
+roles:
+  planner: balanced
+  executor: balanced
+  reviewer: balanced
+  subagent: balanced
+escalation:
+  from: balanced
+  to: hard
+  triggers:
+    - gate_reject
+    - two_failures
+    - context_over_80

@@ -91,6 +91,12 @@ class LLMConfig:
     # Cost accounting (USD per 1M tokens); 0 means unknown.
     input_cost_per_1m: float = 0.0
     output_cost_per_1m: float = 0.0
+    # G6: model policy, pre-call budget and local-only guards.
+    run_budget_usd: float = 0.0
+    local_only: bool = False
+    model_policy_enabled: bool = False
+    model_policy: dict[str, Any] = field(default_factory=dict)
+    policy_version: int = 0
 
 
 class LLMClient:
@@ -166,6 +172,16 @@ class LLMClient:
             if bridge.fallback_api_key:
                 fallback_api_key = bridge.fallback_api_key
 
+        policy_cfg = getattr(rc_config, "model_policy", None)
+        policy_enabled = bool(getattr(policy_cfg, "enabled", False))
+        policy_data: dict[str, Any] = {}
+        if policy_enabled:
+            from researchclaw.llm.model_policy import load_model_policy
+
+            policy_data = load_model_policy(
+                getattr(policy_cfg, "path", "") or None
+            )
+
         config = LLMConfig(
             base_url=base_url,
             api_key=api_key,
@@ -181,6 +197,11 @@ class LLMClient:
             output_cost_per_1m=float(
                 getattr(rc_config.llm, "output_cost_per_1m", 0.0) or 0.0
             ),
+            run_budget_usd=float(getattr(policy_cfg, "run_budget_usd", 0.0) or 0.0),
+            local_only=bool(getattr(policy_cfg, "local_only", False)),
+            model_policy_enabled=policy_enabled,
+            model_policy=policy_data,
+            policy_version=1 if policy_enabled else 0,
         )
         client = cls(config)
 
@@ -236,6 +257,7 @@ class LLMClient:
             or str(llm.api_key or os.environ.get(llm.api_key_env, "") or "")
         )
 
+        policy_cfg = getattr(rc_config, "model_policy", None)
         config = LLMConfig(
             base_url=base_url,
             api_key=api_key,
@@ -243,6 +265,9 @@ class LLMClient:
             primary_model=reviewer_model,
             fallback_models=[],
             timeout_sec=getattr(llm, "timeout_sec", 600),
+            run_budget_usd=float(getattr(policy_cfg, "run_budget_usd", 0.0) or 0.0),
+            local_only=bool(getattr(policy_cfg, "local_only", False)),
+            policy_version=1 if bool(getattr(policy_cfg, "enabled", False)) else 0,
         )
         client = cls(config)
 
@@ -264,6 +289,10 @@ class LLMClient:
         json_mode: bool = False,
         system: str | None = None,
         strip_thinking: bool = True,
+        role: str = "executor",
+        stage: int = 0,
+        attempts: int = 0,
+        gate: str = "",
     ) -> LLMResponse:
         """Send a chat completion request with retry and fallback.
 
@@ -289,10 +318,36 @@ class LLMClient:
         from researchclaw.runtime.prompt_context import log_prompt_version
 
         log_prompt_version(model or "")
+
+        # G6: local-only and budget guards run BEFORE any HTTP attempt.
+        from researchclaw.llm.model_policy import (
+            BudgetExhausted,
+            check_local_only,
+            pre_call_budget_check,
+        )
+
+        check_local_only(self.config.base_url, self.config.local_only)
+        try:
+            from researchclaw.cost_tracker import get_global_tracker
+
+            pre_call_budget_check(
+                get_global_tracker().total_cost_usd,
+                self.config.run_budget_usd,
+            )
+        except BudgetExhausted as exc:
+            self._emit_budget_event(exc)
+            raise
+
         if system:
             messages = [{"role": "system", "content": system}] + messages
 
-        models = [model] if model else self._model_chain
+        models = (
+            [model]
+            if model
+            else self._model_chain_for(
+                role, stage=stage, attempts=attempts, gate=gate
+            )
+        )
         max_tok = max_tokens or self.config.max_tokens
         temp = temperature if temperature is not None else self.config.temperature
 
@@ -314,7 +369,9 @@ class LLMClient:
                         truncated=resp.truncated,
                         raw=resp.raw,
                     )
-                self._record_cost(resp)
+                self._record_cost(
+                    resp, policy_version=self.config.policy_version
+                )
                 return resp
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Model %s failed: %s. Trying next.", m, exc)
@@ -324,7 +381,58 @@ class LLMClient:
             f"All models failed. Last error: {last_error}"
         ) from last_error
 
-    def _record_cost(self, resp: LLMResponse) -> None:
+    def _model_chain_for(
+        self,
+        role: str = "executor",
+        *,
+        stage: int = 0,
+        attempts: int = 0,
+        gate: str = "",
+        budget_left: float | None = None,
+        context_ratio: float = 0.0,
+    ) -> list[str]:
+        """Return the model chain for ``role`` under the configured policy."""
+        if not self.config.model_policy_enabled:
+            return list(self._model_chain)
+        from researchclaw.llm.model_policy import resolve_model, route
+
+        tier = route(
+            role,
+            stage=stage,
+            attempts=attempts,
+            gate=gate,
+            budget_left=budget_left,
+            context_ratio=context_ratio,
+            policy=self.config.model_policy,
+        )
+        chosen = resolve_model(
+            tier, self.config.model_policy, self.config.primary_model
+        )
+        return [chosen] + [m for m in self._model_chain if m != chosen]
+
+    def _emit_budget_event(self, exc: Exception) -> None:
+        """Write ``budget_exhausted`` when a run context exists; never blocks."""
+        try:
+            from researchclaw.cost_tracker import get_global_tracker
+            from researchclaw.runtime.event_log import EventLog
+
+            tracker = get_global_tracker()
+            if tracker.run_dir is None or not tracker.run_id:
+                return
+            EventLog(tracker.run_dir, tracker.run_id).append(
+                "budget_exhausted",
+                {
+                    "budget_usd": float(self.config.run_budget_usd),
+                    "spent_usd": float(tracker.total_cost_usd),
+                    "error": str(exc),
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 - accounting must not mask the block
+            logger.debug("budget_exhausted event skipped: %s", exc)
+
+    def _record_cost(
+        self, resp: LLMResponse, *, policy_version: int | None = None
+    ) -> None:
         """Append usage to the global cost log (never raises)."""
         if not (resp.prompt_tokens or resp.completion_tokens or resp.total_tokens):
             return
@@ -347,6 +455,11 @@ class LLMClient:
                 provider_cost=provider_cost,
                 input_cost_per_1m=self.config.input_cost_per_1m,
                 output_cost_per_1m=self.config.output_cost_per_1m,
+                policy_version=(
+                    self.config.policy_version
+                    if policy_version is None
+                    else int(policy_version)
+                ),
             )
         except Exception as exc:  # noqa: BLE001 - accounting must never break a call
             logger.debug("Cost recording skipped: %s", exc)

@@ -909,6 +909,16 @@ class CalendarConfig:
 
 
 @dataclass(frozen=True)
+class ModelPolicyConfig:
+    """G6: model tier policy, pre-call budget and local-only guards."""
+
+    enabled: bool = False
+    path: str = "model_policy.yaml"
+    run_budget_usd: float = 0.0
+    local_only: bool = False
+
+
+@dataclass(frozen=True)
 class RCConfig:
     project: ProjectConfig
     research: ResearchConfig
@@ -945,6 +955,7 @@ class RCConfig:
         default_factory=QualityAssessorConfig
     )
     calendar: CalendarConfig = field(default_factory=CalendarConfig)
+    model_policy: ModelPolicyConfig = field(default_factory=ModelPolicyConfig)
     # HITL Co-Pilot System
     hitl: object = field(default=None)  # HITLConfig (lazy import avoids circular dep)
 
@@ -992,6 +1003,7 @@ class RCConfig:
         copilot_data = data.get("copilot") or {}
         quality_assessor_data = data.get("quality_assessor") or {}
         calendar_data = data.get("calendar") or {}
+        model_policy_data = data.get("model_policy") or {}
         hitl_data = data.get("hitl") or {}
 
         return cls(
@@ -1091,6 +1103,16 @@ class RCConfig:
             copilot=_parse_copilot_config(copilot_data),
             quality_assessor=_parse_quality_assessor_config(quality_assessor_data),
             calendar=_parse_calendar_config(calendar_data),
+            model_policy=ModelPolicyConfig(
+                enabled=bool(model_policy_data.get("enabled", False)),
+                path=str(
+                    model_policy_data.get("path") or "model_policy.yaml"
+                ),
+                run_budget_usd=_safe_float(
+                    model_policy_data.get("run_budget_usd"), 0.0
+                ),
+                local_only=bool(model_policy_data.get("local_only", False)),
+            ),
             hitl=_parse_hitl_config(hitl_data),
         )
 
