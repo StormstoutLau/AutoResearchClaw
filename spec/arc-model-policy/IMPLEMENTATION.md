@@ -112,6 +112,7 @@ upstream: null
 | 初版测试（模块未建） | `ModuleNotFoundError` | `2 errors in 0.27s`（`researchclaw.llm.model_policy`） |
 | 实现后 | 负向用例（T05/T06/T09/T12/T13）先红后绿 | **17 passed in 0.21s**（一次通过，无测试缺陷） |
 | 回归 | LLM/cost/config/executor | **431 passed in 196.14s** |
+| CI 首轮 | 全量契约测试 | **1 failed, 3889 passed**：`test_frontend_event_types_match_runtime`——前端 `EVENT_TYPES` 未含 `budget_exhausted`；修复 `frontend-legacy/src/services/api.js` 后 `test_event_stream.py` 9 passed |
 
 ## 9. 读数
 
@@ -139,7 +140,7 @@ $ python -m pytest tests/test_rc_llm.py tests/test_reviewer_llm.py \
 | verify-anchor | 10 真实 / 0 缺失 / 0 漂移 |
 | step_enforce | `digest_bound=1` |
 | pre-commit | 全绿 |
-| PR CI | 待 CI |
+| PR CI | 首轮 1 failed（前端事件类型未同步，已修）；重跑待确认 |
 
 ## 11. 未做与边界
 
