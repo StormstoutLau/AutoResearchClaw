@@ -1,14 +1,14 @@
 ---
 id: arc-master-roadmap
 type: design
-version: 1.4s
+version: 1.4t
 status: draft
-date: 2026-11-11
+date: 2026-11-24
 depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-textbook, clawsgo-cleanroom-arc]
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.4s）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.4t）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -128,6 +128,8 @@ upstream: arb-v2-decisions
 > **修订**：v1.4r（2026-11-13，P-105）**G4-M4 交付：沙箱配额 / TTL / 137 归因 / 四类逃逸（A4-2/A4-3/A4-6 达成）**：`DockerSandboxConfig` +5 字段（**真值源分层：config 优先、默认不回退；registry `sandbox_profiles` 留工具化批次消费——U-1 登记**）；`docker run` 默认 `--cpus=2`/`--pids-limit=512` + `--label rc.run=<run_id>`（`rc.tool` 实验路径省略）并**去 `--rm`**；137 可证伪归因 = finally 前 `docker inspect` 回读 `OOMKilled/ExitCode`（不可解析不归因），映射唯一实现 `ttl_timeout > resource_limit > timeout > None`（cpus throttling≠137，P-100 D-3 保持）；per-sandbox TTL 守护线程（TERM → grace 10s → KILL，只管本容器保 §11）+ harness SIGTERM handler + atexit → finalize（A4-6 产物落盘必要条件；SIGKILL 分支不宣称产物，P-100 D-4 保持；僵尸容器全局回收登记 U-2）。实测：T-1..T-14 先红全红 → **17 passed**；五套件 **130 passed**；CI 全清单 43 文件 **687 passed / 13 skipped 零失败**；wheel 三连过；e2e 证据层 **22 passed / 0 failed**（本地 Docker，slim 证据镜像如实登记；容器零残留）；RULE-3 quarantine 四要素登记。M0 受控回边（§6 落地状态块 + §9 M4 行）。**106 计数不变**。依据：[P-105 实施](spec/arc-g4-m4-sandbox-limits/IMPLEMENTATION.md)、[P-100 复核修正输入](docs/arc-g4-m0-design-review-20261114.md)。
 >
 > **修订**：v1.4s（2026-11-24，P-144）**总纲回填：G4 收口 + 当前进度**：P-106 已交付 G4-M5（A4-7 七处 allowlist / A4-8 三十一处 safe_join + 一豁免 / A4-9 HostProfile + 零 shell=True），CHECKLIST **83/84**，唯一待办为 Linux 分支待 CI `ubuntu-latest` 首跑；**G4 记为 10/10**。至此 P0 阶段全部收口，P1 仅剩 G5/G8a：**完成 64 / 106，开放 42**（G5 14、G6 5、G7 15、G8a 4、G8b 4）。P-107..P-143 的 CI/CD 治理、heavy 退场与动作账本属总纲外工作，不改变 106 口径。**106 计数不变**。依据：[P-106 实施](spec/arc-g4-m5-host-boundary/IMPLEMENTATION.md)、[本回填](spec/arc-roadmap-backfill/RESEARCH.md)。
+>
+> **修订**：v1.4t（2026-11-24，P-153）**总纲回填：G8a 收口**：P-152 交付 `ResearchPlan v1`（`researchclaw/plan/`：schema + V1–V12 + 原子存储 + Stage 2/7/8/9/14 接入），A8a-1..4 全过，CHECKLIST **34/34**；**G8a 记为 4/4**。Q15 默认值（深度 3 / 扇出 8 / 节点 40 / `max_versions=3`）由 P-152 provisional 落地，待 ARC-Bench 校准。进度 **68 / 106，开放 38**（G5 14、G6 5、G7 15、G8b 4）。P-107..P-151 的 CI/CD 治理、heavy 退场、动作账本、pipeline 复用与等价性属总纲外工作，不改变 106 口径。**106 计数不变**。依据：[P-152 实施](spec/arc-research-plan/IMPLEMENTATION.md)。
 
 ---
 
@@ -237,7 +239,7 @@ flowchart LR
 
 ---
 
-### 3.1 当前进度（2026-11-24，v1.4s）
+### 3.1 当前进度（2026-11-24，v1.4t）
 
 | 阶段 | 优先级 | 验收 | 已完成 | 状态 |
 |---|---|---|---|---|
@@ -251,12 +253,12 @@ flowchart LR
 | G5 | P1 | 14 | 0 | 未开始 |
 | G6 | P2 | 5 | 0 | 未开始 |
 | G7 | P2 | 15 | 0 | 未开始 |
-| G8a | P1 | 4 | 0 | 未开始 |
+| G8a | P1 | 4 | 4 | 已完成（P-152） |
 | G8b | P2 | 4 | 0 | 未开始 |
-| **合计** | | **106** | **64** | **开放 42** |
+| **合计** | | **106** | **68** | **开放 38** |
 
-- 口径：只统计 G0a..G8b 的 106 项；P-107..P-143 的 CI/CD 治理、heavy 退场、动作账本不计入。
-- P0 阶段（G0a/G-1/G0b/G1/G2/G3）与 G4 已全部收口；剩余 42 项集中在 G5/G6/G7/G8a/G8b。
+- 口径：只统计 G0a..G8b 的 106 项；P-107..P-151 的 CI/CD 治理、heavy 退场、动作账本、pipeline 复用与等价性不计入；P-152 计入 G8a。
+- P0 阶段（G0a/G-1/G0b/G1/G2/G3）与 G4、G8a 已收口；剩余 38 项集中在 G5/G6/G7/G8b。
 
 ## 4. 逐阶段详述
 
@@ -635,7 +637,9 @@ flowchart LR
 
 ---
 
-### G8a｜研究计划基础（P1，前置：G3）——**未开始**
+### G8a｜研究计划基础（P1，前置：G3）——**已完成（P-152，2026-11-24）**
+
+> **实施记录**：`researchclaw/plan/` 交付 `research-plan/1` schema、V1–V12 校验、`plan/` 三件套原子存储与 Stage 2/7/8/9/14 接入；A8a-1..4 全过，CHECKLIST **34/34**，21 条新用例。G8b 未做。
 
 **目标**：把"研究计划"从散文变成可校验、可存储、可追溯的任务图；不做自由 planner。
 
@@ -743,11 +747,11 @@ G0a → G-1 → G0b ─┬→ G1 ─┐
 
 - **必须串行**：`G0a → G-1 → G0b → G2 → G3`。急救必须先于完整治理；契约与门禁必须先于脊柱。串行约束**完整路线**；§1 最小集路径不受此限（其 N/A 语义见 §1）。
 - **可并行**：G1 与 G2（不同目录、不同测试集），都在 G0b 之后启动。
-- **可并行**：G4 / G5 / G8a（P1）；G6 为 P2 可选。
+- **可并行**：G4 / G5（P1）；G8a 已完成（P-152）；G6 为 P2 可选。
 - **G8b 依赖 G8a**：先有可校验的计划对象，再谈重规划与懒惰分解。
 - **G7 最后**：需要 G1 的恢复、G4 的沙箱、G5 的知识；**不再依赖 G6**。
 - **如果只能做三件事**：`G0a → G-1 → G3 最小集`（= §1 定义的最小契约：可信急救 + 事件链最小集 + ClaimRecord 契约），即可让"不产出假结果"成立。
-- **G4 已收口后的下一批 P1**：G8a（4 项，无外部数据依赖，可用 Q15 默认值 provisional 开工）或 G5（14 项，需先裁决 Q4/Q6/Q7）；G6/G7/G8b 仍为 P2。
+- **G4/G8a 已收口后的下一批 P1**：G5（14 项，需先裁决 Q4/Q6/Q7）；G8b 依赖 G8a、仍为 P2；G6/G7 仍为 P2。
 
 **每阶段的硬出口**：本阶段验收项全绿 + C 套件中**已生效成员**全绿 + 下一阶段前置的 `spec/` 四文档已齐。
 
@@ -771,7 +775,7 @@ G0a → G-1 → G0b ─┬→ G1 ─┐
 | **Q12** | G6 降为 P2 是否可接受（固定模型 vs 分层路由） | G6 | 可接受；先用预算上限 | 待确认 |
 | **Q13** | 漂移护栏阈值（`rq_cos=0.35/0.45`、`p_only=0.5`） | G7 | 经验值，需 ARC-Bench 校准 | 待确认 |
 | **Q14** | ArtifactNode 覆盖范围（全阶段 vs Stage 12-14/20/23） | G3 | 先覆盖实验与证据链相关阶段 | 待确认 |
-| **Q15** | 研究计划 `max_versions`（默认 3）与节点上限（40） | G8a/G8b | 先用 3 / 40，按 ARC-Bench 校准 | 待确认 |
+| **Q15** | 研究计划 `max_versions`（默认 3）与节点上限（40） | G8a/G8b | 先用 3 / 40，按 ARC-Bench 校准 | **provisional（P-152 采用 3 / 40）** |
 | **Q16** | 懒惰分解触发阈值（失败 2 次 / 预算 50% 且 done<30%） | G8b | 先用经验值，需校准 | 待确认 |
 | **Q17** | 默认后端：API-first 还是 ACP 优先（决定审计粒度） | G-1/G1 | **已裁决（2026-11-10，P-012/P-013）：API-first；CLI 为显式 opt-in；ACP 仅 LLM 层；高审计 run 禁用非 API 后端** | **已裁决** |
 | **Q18** | vendor 供应链与语料 pin（仓库 / commit / 许可证 / 校验和） | G2/G5 | SLSA L1 式 provenance + Croissant 四字段（name/version/hash/license） | **已裁决（2026-11-08，P-006）：L1 清单** |
@@ -848,7 +852,7 @@ G0a → G-1 → G0b ─┬→ G1 ─┐
 4. **后立闭环**（G3）：claim 端到端 + ArtifactNode 血缘 + 循环护栏。
 5. **再扩能力**（G4/G5）：工具边界、知识接入；G6 模型分层可选。
 6. **最后规模化**（G7）：72h、并发、双平面、编排评测、漂移护栏。
-7. **可选补规划**（G8a/G8b）：先做计划对象与校验（P1），再做重规划与懒惰分解（P2）。
+7. **规划对象已补**（G8a，P-152）：计划对象与校验已落地；G8b 的重规划与懒惰分解仍为 P2。
 8. **任何阶段都不许破坏 I-1..I-5**。
 
 > 一句话：**G0a 立规矩，G-1 止血，G1/G2 立真值，G3 立闭环，G4/G5 立能力，G8a 立计划，G7 立规模，G8b 补演进；G6 退居可选。**
