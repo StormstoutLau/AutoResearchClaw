@@ -71,7 +71,7 @@ upstream: arc-master-roadmap
 | 环境 | DoR | DoD | 状态 | 说明 |
 |---|---|---|---|---|
 | C-1 Python 3.13 本机 | 本机 3.13.5 | 新增测试全绿 | ✅ | 12 passed in 5.35s |
-| C-2 Python 3.11–3.14 CI | CI 矩阵 | 两轮 8/8 | ⏳ | PR 后回填 |
+| C-2 Python 3.11–3.14 CI | CI 矩阵 | 两轮 8/8 | ⏳ | 第一轮 8/8（run 45459190463）；第二轮由本提交触发 |
 | C-3 Windows/POSIX | 本机 Windows + CI Linux | Windows 全绿；POSIX 分支由单测覆盖 | ✅ | Windows 12 passed；T04 覆盖 POSIX 分支 |
 
 ## 7. 测试映射
