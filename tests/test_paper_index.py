@@ -88,3 +88,22 @@ class TestPaperBatch:
         path.write_text('{"paper_id":"p1","title":"ok"}\n{not json}\n', encoding="utf-8")
         with pytest.raises(ValueError):
             load_paper_index(path)
+
+    def test_invalid_year_reports_line(self, tmp_path: Path) -> None:
+        path = tmp_path / "papers.jsonl"
+        path.write_text(
+            '{"paper_id":"p1","title":"ok","year":2024}\n'
+            '{"paper_id":"p2","title":"bad","year":"abc"}\n',
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="line 2"):
+            load_paper_index(path)
+
+    def test_metadata_confidence_out_of_range_rejected(self, tmp_path: Path) -> None:
+        path = tmp_path / "papers.jsonl"
+        path.write_text(
+            '{"paper_id":"p1","title":"ok","metadata_confidence":100}\n',
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="metadata_confidence"):
+            load_paper_index(path)

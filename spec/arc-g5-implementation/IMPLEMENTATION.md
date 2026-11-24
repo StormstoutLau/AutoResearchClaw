@@ -1,7 +1,7 @@
 ---
 id: arc-g5-implementation-IMPLEMENTATION
 type: design
-version: 1.0
+version: 1.1
 status: verified
 date: 2026-11-24
 depends: [arc-g5-implementation-DESIGN]
@@ -10,7 +10,7 @@ upstream: null
 
 # 实施：G5 知识接入与 Grounded QA（P-155）
 
-> **基于设计**：[DESIGN.md](./DESIGN.md)（v1.1 / verified）。
+> **基于设计**：[DESIGN.md](./DESIGN.md)（v1.2 / verified）。
 > **状态**：实施完成；代码、测试与读数已回填。本文不宣称未验证项。
 > **批次口径**：P-155 是 G5 的唯一实施批；P-154 仅为决策前序，不再拆 P-156。
 
@@ -34,6 +34,7 @@ upstream: null
 | `researchclaw/pipeline/stage_impls/`（Stage 20） | 修改 | `policy=block` 时 GQ 矛盾阻断 |
 | `scripts/spec/m7_stats.py` / `repo_stats.py` | 修改 | `--knowledge` 接入同一计数函数 |
 | `scripts/spec/g5_acceptance.py` | 新增 | T01-T28 执行器：跑 pytest、解析 JUnit、按 A5/GQ 汇总、红/绿相位 |
+| `researchclaw/knowledge/{store,skillpack,paper_index}.py` 等 | 修改 | 异构复审修复轮：backend 标注 `lexical`、manifest 路径仓库根锚定、`metadata_confidence` 0–1 fail-closed、类型错误行号、删 `load_json` |
 | `tests/test_paper_index.py` | 新增 | K1 |
 | `tests/test_textbook_kg.py` | 新增 | K2 |
 | `tests/test_knowledge_store.py` | 新增 | K0/A5-6/A5-7 |
@@ -216,6 +217,31 @@ repo_stats: knowledge paper_count=0 paper_duplicates=0 kg_nodes=0 kg_edges=0 ill
 - 知识库为空（`docs/kb` 无索引）时计数为 0，`consistent=True`；这是 A5-1 的空库语义，不是伪造数据。
 - 回归读数见 §10。
 
+### 9.3 异构复审修复轮（2026-11-25）
+
+跨模型复审（GLM）发现 5 项（1 major + 4 minor），全部修复并新增 3 条定向用例：
+
+| # | 修复 | 用例 |
+|---|---|---|
+| 1 | paper 查询 `backend` 由失实的 `tfidf` 改为 `lexical`；DESIGN D-1 修订为词面检索交付 | stub 同步 |
+| 2 | manifest 相对路径以仓库根锚定（`_resolve_pack_path`），消除 CWD 依赖 | `test_shipped_manifest_loads_from_any_cwd` |
+| 3 | `metadata_confidence` 落库 0–1 fail-closed（越界 `ValueError`） | `test_metadata_confidence_out_of_range_rejected` |
+| 4 | `year`/`metadata_confidence` 类型错误补行号上下文 | `test_invalid_year_reports_line` |
+| 5 | 删除 `store.load_json` 死代码及 `import json` | —（全仓 grep 零调用） |
+
+```text
+$ python -m pytest <7 个 G5 测试文件> -q
+33 passed in 0.67s        # 28 T + 2 接线 + 3 复审新增
+
+$ python scripts/spec/g5_acceptance.py --phase green
+report: GREEN             # 28/28
+
+$ python -m pytest tests/test_rc_kb.py tests/test_knowledge_graph.py tests/test_k5_refs.py \
+    tests/test_stage_claim_hooks.py tests/test_simulated_guard.py tests/test_fabrication_guards.py \
+    tests/test_offline_audit.py tests/test_rc_config.py tests/test_rc_templates.py -q
+261 passed
+```
+
 ## 10. 门禁
 
 | 门禁 | 读数 |
@@ -227,6 +253,7 @@ repo_stats: knowledge paper_count=0 paper_duplicates=0 kg_nodes=0 kg_edges=0 ill
 | step_enforce | `digest_bound=1` |
 | pre-commit | 全绿 |
 | PR CI | 8/8（Packaging/Extras/Tests 3.11-3.14/Roadmap/Spec gates） |
+| PR CI（复审修复轮） | 待 CI |
 
 ## 11. 未做与边界
 

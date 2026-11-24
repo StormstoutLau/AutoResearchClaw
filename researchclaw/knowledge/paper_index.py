@@ -62,15 +62,33 @@ def load_paper_index(path: str | Path) -> list[PaperRecord]:
         confidence, _boundary = normalize_confidence_with_flag(
             raw.get("classification_confidence", 0)
         )
+        try:
+            year = int(raw.get("year") or 0)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"paper record at line {lineno}: invalid year: {raw.get('year')!r}"
+            ) from exc
+        try:
+            metadata_value = float(raw.get("metadata_confidence") or 0)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "paper record at line "
+                f"{lineno}: invalid metadata_confidence: {raw.get('metadata_confidence')!r}"
+            ) from exc
+        if not 0.0 <= metadata_value <= 1.0:
+            raise ValueError(
+                f"paper record at line {lineno}: metadata_confidence "
+                f"out of 0-1 range: {metadata_value}"
+            )
         records.append(PaperRecord(
             paper_id=str(raw["paper_id"]),
             title=str(raw["title"]),
-            year=int(raw.get("year") or 0),
+            year=year,
             venue=str(raw.get("venue") or ""),
             doi=str(raw.get("doi") or ""),
             abstract=str(raw.get("abstract") or ""),
             classification_confidence=confidence,
-            metadata_confidence=float(raw.get("metadata_confidence") or 0),
+            metadata_confidence=metadata_value,
             pdf_name=str(raw.get("pdf_name") or ""),
             source=str(raw.get("source") or ""),
         ))

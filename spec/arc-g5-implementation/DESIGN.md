@@ -1,7 +1,7 @@
 ---
 id: arc-g5-implementation-DESIGN
 type: design
-version: 1.1
+version: 1.2
 status: verified
 date: 2026-11-24
 depends: [arc-g5-implementation-RESEARCH, arc-g5-decisions-DESIGN]
@@ -19,7 +19,7 @@ upstream: null
 
 | 编号 | 决策 |
 |---|---|
-| D-1 | Q4 = 复用 `EmbeddingProvider`（API → SBERT → TF-IDF 256d）；后端与 `retrieval_degraded` 显式 |
+| D-1 | Q4 = 本批交付词面检索（子串匹配，`backend` 显式 `lexical`/`kg`）；`EmbeddingProvider`（API → SBERT → TF-IDF 256d）复用留后续批次；`retrieval_degraded` 显式 |
 | D-2 | Q6 = 本地关系词表 17 类；外部 KG 只留 `KnowledgeSource` 接口 |
 | D-3 | Q7 = Paper 首批 500 条；DOI/标题+年份去重；置信度 0–1 |
 | D-4 | GQ 默认关闭；关闭时零文件、与基线逐字节一致 |
@@ -86,7 +86,7 @@ upstream: null
 
 ```json
 {"citations":[{"source":"paper:p-0001","locator":"abstract","quote":"...","digest":"sha256:..."}],
- "status":"answered|insufficient","retrieval_degraded":false,"backend":"tfidf"}
+ "status":"answered|insufficient","retrieval_degraded":false,"backend":"lexical"}
 ```
 
 - citation 四字段：`source / locator / quote / digest`；`digest` 可离线复算。
@@ -191,6 +191,7 @@ knowledge_counts(kb_root) -> dict
 - SkillPack 使用 stdlib HMAC，避免新增密码学依赖；密钥缺失 fail-closed。
 - GQ 与 Stage 20 只做最小接线；默认 warn，不改变既有门禁行为。
 - 单批覆盖 G5 全部 14 项；不再拆 P-156。
+- 异构复审（跨模型，2026-11-25）5 项修复：paper 查询 `backend` 由失实的 `tfidf` 改为 `lexical` 并修订本决策（embedding 链留后续）；manifest 相对路径锚定仓库根（消除 CWD 依赖）；`metadata_confidence` 落库 0–1 fail-closed；`year`/`metadata_confidence` 类型错误补行号上下文；删除 `store.load_json` 死代码。
 
 ## 10. 非目标
 

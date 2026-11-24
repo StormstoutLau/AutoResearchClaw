@@ -1,7 +1,6 @@
 """Read-only knowledge query facade (P-155)."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from researchclaw.knowledge.models import QueryResult
@@ -117,7 +116,7 @@ class KnowledgeStore:
             results=rows,
             empty=not rows,
             retrieval_degraded=False,
-            backend="tfidf",
+            backend="lexical",
             fulltext=False,
             count=len(rows),
         )
@@ -143,8 +142,3 @@ class KnowledgeStore:
             fulltext=False,
             count=len(rows),
         )
-
-
-def load_json(path: str | Path) -> dict:
-    """Small helper for tests and callers that need a JSON object."""
-    return json.loads(Path(path).read_text(encoding="utf-8"))

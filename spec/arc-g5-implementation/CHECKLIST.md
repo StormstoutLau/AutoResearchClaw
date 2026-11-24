@@ -1,7 +1,7 @@
 ---
 id: arc-g5-implementation-CHECKLIST
 type: design
-version: 1.0
+version: 1.1
 status: accepted
 date: 2026-11-24
 depends: [arc-g5-implementation-IMPLEMENTATION, arc-g5-implementation-DESIGN]
@@ -11,8 +11,8 @@ upstream: null
 # 审查验收 Checklist：G5 知识接入与 Grounded QA（P-155）
 
 > **Feature**：P-155。
-> **基于实施**：[IMPLEMENTATION.md](./IMPLEMENTATION.md)（v1.0 / verified）。
-> **基于设计**：[DESIGN.md](./DESIGN.md)（v1.1 / verified）。
+> **基于实施**：[IMPLEMENTATION.md](./IMPLEMENTATION.md)（v1.1 / verified）。
+> **基于设计**：[DESIGN.md](./DESIGN.md)（v1.2 / verified）。
 > **状态**：验收完成；功能/接口/不变式/错误处理/兼容性项通过，读数见 §10。
 > **批次口径**：G5 单批；P-154 仅为决策前序。
 
@@ -111,6 +111,7 @@ query_paper_500: 9.07 ms count=10
 - 外部证据按 SPEC_PROCESS 分层：E1/E2/E3/E5/E6/E7/E8/E9 为 T1，E4 为 T3 线索；引用核验表见 RESEARCH §6.1。
 - 算法锚点见 IMPLEMENTATION §4；测试清单 T01-T28 见 IMPLEMENTATION §3。
 - 实施期新增两处接线（DESIGN §2 已登记）：`KnowledgeBaseConfig.grounded_qa_policy`（默认 `warn`，非法值校验失败）与 `knowledge/__init__.py` 公共导出；GQ-5 另加 2 条 Stage 20 接线用例。
+- 异构复审（跨模型 GLM，2026-11-25）5 项修复已回填：backend 标注 `lexical`（D-1 修订）、manifest 路径仓库根锚定、`metadata_confidence` 0–1 fail-closed、类型错误行号、删 `load_json`；新增 3 条用例后 33 passed，验收 28/28 GREEN，相关回归 261 passed（IMPLEMENTATION §9.3）。
 - 红→绿读数见 IMPLEMENTATION §8；门禁读数见 §10。
 
 ## 10. 统计与结论
@@ -157,7 +158,8 @@ $ python -m pytest -q -x --tb=line --ignore=tests/test_hitl_advanced.py
 | 事项 | 状态 | 说明 |
 |------|------|------|
 | 代码实施 | 已完成 | 8 模块 + `__init__`/config 接线 + 2 计数脚本 + Stage 20 钩子 |
-| 测试与验收 | 已完成 | T01-T28 28/28 green；+2 条 Stage 20 接线；相关回归 261 passed |
+| 测试与验收 | 已完成 | T01-T28 28/28 green；+2 条 Stage 20 接线；+3 条复审用例；相关回归 261 passed |
+| 异构复审 | 已修复 | 跨模型复审 5 项（1 major + 4 minor），见 IMPLEMENTATION §9.3 |
 | 全量 pytest（本机） | 环境限制 | 见 §10.3；两处失败与本批无关 |
 | P-154 口径 | 已定 | 仅为决策前序，不作为独立 feature 批次 |
 | 全量 2,487 | 未做 | Q7 已裁决后续批次 |

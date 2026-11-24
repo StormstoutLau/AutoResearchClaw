@@ -69,6 +69,20 @@ class TestSkillPack:
         assert len(real) == 5
         assert {pack.id for pack in real} == set(KNOWN_PACK_IDS)
 
+    def test_shipped_manifest_loads_from_any_cwd(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Relative manifest paths anchor to the repo root, not the process CWD."""
+        monkeypatch.chdir(tmp_path)
+        shipped = (
+            Path(__file__).resolve().parents[1]
+            / "researchclaw"
+            / "knowledge"
+            / "skillpacks.json"
+        )
+        packs = load_skillpacks(shipped, require_signature=False)
+        assert len(packs) == 5
+
     def test_tampered_pack_rejected(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.setenv("RC_SKILLPACK_KEY", KEY)
         manifest = _make_manifest(tmp_path)

@@ -23,6 +23,17 @@ class SkillPackError(ValueError):
     """A pack is missing, tampered with or has an invalid signature."""
 
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _resolve_pack_path(path: str) -> Path:
+    """Anchor manifest-relative pack paths to the repo root, not the CWD."""
+    candidate = Path(path)
+    if candidate.is_absolute():
+        return candidate
+    return _REPO_ROOT / candidate
+
+
 def compute_pack_digest(path: str | Path) -> str:
     root = Path(path)
     if not root.is_dir():
@@ -81,7 +92,7 @@ def load_skillpacks(
         path = str(raw.get("path") or "")
         if not pack_id or not version or not digest or not path:
             raise SkillPackError(f"skill pack {pack_id or '<unknown>'} is missing fields")
-        actual = compute_pack_digest(path)
+        actual = compute_pack_digest(_resolve_pack_path(path))
         if actual != digest:
             raise SkillPackError(f"skill pack digest mismatch: {pack_id}")
         if require_signature:

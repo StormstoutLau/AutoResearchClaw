@@ -23,7 +23,7 @@ class _StubStore:
             results=rows,
             empty=not rows,
             retrieval_degraded=False,
-            backend="tfidf",
+            backend="lexical",
             fulltext=False,
             count=len(rows),
         )
