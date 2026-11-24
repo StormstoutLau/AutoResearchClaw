@@ -1,0 +1,40 @@
+{
+  "_note": "Template manifest. Signatures must be filled with hmac-sha256 using RC_SKILLPACK_KEY; unsigned packs are rejected by default.",
+  "packs": [
+    {
+      "id": "literature-search",
+      "path": "researchclaw/skills/builtin/experiment/literature-search",
+      "version": "1.0.0",
+      "digest": "sha256:b210204c2563c8819068b76167bc45b94d9dba92ce53f8046ef583c865df5b28",
+      "signature": ""
+    },
+    {
+      "id": "hypothesis-formulation",
+      "path": "researchclaw/skills/builtin/experiment/hypothesis-formulation",
+      "version": "1.0.0",
+      "digest": "sha256:bde7befeae00c2ccbb319918e06a4c51b5bc32d4e665574fa299bf6a13a19ed8",
+      "signature": ""
+    },
+    {
+      "id": "experimental-design",
+      "path": "researchclaw/skills/builtin/experiment/experimental-design",
+      "version": "1.0.0",
+      "digest": "sha256:f4802f1deee39f70a2573634e56249bc2e340c8297f9e9fee6e3aa5749c230f0",
+      "signature": ""
+    },
+    {
+      "id": "statistical-reporting",
+      "path": "researchclaw/skills/builtin/experiment/statistical-reporting",
+      "version": "1.0.0",
+      "digest": "sha256:09d6412c4aa8b951e95d3631daaf3efe48e28dc79e7c28dfc62fe1b9920e8723",
+      "signature": ""
+    },
+    {
+      "id": "scientific-writing",
+      "path": "researchclaw/skills/builtin/experiment/scientific-writing",
+      "version": "1.0.0",
+      "digest": "sha256:610a88ad1e7d3f9825d02756763cbae2abbb5a954890fb2be04a25255b80940f",
+      "signature": ""
+    }
+  ]
+}

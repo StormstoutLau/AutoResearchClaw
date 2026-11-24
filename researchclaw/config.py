@@ -173,6 +173,7 @@ class KnowledgeBaseConfig:
     backend: str
     root: str
     obsidian_vault: str = ""
+    grounded_qa_policy: str = "warn"
 
 
 @dataclass(frozen=True)
@@ -1026,6 +1027,7 @@ class RCConfig:
                 backend=knowledge_base.get("backend", "markdown"),
                 root=knowledge_base["root"],
                 obsidian_vault=knowledge_base.get("obsidian_vault", ""),
+                grounded_qa_policy=knowledge_base.get("grounded_qa_policy", "warn"),
             ),
             openclaw_bridge=OpenClawBridgeConfig(
                 use_cron=bool(bridge.get("use_cron", False)),
@@ -1182,6 +1184,10 @@ def validate_config(
     kb_backend = _get_by_path(data, "knowledge_base.backend")
     if not _is_blank(kb_backend) and kb_backend not in KB_BACKENDS:
         errors.append(f"Invalid knowledge_base.backend: {kb_backend}")
+
+    gq_policy = _get_by_path(data, "knowledge_base.grounded_qa_policy")
+    if not _is_blank(gq_policy) and gq_policy not in ("warn", "block"):
+        errors.append(f"Invalid knowledge_base.grounded_qa_policy: {gq_policy}")
 
     llm_wire_api = _get_by_path(data, "llm.wire_api")
     if not _is_blank(llm_wire_api) and llm_wire_api not in (

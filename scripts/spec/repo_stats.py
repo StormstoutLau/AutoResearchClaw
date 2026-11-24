@@ -74,11 +74,37 @@ def declare(stats):
     return dict(RE_DECL.findall(render(stats)))
 
 
+def knowledge_report(kb_root=None):
+    """K5 (A5-5): recompute knowledge counts from the single source function."""
+    if ROOT not in sys.path:
+        sys.path.insert(0, ROOT)
+    from researchclaw.knowledge.stats import knowledge_counts
+
+    return knowledge_counts(kb_root or os.path.join(ROOT, "docs", "kb"))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="repo_stats", description="仓库规模统计（派生视图）")
     ap.add_argument("--check", action="store_true", help="与 docs/REPO_STATS.md 比对")
     ap.add_argument("--write", action="store_true", help="重写 docs/REPO_STATS.md")
+    ap.add_argument("--knowledge", action="store_true", help="重算知识库计数（K5）")
+    ap.add_argument("--kb-root", default="", help="知识库根目录（默认 docs/kb）")
     args = ap.parse_args(argv)
+    if args.knowledge:
+        counts = knowledge_report(args.kb_root or None)
+        print(
+            "repo_stats: knowledge paper_count=%d paper_duplicates=%d "
+            "kg_nodes=%d kg_edges=%d illegal_edges=%d consistent=%s"
+            % (
+                counts["paper_count"],
+                counts["paper_duplicates"],
+                counts["kg_nodes"],
+                counts["kg_edges"],
+                counts["illegal_edges"],
+                counts["consistent"],
+            )
+        )
+        return 0 if counts["consistent"] else 1
     stats = collect()
     if stats is None:
         print("repo_stats: 源目录或 docs/PROGRESS.md 缺失/不可读（exit 2）")
