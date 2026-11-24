@@ -171,12 +171,13 @@ class EventLog:
         """Rebuild counters from disk (crash recovery: last complete line wins)."""
         self._total_events = 0
         self._total_bytes = 0
-        for _key, p in self._segments():
+        segments = self._segments()
+        for _key, p in segments:
             self._total_bytes += p.stat().st_size
+        good: list[str] = []
         if self.path.exists():
             text = self.path.read_text(encoding="utf-8", errors="replace")
             lines = [ln for ln in text.splitlines() if ln.strip()]
-            good = []
             for ln in lines:
                 try:
                     json.loads(ln)
@@ -184,9 +185,12 @@ class EventLog:
                     self.truncated = True
                     break
                 good.append(ln)
+            if self.truncated:
+                # F-1b（P-160）：torn tail 必须截断后再追加，否则后续事件
+                # 会被 read_all 的“遇到坏行即停止”永久遮蔽。
+                self._truncate_active(good)
             self._seg_count = len(good)
             self._seg_bytes = self.path.stat().st_size
-            self._total_events += len(good)
             self._total_bytes += self._seg_bytes
             if good:
                 self._last_hash = _sha256(good[-1])
@@ -199,6 +203,85 @@ class EventLog:
             self._seg_count = 0
             self._seg_bytes = 0
             self._seg_first = None
+
+        # F-1（P-160）：崩溃可能发生在 os.replace 之后、新 active 写入之前。
+        # 此时 active 不存在或为空，但最后一个归档段仍是链尾；必须从它恢复
+        # last_seq/last_hash，否则下一次 append 会重用 seq=1 并断链。
+        if not good:
+            last_line = self._last_archived_line(segments)
+            if last_line is not None:
+                self._last_hash = _sha256(last_line)
+                try:
+                    self._last_seq = int(json.loads(last_line)["seq"])
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise EventDurabilityError(
+                        "archived event-log tail has no usable seq") from exc
+        # 事件总数按 seq 计（含已轮转段），否则重启后配额会被重置。
+        self._total_events = self._last_seq
+
+    def _truncate_active(self, good: list[str]) -> None:
+        """Drop a torn tail so later appends stay visible after a crash."""
+        target = self.path
+        tmp = target.with_name(target.name + ".tmp")
+        payload = (("\n".join(good) + "\n") if good else "").encode("utf-8")
+        try:
+            with open(tmp, "wb") as fh:
+                fh.write(payload)
+                fh.flush()
+                if self.fsync:
+                    os.fsync(fh.fileno())
+            os.replace(tmp, target)
+        except OSError as exc:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise EventDurabilityError(
+                "failed to truncate torn event-log tail: %s" % exc) from exc
+
+    @staticmethod
+    def _last_archived_line(segments: list[tuple[tuple[int, int], Path]]) -> str | None:
+        """Return the last valid JSON line from the newest archived segment.
+
+        Reads at most one segment; gzip is streamed. Falls back to older
+        segments only when the newest one has no valid line.
+        """
+        for _key, path in reversed(segments):
+            try:
+                if path.suffix == ".gz":
+                    with gzip.open(path, "rt", encoding="utf-8", errors="replace") as fh:
+                        last = None
+                        for ln in fh:
+                            s = ln.strip()
+                            if not s:
+                                continue
+                            try:
+                                json.loads(s)
+                            except json.JSONDecodeError:
+                                continue
+                            last = s
+                        if last is not None:
+                            return last
+                else:
+                    last = None
+                    for ln in path.read_text(
+                            encoding="utf-8", errors="replace").splitlines():
+                        s = ln.strip()
+                        if not s:
+                            continue
+                        try:
+                            json.loads(s)
+                        except json.JSONDecodeError:
+                            continue
+                        last = s
+                    if last is not None:
+                        return last
+            except OSError:
+                continue
+        if segments:
+            raise EventDurabilityError(
+                "event log has archived segments but no valid line to recover from")
+        return None
 
     @property
     def last_seq(self) -> int:

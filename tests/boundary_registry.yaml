@@ -613,6 +613,26 @@ subprocess_calls:
     owner: P-106
     expires: null
 
+  - id: S-061
+    relpath: researchclaw/soak/driver.py
+    qualname: _default_spawn
+    ordinal: 1
+    category: C
+    env: inherit
+    reason: "P-160 soak process-lifecycle spawn; inherits provider/config env for the resumable run"
+    owner: P-106
+    expires: null
+
+  - id: S-062
+    relpath: researchclaw/soak/driver.py
+    qualname: _default_kill
+    ordinal: 1
+    category: C
+    env: inherit
+    reason: "P-160 Windows hard-kill injection via taskkill /F /T /PID"
+    owner: P-106
+    expires: null
+
 write_sites:
   - id: W-001
     relpath: researchclaw/experiment/code_agent.py

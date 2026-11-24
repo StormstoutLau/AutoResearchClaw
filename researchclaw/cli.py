@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -498,6 +499,153 @@ def cmd_supervisor(args: argparse.Namespace) -> int:
         f"elapsed={result.elapsed:.0f}s exhausted={result.exhausted}"
     )
     return result.exit_code
+
+
+# ---------------------------------------------------------------------------
+# G7 soak toolchain (P-160)
+# ---------------------------------------------------------------------------
+
+_DURATION_RE = re.compile(r"^(\d+(?:\.\d+)?)([smh]?)$")
+
+
+def parse_duration(text: str) -> float:
+    """Parse ``72h`` / ``90m`` / ``5s`` / ``7`` into seconds (>0)."""
+    match = _DURATION_RE.match(str(text).strip().lower())
+    if match is None:
+        raise ValueError("invalid duration: %r" % text)
+    value = float(match.group(1))
+    unit = match.group(2) or "s"
+    seconds = value * {"s": 1, "m": 60, "h": 3600}[unit]
+    if seconds <= 0:
+        raise ValueError("duration must be greater than zero")
+    return seconds
+
+
+def _parse_stages(text: str) -> tuple[int, ...]:
+    parts = [part.strip() for part in str(text or "").split(",") if part.strip()]
+    stages: list[int] = []
+    for part in parts:
+        try:
+            stage = int(part)
+        except ValueError as exc:
+            raise ValueError("invalid stage: %r" % part) from exc
+        if stage <= 0:
+            raise ValueError("stage must be positive: %r" % part)
+        stages.append(stage)
+    return tuple(stages)
+
+
+def cmd_soak(args: argparse.Namespace) -> int:
+    command = cast(str, getattr(args, "soak_command", ""))
+    if command == "run":
+        return cmd_soak_run(args)
+    if command == "verify":
+        return cmd_soak_verify(args)
+    if command == "report":
+        return cmd_soak_report(args)
+    print("Error: unknown soak command", file=sys.stderr)
+    return 2
+
+
+def cmd_soak_run(args: argparse.Namespace) -> int:
+    from researchclaw.runtime.supervisor import default_worker_cmd
+    from researchclaw.soak.driver import SoakConfig, SoakDriver
+    from researchclaw.soak.report import build_report, write_report
+
+    run_dir = Path(cast(str, args.output))
+    try:
+        duration = parse_duration(cast(str, args.duration))
+        stages = _parse_stages(cast(str, args.inject_at_stages))
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
+    if not run_dir.is_dir():
+        print(f"Error: run directory not found: {run_dir}", file=sys.stderr)
+        return 65
+
+    config_path = cast(str | None, args.config)
+    reference = cast(str | None, getattr(args, "reference_run", None))
+    repo_root = Path(__file__).resolve().parents[1]
+    worker_cwd = repo_root if (repo_root / "researchclaw").is_dir() else Path.cwd()
+    config = SoakConfig(
+        run_dir=run_dir,
+        worker_cmd=tuple(default_worker_cmd(run_dir, config_path)),
+        duration_seconds=duration,
+        max_restarts=int(args.max_restarts),
+        inject_at_stages=stages,
+        poll_seconds=float(args.poll_seconds),
+        worker_cwd=worker_cwd,
+        reference_run_dir=Path(reference) if reference else None,
+        config_path=config_path,
+    )
+    driver = SoakDriver(config)
+    result = driver.run()
+    report = build_report(result, driver.session, config)
+    json_path, markdown_path = write_report(run_dir, report)
+
+    if bool(getattr(args, "json", False)):
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+    else:
+        print(
+            f"[soak] status={result.status} restarts={len(result.restarts)} "
+            f"wall={result.wall_seconds:.1f}s converged={result.verification.converged} "
+            f"report={json_path} ({markdown_path.name})"
+        )
+    return 0 if result.status == "passed" else 1
+
+
+def cmd_soak_verify(args: argparse.Namespace) -> int:
+    from dataclasses import asdict
+
+    from researchclaw.soak.verifier import verify_run
+
+    run_dir = Path(cast(str, args.output))
+    if not run_dir.is_dir():
+        print(f"Error: run directory not found: {run_dir}", file=sys.stderr)
+        return 2
+    reference = cast(str | None, getattr(args, "reference_run", None))
+    verification = verify_run(
+        run_dir,
+        reference_run_dir=Path(reference) if reference else None,
+    )
+    if bool(getattr(args, "json", False)):
+        print(json.dumps(asdict(verification), indent=2, ensure_ascii=False))
+    else:
+        print(
+            f"[soak verify] ok={verification.ok} "
+            f"converged={verification.converged} "
+            f"chain_ok={verification.chain_ok} "
+            f"seq={verification.first_seq}..{verification.last_seq} "
+            f"problems={list(verification.problems)}"
+        )
+    ok = verification.ok and (
+        reference is None or verification.converged)
+    return 0 if ok else 1
+
+
+def cmd_soak_report(args: argparse.Namespace) -> int:
+    from researchclaw.soak.report import render_markdown, write_report
+
+    run_dir = Path(cast(str, args.output))
+    report_path = run_dir / "soak_report.json"
+    if not report_path.is_file():
+        print(f"Error: no soak_report.json at {run_dir}", file=sys.stderr)
+        return 2
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"Error: unreadable soak_report.json: {exc}", file=sys.stderr)
+        return 2
+    if not isinstance(report, dict):
+        print("Error: soak_report.json is not an object", file=sys.stderr)
+        return 2
+    json_path, markdown_path = write_report(run_dir, report)
+    if bool(getattr(args, "json", False)):
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+    else:
+        print(render_markdown(report).splitlines()[0])
+        print(f"[soak report] {json_path} / {markdown_path}")
+    return 0
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
@@ -1715,6 +1863,32 @@ def build_parser() -> argparse.ArgumentParser:
     _ = sup_p.add_argument("--max-restarts", type=int, default=5)
     _ = sup_p.add_argument("--max-wall-seconds", type=float, default=1800)
 
+    # G7: soak toolchain（P-160）
+    soak_p = sub.add_parser("soak", help="Run/verify long-running soak sessions")
+    soak_sub = soak_p.add_subparsers(dest="soak_command", required=True)
+    soak_run_p = soak_sub.add_parser("run", help="Run a resumable run with injected restarts")
+    _ = soak_run_p.add_argument("--output", "-o", required=True, help="Run directory")
+    _ = soak_run_p.add_argument("--config", "-c", default=None, help="Config file path")
+    _ = soak_run_p.add_argument("--duration", default="72h",
+                                help="Wall-clock limit (e.g. 72h, 90m, 5s)")
+    _ = soak_run_p.add_argument("--max-restarts", type=int, default=3)
+    _ = soak_run_p.add_argument("--inject-at-stages", default="3,7,11",
+                                help="Comma-separated stage numbers for hard-kill injection")
+    _ = soak_run_p.add_argument("--poll-seconds", type=float, default=5.0)
+    _ = soak_run_p.add_argument("--reference-run", default=None,
+                                help="Baseline run directory for convergence comparison")
+    _ = soak_run_p.add_argument("--json", action="store_true", help="Print the report as JSON")
+
+    soak_verify_p = soak_sub.add_parser("verify", help="Verify event replay and convergence")
+    _ = soak_verify_p.add_argument("--output", "-o", required=True, help="Run directory")
+    _ = soak_verify_p.add_argument("--reference-run", default=None,
+                                   help="Baseline run directory for convergence comparison")
+    _ = soak_verify_p.add_argument("--json", action="store_true", help="Print the report as JSON")
+
+    soak_report_p = soak_sub.add_parser("report", help="Re-render an existing soak report")
+    _ = soak_report_p.add_argument("--output", "-o", required=True, help="Run directory")
+    _ = soak_report_p.add_argument("--json", action="store_true", help="Print the report as JSON")
+
     # A: Web platform
     srv_p = sub.add_parser("serve", help="Start the web server")
     _ = srv_p.add_argument("--config", "-c", default="config.yaml", help="Config file path")
@@ -1932,6 +2106,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_run(args)
     elif command == "supervisor":
         return cmd_supervisor(args)
+    elif command == "soak":
+        return cmd_soak(args)
     elif command == "validate":
         return cmd_validate(args)
     elif command == "doctor":
