@@ -1141,6 +1141,88 @@ def cmd_audit(args: argparse.Namespace) -> int:
     return 0 if report["consistent"] else 1
 
 
+def cmd_actions(args: argparse.Namespace) -> int:
+    """Query the run's action ledger (P-147). Exit 0 ok, 2 unusable input."""
+    import json
+
+    from researchclaw.runtime.action_ledger import query_actions
+
+    run_dir = Path(cast(str, args.run_dir))
+    if not run_dir.is_dir():
+        print(f"actions: run directory does not exist: {run_dir}", file=sys.stderr)
+        return 2
+    try:
+        rows = query_actions(
+            run_dir,
+            tool=args.tool,
+            status=args.status,
+            limit=args.limit,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"actions: ledger unreadable: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+        return 0
+    if not rows:
+        return 0
+    for r in rows:
+        print(
+            f"#{r.get('seq')} {r.get('tool')} status={r.get('status')}"
+            f" approver={r.get('approver') or '-'}"
+            f" in={len(r.get('inputs') or {})} out={len(r.get('outputs') or {})}"
+        )
+    return 0
+
+
+def cmd_pipeline_skill(args: argparse.Namespace) -> int:
+    """Verify a pipeline skill against its run (P-147). Exit 0 reproducible,
+    1 drift, 2 unusable input."""
+    import json
+
+    from researchclaw.skills.pipeline_manifest import load_pipeline_skill
+    from researchclaw.skills.reproducibility import verify_reproducibility
+
+    skill_dir = Path(cast(str, args.skill_dir))
+    run_dir = Path(cast(str, args.run_dir))
+    if not skill_dir.is_dir():
+        print(f"pipeline-skill: skill directory does not exist: {skill_dir}", file=sys.stderr)
+        return 2
+    if not run_dir.is_dir():
+        print(f"pipeline-skill: run directory does not exist: {run_dir}", file=sys.stderr)
+        return 2
+    manifest, errors = load_pipeline_skill(skill_dir)
+    if manifest is None:
+        print("pipeline-skill: manifest unusable: " + "; ".join(errors), file=sys.stderr)
+        return 2
+    try:
+        report = verify_reproducibility(manifest, run_dir)
+    except (OSError, ValueError) as exc:
+        print(f"pipeline-skill: verification failed: {exc}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    else:
+        verdict = "REPRODUCIBLE" if report["reproducible"] else "DRIFT"
+        print(
+            f"pipeline-skill: {verdict}  checks={report['checks']}"
+            f" chain_ok={report['chain_ok']}"
+            f" missing={len(report['missing_outputs'])}"
+            f" mismatched={len(report['hash_mismatches'])}"
+            f" unresolved={len(report['unresolved_actions'])}"
+        )
+        for item in report["missing_outputs"]:
+            print(f"  - missing output: {item}")
+        for item in report["hash_mismatches"]:
+            print(f"  - HASH MISMATCH: {item['path']} expected={item['expected']} actual={item['actual']}")
+        for item in report["unresolved_actions"]:
+            print(f"  - unresolved action: {item}")
+        for item in report["readpoint_failures"]:
+            print(f"  - readpoint {item['reason']}: {item['artifact']}")
+    return 0 if report["reproducible"] else 1
+
+
 # ── Research Enhancement commands (Agent D) ───────────────────────
 
 
@@ -1506,6 +1588,25 @@ def build_parser() -> argparse.ArgumentParser:
         "--output", "-o", help="Write the audit report JSON to this path"
     )
 
+    # P-147: ledger query + pipeline-skill reproducibility verification
+    act_p = sub.add_parser(
+        "actions", help="Query the action ledger of a finished run (read-only)"
+    )
+    _ = act_p.add_argument("--run-dir", required=True, help="Path to run artifacts directory")
+    _ = act_p.add_argument("--tool", default=None, help="Filter by tool name")
+    _ = act_p.add_argument("--status", default=None, help="Filter by status (ok/error)")
+    _ = act_p.add_argument("--limit", type=int, default=None, help="Max rows to show")
+    _ = act_p.add_argument("--json", action="store_true", help="Print full records as JSON")
+
+    ps_p = sub.add_parser(
+        "pipeline-skill", help="Verify an exported pipeline skill against its run"
+    )
+    ps_sub = ps_p.add_subparsers(dest="ps_command", required=True)
+    psv_p = ps_sub.add_parser("verify", help="Check artifacts/actions/chain still intact")
+    _ = psv_p.add_argument("--skill-dir", required=True, help="Exported skill directory")
+    _ = psv_p.add_argument("--run-dir", required=True, help="Run artifacts directory")
+    _ = psv_p.add_argument("--json", action="store_true", help="Print the report as JSON")
+
     # G1b: supervisor（A1-3）
     sup_p = sub.add_parser("supervisor", help="Supervise a run and restart retryable failures")
     _ = sup_p.add_argument("--output", "-o", required=True,
@@ -1747,6 +1848,10 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_approvals(args)
     elif command == "audit":
         return cmd_audit(args)
+    elif command == "actions":
+        return cmd_actions(args)
+    elif command == "pipeline-skill":
+        return cmd_pipeline_skill(args)
     elif command == "serve":
         return cmd_serve(args)
     elif command == "dashboard":
