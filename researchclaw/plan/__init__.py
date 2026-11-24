@@ -1,0 +1,58 @@
+"""ResearchPlan v1: constrained task graph on top of the 23 stages (G8a / P-152)."""
+from .derive import (
+    add_experiment_nodes,
+    add_hypothesis_nodes,
+    add_synthesis_gaps,
+    build_initial_plan,
+    check_experiment_plan_consistency,
+    mark_analysis_done,
+)
+from .schema import (
+    DEFAULT_MAX_DEPTH,
+    DEFAULT_MAX_FANOUT,
+    MAX_NODES,
+    NODE_STATUSES,
+    NODE_TYPES,
+    SCHEMA_ID,
+    Violation,
+    plan_digest,
+    seal_plan,
+    validate_plan,
+)
+from .store import (
+    PLAN_DIR,
+    PLAN_NAME,
+    append_event,
+    load_plan,
+    read_events,
+    update_from_stage,
+    update_plan,
+    write_plan,
+)
+
+__all__ = [
+    "DEFAULT_MAX_DEPTH",
+    "DEFAULT_MAX_FANOUT",
+    "MAX_NODES",
+    "NODE_STATUSES",
+    "NODE_TYPES",
+    "PLAN_DIR",
+    "PLAN_NAME",
+    "SCHEMA_ID",
+    "Violation",
+    "add_experiment_nodes",
+    "add_hypothesis_nodes",
+    "add_synthesis_gaps",
+    "append_event",
+    "build_initial_plan",
+    "check_experiment_plan_consistency",
+    "load_plan",
+    "mark_analysis_done",
+    "plan_digest",
+    "read_events",
+    "seal_plan",
+    "update_from_stage",
+    "update_plan",
+    "validate_plan",
+    "write_plan",
+]
