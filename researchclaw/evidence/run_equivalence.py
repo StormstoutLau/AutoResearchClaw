@@ -7,10 +7,11 @@ chains. Volatile fields (``run_id``, timestamps, durations, action UUIDs,
 absolute path prefixes) are excluded by construction, so two reruns of the same
 deterministic pipeline are expected to compare equal.
 
-Artifact hashes come from the action ledger when it has actions. Stages that
-record no actions (for example the first three LLM-only stages) fall back to the
-content-addressed node index at ``artifacts/nodes.jsonl`` (P-150), which is the
-only recorded artifact evidence for such runs.
+Artifact hashes come from the action ledger when it records output artifacts.
+Stages that record no outputs (for example the first three LLM-only stages,
+whose actions are empty or absent) fall back to the content-addressed node index
+at ``artifacts/nodes.jsonl`` (P-150, widened in P-151), which is the only
+recorded artifact evidence for such runs.
 
 This is a *comparator*, not a re-executor: it makes no claim that a concrete
 rerun will be equivalent, only that two recorded runs can be mechanically
@@ -117,7 +118,7 @@ def _facts(run_dir: Path) -> dict:
         for raw, digest in (action.get("outputs") or {}).items():
             ledger_artifacts[_output_key(str(raw), run_dir)] = str(digest)
 
-    if actions:
+    if ledger_artifacts:
         artifacts = ledger_artifacts
         artifacts_source = "ledger"
     elif (run_dir / NODES_FILE).is_file():

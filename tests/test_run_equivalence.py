@@ -23,6 +23,7 @@ def _build_run(
     output: str = "ok",
     status: str = "ok",
     with_action: bool = True,
+    with_output: bool = True,
     node_artifacts: dict[str, str] | None = None,
     summary: str = '{"ok":true}',
 ) -> Path:
@@ -34,12 +35,15 @@ def _build_run(
     log.append("stage.started", {"stage": 1, "name": "topic_init"}, stage=1)
     if with_action:
         ledger = ActionLedger(run, name, fsync=False)
-        artifact = run / "out.txt"
-        artifact.write_text(output, encoding="utf-8")
+        outputs = []
+        if with_output:
+            artifact = run / "out.txt"
+            artifact.write_text(output, encoding="utf-8")
+            outputs = [artifact]
         ledger.record(
             tool,
             {"q": "x"} if params is None else params,
-            outputs=[artifact],
+            outputs=outputs,
             status=status,
             exit_code=0 if status == "ok" else 1,
             event_seq_call=2,
@@ -248,6 +252,29 @@ class TestCompareRuns:
         assert report["equivalent"] is True
         assert report["left"]["artifacts_source"] == "ledger"
         assert report["left"]["artifacts"] == 1
+
+    def test_node_index_fallback_when_ledger_has_no_outputs(self, tmp_path: Path) -> None:
+        left = _build_run(
+            tmp_path, "run-a", with_output=False,
+            node_artifacts={"stage-01/goal.md": "goal-a"},
+        )
+        right = _build_run(
+            tmp_path, "run-b", with_output=False,
+            node_artifacts={"stage-01/goal.md": "goal-b"},
+        )
+        report = compare_runs(left, right)
+        assert report["left"]["artifacts_source"] == "node_index"
+        assert report["left"]["actions"] == 1
+        diff = next(item for item in report["differences"] if item["kind"] == "artifacts")
+        assert diff["changed"] == ["stage-01/goal.md"]
+
+    def test_no_artifacts_source_none(self, tmp_path: Path) -> None:
+        left = _build_run(tmp_path, "run-a", with_output=False)
+        right = _build_run(tmp_path, "run-b", with_output=False)
+        report = compare_runs(left, right)
+        assert report["left"]["artifacts_source"] == "none"
+        assert report["left"]["artifacts"] == 0
+        assert report["equivalent"] is True
 
     def test_detects_summary_difference(self, tmp_path: Path) -> None:
         left = _build_run(tmp_path, "run-a")
