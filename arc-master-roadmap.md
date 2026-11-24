@@ -1,14 +1,14 @@
 ---
 id: arc-master-roadmap
 type: design
-version: 1.4u
+version: 1.4v
 status: draft
-date: 2026-11-24
+date: 2026-11-25
 depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-textbook, clawsgo-cleanroom-arc]
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.4u）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.4v）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -132,6 +132,8 @@ upstream: arb-v2-decisions
 > **修订**：v1.4t（2026-11-24，P-153）**总纲回填：G8a 收口**：P-152 交付 `ResearchPlan v1`（`researchclaw/plan/`：schema + V1–V12 + 原子存储 + Stage 2/7/8/9/14 接入），A8a-1..4 全过，CHECKLIST **34/34**；**G8a 记为 4/4**。Q15 默认值（深度 3 / 扇出 8 / 节点 40 / `max_versions=3`）由 P-152 provisional 落地，待 ARC-Bench 校准。进度 **68 / 106，开放 38**（G5 14、G6 5、G7 15、G8b 4）。P-107..P-151 的 CI/CD 治理、heavy 退场、动作账本、pipeline 复用与等价性属总纲外工作，不改变 106 口径。**106 计数不变**。依据：[P-152 实施](spec/arc-research-plan/IMPLEMENTATION.md)。
 >
 > **修订**：v1.4u（2026-11-24，P-154）**G5 三问裁决**：Q4 = A（复用既有 embedding 回退链 API→SBERT→TF-IDF 256d，降级显式 `retrieval_degraded`）；Q6 = A（本地关系词表扩到 17 类，外部 KG 只留 `KnowledgeSource` 接口）；Q7 = A（Paper 首批 500 条高置信度，全量 2,487 登记后续）。G5 实施批可开工；K4 全文仍被 Paper Phase 2 阻断。**106 计数不变**。依据：[P-154 决策](spec/arc-g5-decisions/DESIGN.md)。
+>
+> **修订**：v1.4v（2026-11-25，P-157）**总纲回填：G5 + G8b 收口**：P-155 交付 G5（`researchclaw/knowledge/` 8 模块 + Stage 20 矛盾门 + 计数同源），A5-1..A5-9、GQ-1..GQ-5 共 14 项全过，CHECKLIST **41/41**；P-156 交付 G8b（`plan/ledger.py`/`replan.py`/`decompose.py`/`search.py` + 存储版本化 + Stage 15/9 钩子），A8b-1..4 全过，CHECKLIST **33/33**。**G5 记为 14/14，G8b 记为 4/4**；进度 **86 / 106，开放 20**（G6 5、G7 15）。A5-2 首批 500 条、K4 仍被 Phase 2 阻断；Q15/Q16 仍 provisional。**106 计数不变**。依据：[P-155 实施](spec/arc-g5-implementation/IMPLEMENTATION.md)、[P-156 实施](spec/arc-plan-evolution/IMPLEMENTATION.md)、[本回填](spec/arc-roadmap-g8b/RESEARCH.md)。
 
 ---
 
@@ -241,7 +243,7 @@ flowchart LR
 
 ---
 
-### 3.1 当前进度（2026-11-24，v1.4u）
+### 3.1 当前进度（2026-11-25，v1.4v）
 
 | 阶段 | 优先级 | 验收 | 已完成 | 状态 |
 |---|---|---|---|---|
@@ -252,15 +254,15 @@ flowchart LR
 | G2 | P0 | 7 | 7 | 已完成 |
 | G3 | P0 | 17 | 17 | 已完成 |
 | G4 | P1 | 10 | 10 | 已完成（P-106；1 项 Linux CI 待确认） |
-| G5 | P1 | 14 | 0 | 未开始 |
+| G5 | P1 | 14 | 14 | 已完成（P-155） |
 | G6 | P2 | 5 | 0 | 未开始 |
 | G7 | P2 | 15 | 0 | 未开始 |
 | G8a | P1 | 4 | 4 | 已完成（P-152） |
-| G8b | P2 | 4 | 0 | 未开始 |
-| **合计** | | **106** | **68** | **开放 38** |
+| G8b | P2 | 4 | 4 | 已完成（P-156） |
+| **合计** | | **106** | **86** | **开放 20** |
 
-- 口径：只统计 G0a..G8b 的 106 项；P-107..P-151 的 CI/CD 治理、heavy 退场、动作账本、pipeline 复用与等价性不计入；P-152 计入 G8a。
-- P0 阶段（G0a/G-1/G0b/G1/G2/G3）与 G4、G8a 已收口；剩余 38 项集中在 G5/G6/G7/G8b。
+- 口径：只统计 G0a..G8b 的 106 项；P-107..P-151 的 CI/CD 治理、heavy 退场、动作账本、pipeline 复用与等价性不计入；P-152 计入 G8a，P-155 计入 G5，P-156 计入 G8b。
+- P0 阶段（G0a/G-1/G0b/G1/G2/G3）与 G4、G5、G8a、G8b 已收口；剩余 20 项集中在 G6/G7（均 P2）。
 
 ## 4. 逐阶段详述
 
@@ -527,7 +529,9 @@ flowchart LR
 
 ---
 
-### G5｜知识接入 + Grounded QA（P1，前置：G2、G3）——**未开始**
+### G5｜知识接入 + Grounded QA（P1，前置：G2、G3）——**已完成（P-155，2026-11-25）**
+
+> **实施记录**：`researchclaw/knowledge/` 交付 8 模块（models / paper_index / textbook_kg / store / stats / skillpack / grounded_qa / read_position）+ Stage 20 矛盾门（`E20_GQ_CONTRADICTION`，默认 warn）+ `m7_stats`/`repo_stats` 计数同源；A5-1..A5-9、GQ-1..GQ-5 共 14 项全过，CHECKLIST **41/41**，验收 28/28 GREEN，33 passed（含跨模型复审 5 项修复）。A5-2 首批 500 条，全量 2,487 未导入；K4 全文仍被 Paper Phase 2 阻断。
 
 **目标**：Paper 的书目层与 Textbook 的图谱层真正可查、可引用、可复算；文献问答可降级。
 
@@ -667,7 +671,9 @@ flowchart LR
 
 ---
 
-### G8b｜计划演进（P2，前置：G8a）——**未开始**
+### G8b｜计划演进（P2，前置：G8a）——**已完成（P-156，2026-11-25）**
+
+> **实施记录**：`researchclaw/plan/` 交付 `ledger.py`（五问账本 + 循环检测）、`replan.py`（版本化重规划 + done 保护 + `plan_goal_change` 审批 + 四类 diff）、`decompose.py`（ADaPT 懒惰分解 + 触发证据 + 形状上限）、`search.py`（预算内候选搜索）；`store.py` 版本化 `plan.v{n}.json`，Stage 15 写 ledger / 请求重规划，Stage 9 写 `plan/search.json`。A8b-1..4 全过，CHECKLIST **33/33**，27 passed，回归 228+113 passed。Q15/Q16 仍 provisional；LLM 自动重规划节点未做。
 
 **目标**：让计划可重规划、可懒惰分解、可局部搜索，且不重跑已完成工作。
 
@@ -749,11 +755,11 @@ G0a → G-1 → G0b ─┬→ G1 ─┐
 
 - **必须串行**：`G0a → G-1 → G0b → G2 → G3`。急救必须先于完整治理；契约与门禁必须先于脊柱。串行约束**完整路线**；§1 最小集路径不受此限（其 N/A 语义见 §1）。
 - **可并行**：G1 与 G2（不同目录、不同测试集），都在 G0b 之后启动。
-- **可并行**：G4 / G5（P1）；G8a 已完成（P-152）；G6 为 P2 可选。
+- **已收口**：G4 / G5（P1）、G8a（P-152）、G8b（P-156）；剩余 G6 与 G7 均为 P2。
 - **G8b 依赖 G8a**：先有可校验的计划对象，再谈重规划与懒惰分解。
 - **G7 最后**：需要 G1 的恢复、G4 的沙箱、G5 的知识；**不再依赖 G6**。
 - **如果只能做三件事**：`G0a → G-1 → G3 最小集`（= §1 定义的最小契约：可信急救 + 事件链最小集 + ClaimRecord 契约），即可让"不产出假结果"成立。
-- **G4/G8a 已收口后的下一批 P1**：G5（14 项，需先裁决 Q4/Q6/Q7）；G8b 依赖 G8a、仍为 P2；G6/G7 仍为 P2。
+- **G4/G5/G8a/G8b 已收口后的下一批**：G6（5 项，P2，需先确认 Q12）与 G7（15 项，P2，含 72h soak，建议再拆段）；当前无 P1 批次。
 
 **每阶段的硬出口**：本阶段验收项全绿 + C 套件中**已生效成员**全绿 + 下一阶段前置的 `spec/` 四文档已齐。
 
