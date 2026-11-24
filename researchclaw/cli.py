@@ -1270,6 +1270,47 @@ def _cmd_pipeline_plan(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_runs_compare(args: argparse.Namespace) -> int:
+    """Compare two runs for deterministic equivalence (P-149).
+
+    Exit 0 equivalent, 1 different, 2 unusable input.
+    """
+    import json
+
+    from researchclaw.evidence.run_equivalence import compare_runs
+
+    left = Path(cast(str, args.left))
+    right = Path(cast(str, args.right))
+    for path in (left, right):
+        if not path.is_dir():
+            print(f"runs: run directory does not exist: {path}", file=sys.stderr)
+            return 2
+    try:
+        report = compare_runs(left, right)
+    except (OSError, ValueError) as exc:
+        print(f"runs: comparison failed: {exc}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    else:
+        verdict = "EQUIVALENT" if report["equivalent"] else "DIFFERENT"
+        print(
+            f"runs: {verdict}  checks={report['checks']}"
+            f" differences={len(report['differences'])}"
+        )
+        for item in report["differences"]:
+            if item["kind"] == "artifacts":
+                print(
+                    f"  - artifacts: changed={item['changed']}"
+                    f" missing_in_left={item['missing_in_left']}"
+                    f" missing_in_right={item['missing_in_right']}"
+                )
+            else:
+                print(f"  - {item['kind']}: {item}")
+    return 0 if report["equivalent"] else 1
+
+
 # ── Research Enhancement commands (Agent D) ───────────────────────
 
 
@@ -1658,6 +1699,14 @@ def build_parser() -> argparse.ArgumentParser:
     _ = psp_p.add_argument("--skill-dir", required=True, help="Exported skill directory")
     _ = psp_p.add_argument("--json", action="store_true", help="Print the plan as JSON")
 
+    # P-149: deterministic rerun equivalence comparison
+    runs_p = sub.add_parser("runs", help="Compare two finished runs (read-only)")
+    runs_sub = runs_p.add_subparsers(dest="runs_command", required=True)
+    cmp_p = runs_sub.add_parser("compare", help="Check two runs for deterministic equivalence")
+    _ = cmp_p.add_argument("--left", required=True, help="Left run artifacts directory")
+    _ = cmp_p.add_argument("--right", required=True, help="Right run artifacts directory")
+    _ = cmp_p.add_argument("--json", action="store_true", help="Print the report as JSON")
+
     # G1b: supervisor（A1-3）
     sup_p = sub.add_parser("supervisor", help="Supervise a run and restart retryable failures")
     _ = sup_p.add_argument("--output", "-o", required=True,
@@ -1903,6 +1952,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_actions(args)
     elif command == "pipeline-skill":
         return cmd_pipeline_skill(args)
+    elif command == "runs":
+        return cmd_runs_compare(args)
     elif command == "serve":
         return cmd_serve(args)
     elif command == "dashboard":
