@@ -30,6 +30,51 @@ from researchclaw.prompts import PromptManager
 logger = logging.getLogger(__name__)
 
 
+def _write_plan_search_report(
+    run_dir: Path, plan: Any, budget_usd: float
+) -> dict | None:
+    """G8b: write a budget-bounded candidate report for the experiment nodes.
+
+    This is read-only with respect to ``exp_plan.yaml``: it never drops a
+    condition, it only records what fits in the plan budget.
+    """
+    try:
+        if not isinstance(plan, dict):
+            return None
+        from researchclaw.plan import search_experiment_candidates
+        from researchclaw.plan.store import plan_dir
+
+        nodes = [
+            node
+            for node in (plan.get("nodes") or [])
+            if isinstance(node, dict) and node.get("type") == "experiment"
+        ]
+        candidates = [
+            {
+                "id": str(node.get("id")),
+                "estimated_usd": float(
+                    (node.get("budget") or {}).get("usd", 0.0) or 0.0
+                ),
+                "score": 1.0 / (index + 1),
+            }
+            for index, node in enumerate(nodes)
+        ]
+        report = search_experiment_candidates(
+            candidates, budget_usd=float(budget_usd or 0.0)
+        )
+        report["generated_at"] = _utcnow_iso()
+        path = plan_dir(run_dir) / "search.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(report, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        return report
+    except Exception:  # noqa: BLE001 - planning must not break the stage
+        logger.warning("ResearchPlan search report failed at Stage 9", exc_info=True)
+        return None
+
+
 def _normalize_plan_field(value: Any) -> list:
     """Normalize a plan field (baselines, proposed_methods, ablations, datasets)
     from any shape the LLM might produce into a flat list of items.
@@ -639,6 +684,7 @@ def _execute_experiment_design(
                     + "; ".join(item.message for item in _violations[:5]),
                 )
             update_plan(run_dir, _updated, stage=9)
+            _write_plan_search_report(run_dir, _updated, _plan_budget)
     except Exception:  # noqa: BLE001 - planning must not break the stage
         logger.warning("ResearchPlan update failed at Stage 9", exc_info=True)
 
