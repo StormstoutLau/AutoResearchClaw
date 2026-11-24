@@ -125,6 +125,7 @@ class OrchestrationAdapter(ABC):
                 self._execute(task, workdir, budget, handle)
                 handle.status = "completed"
             except BudgetExceeded as exc:
+                self._write_budget_failure(task, workdir, budget, exc)
                 handle.status = "budget_exceeded"
                 handle.error = str(exc)
             except BaseException as exc:  # noqa: BLE001 - surfaced via handle
@@ -230,6 +231,103 @@ class OrchestrationAdapter(ABC):
         (workdir / "usage.json").write_text(
             json.dumps(usage, indent=2, sort_keys=True, default=str), encoding="utf-8"
         )
+
+    def _write_budget_failure(
+        self,
+        task: OrchestrationTask,
+        workdir: Path,
+        budget: Budget,
+        exc: BudgetExceeded,
+    ) -> None:
+        """Leave a readable, self-consistent artifact set when a budget trips.
+
+        Only missing files are synthesized; an adapter that already wrote
+        artifacts (e.g. the ``over_budget`` fixture) is never overwritten.
+        """
+        names = ("plan.json", "delegations.json", "aggregate.json",
+                 "trace.jsonl", "usage.json")
+        if all((workdir / name).is_file() for name in names):
+            return
+
+        attempted = int(exc.observed) if exc.kind == "tokens" else 0
+        trace_path = workdir / "trace.jsonl"
+        if trace_path.is_file():
+            try:
+                spans = [
+                    json.loads(line)
+                    for line in trace_path.read_text(encoding="utf-8").splitlines()
+                    if line.strip()
+                ]
+                tokens = sum(
+                    int(span.get("attributes", {}).get("tokens_in", 0))
+                    for span in spans
+                )
+            except (json.JSONDecodeError, OSError, TypeError, ValueError):
+                tokens = attempted
+        else:
+            tokens = attempted
+            trace_id = str(
+                uuid.uuid5(
+                    uuid.NAMESPACE_URL,
+                    f"{workdir.name}|{task.id}|{self.framework_id}|budget",
+                )
+            )
+            span = {
+                "schema": SCHEMA_TRACE,
+                "trace_id": trace_id,
+                "span_id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{trace_id}|budget.rejected")),
+                "parent_id": "",
+                "name": "budget.rejected",
+                "kind": "tool",
+                "start": 0.0,
+                "end": 0.0,
+                "pid": os.getpid(),
+                "thread_id": threading.get_ident(),
+                "attributes": {"tokens_in": tokens, "tokens_out": 0},
+            }
+            trace_path.write_text(
+                json.dumps(span, sort_keys=True, default=str) + "\n",
+                encoding="utf-8",
+            )
+
+        usage = {
+            "schema": SCHEMA_USAGE,
+            "task_id": task.id,
+            "adapter": self.framework_id,
+            "prompt_tokens": tokens,
+            "completion_tokens": 0,
+            "tool_calls": 0,
+            "llm_calls": 0,
+            "wall_seconds": 0.0,
+            "max_concurrency": 0,
+            "charged_tokens": tokens,
+            "exceeded": True,
+            "truncated": False,
+            "status": "budget_exceeded",
+            "budget": {
+                "tokens": budget.tokens,
+                "wall_seconds": budget.wall_seconds,
+                "max_workers": budget.max_workers,
+                "max_depth": budget.max_depth,
+            },
+        }
+        payloads: dict[str, dict[str, Any]] = {
+            "plan.json": {"schema": SCHEMA_PLAN, "task_id": task.id, "nodes": []},
+            "delegations.json": {
+                "schema": SCHEMA_DELEGATIONS,
+                "task_id": task.id,
+                "delegations": [],
+            },
+            "aggregate.json": _empty_aggregate(task),
+            "usage.json": usage,
+        }
+        for name, payload in payloads.items():
+            path = workdir / name
+            if not path.is_file():
+                path.write_text(
+                    json.dumps(payload, indent=2, sort_keys=True, default=str),
+                    encoding="utf-8",
+                )
 
     def _usage(
         self,

@@ -215,18 +215,17 @@ def verify_run(
 
     log = EventLog(run_dir, run_id)
     problems: list[str] = []
+    read_failed = False
     try:
         events = log.read_all()
-        chain_ok, chain_message = log.verify_chain()
     except (OSError, ValueError) as exc:
         events = []
         chain_ok, chain_message = False, "event log unreadable: %s" % exc
+        read_failed = True
         problems.append("archive_unreadable")
 
     if not events:
         problems.append("no_events")
-    if not chain_ok:
-        problems.append("chain:%s" % chain_message)
 
     seqs = []
     for event in events:
@@ -236,6 +235,15 @@ def verify_run(
             continue
     first_seq = min(seqs) if seqs else 0
     last_seq = max(seqs) if seqs else 0
+
+    if not read_failed:
+        try:
+            chain_ok, chain_message = log.verify_chain(start_seq=first_seq or 1)
+        except (OSError, ValueError) as exc:
+            chain_ok, chain_message = False, "event log unreadable: %s" % exc
+    if not chain_ok:
+        problems.append("chain:%s" % chain_message)
+
     gaps, duplicates = event_seq_coverage(events)
     if gaps:
         problems.append("seq_gaps:%s" % ",".join(str(x) for x in gaps[:20]))
