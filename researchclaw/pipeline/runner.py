@@ -169,6 +169,26 @@ def _apply_handback_guard(
     return result
 
 
+def _replace_with_retry(tmp_path, target, *, attempts: int = 5,
+                        delay: float = 0.05) -> None:
+    """Replace a checkpoint/heartbeat file, tolerating transient Windows sharing.
+
+    A concurrent reader (dashboard, soak verifier) can hold the destination
+    without FILE_SHARE_DELETE, making ``os.replace`` raise PermissionError.
+    A short retry prevents a read-only observer from crashing a stage.
+    """
+    last: PermissionError | None = None
+    for _ in range(attempts):
+        try:
+            Path(tmp_path).replace(target)
+            return
+        except PermissionError as exc:
+            last = exc
+            _time.sleep(delay)
+    if last is not None:
+        raise last
+
+
 def _write_checkpoint(
     run_dir: Path, stage: Stage, run_id: str,
     adapters: "AdapterBundle | None" = None,
@@ -195,7 +215,7 @@ def _write_checkpoint(
     try:
         with open(tmp_path, "w", encoding="utf-8") as fh:
             fh.write(json.dumps(checkpoint, indent=2))
-        Path(tmp_path).replace(target)
+        _replace_with_retry(tmp_path, target)
     except BaseException:
         Path(tmp_path).unlink(missing_ok=True)
         raise
@@ -218,7 +238,7 @@ def _write_heartbeat(run_dir: Path, stage: Stage, run_id: str) -> None:
     try:
         with open(tmp_path, "w", encoding="utf-8") as fh:
             fh.write(json.dumps(heartbeat, indent=2))
-        Path(tmp_path).replace(target)
+        _replace_with_retry(tmp_path, target)
     except BaseException:
         Path(tmp_path).unlink(missing_ok=True)
         raise
@@ -378,7 +398,8 @@ def read_checkpoint(run_dir: Path) -> Stage | None:
 def _recover_checkpoint_from_events(run_dir: Path) -> dict | None:
     """A1-5 recovery path: rebuild checkpoint from ``events.jsonl`` and persist it."""
     events_path = run_dir / "events.jsonl"
-    if not events_path.exists():
+    # F-2（P-160）：轮转后 active 可能为空/不存在；只要任一轮转段存在就尝试恢复。
+    if not events_path.exists() and not any(run_dir.glob("events.*.jsonl*")):
         return None
     try:
         from researchclaw.runtime.event_log import EventLog, rebuild_checkpoint
@@ -400,7 +421,7 @@ def _write_recovered_checkpoint(run_dir: Path, payload: dict) -> None:
     try:
         with open(tmp_path, "w", encoding="utf-8") as fh:
             fh.write(json.dumps(payload, indent=2))
-        Path(tmp_path).replace(target)
+        _replace_with_retry(tmp_path, target)
     except BaseException:
         Path(tmp_path).unlink(missing_ok=True)
         raise
