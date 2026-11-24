@@ -77,7 +77,7 @@ upstream: arc-master-roadmap
 | 环境 | DoR | DoD | 状态 | 说明 |
 |---|---|---|---|---|
 | C-1 Python 3.13 本机 | 本机 3.13.5 | 新增测试全绿 | ✅ | 12 passed in 0.29s；集成 19 passed |
-| C-2 Python 3.11–3.14 CI | CI 矩阵 | 两轮 8/8 | ⏳ | PR 后回填 |
+| C-2 Python 3.11–3.14 CI | CI 矩阵 | 两轮 8/8 | ⏳ | 第一轮 8/8（run 45465677366）；第二轮由本提交触发 |
 | C-3 既有 Stage 15 测试 | tests | 相关回归全过 | ✅ | 351 passed；全量 3920 passed |
 
 ## 7. 测试映射
