@@ -1,11 +1,16 @@
-"""Run equivalence comparison (P-149).
+"""Run equivalence comparison (P-149, extended in P-150).
 
 Compares two run directories on deterministic, recorded projections instead of
 raw logs: completed/failed stage sequences, tool and parameter sequences, action
-statuses, artifact content hashes, and both hash chains. Volatile fields
-(``run_id``, timestamps, durations, action UUIDs, absolute path prefixes) are
-excluded by construction, so two reruns of the same deterministic pipeline are
-expected to compare equal.
+statuses, artifact content hashes, the pipeline summary digest, and both hash
+chains. Volatile fields (``run_id``, timestamps, durations, action UUIDs,
+absolute path prefixes) are excluded by construction, so two reruns of the same
+deterministic pipeline are expected to compare equal.
+
+Artifact hashes come from the action ledger when it has actions. Stages that
+record no actions (for example the first three LLM-only stages) fall back to the
+content-addressed node index at ``artifacts/nodes.jsonl`` (P-150), which is the
+only recorded artifact evidence for such runs.
 
 This is a *comparator*, not a re-executor: it makes no claim that a concrete
 rerun will be equivalent, only that two recorded runs can be mechanically
@@ -13,14 +18,17 @@ checked for it.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Mapping
 
+from researchclaw.evidence.artifact_node import NODES_FILE, load_nodes
+from researchclaw.evidence.summary_check import summary_digest
 from researchclaw.runtime.action_ledger import ActionLedger
 from researchclaw.runtime.event_log import EventLog
 
 #: Categories evaluated on every comparison (``checks`` is always this length).
-CHECKS = 8
+CHECKS = 9
 
 DIFFERENCE_KINDS = (
     "activity",
@@ -30,6 +38,7 @@ DIFFERENCE_KINDS = (
     "params_sequence",
     "status_sequence",
     "artifacts",
+    "run_summary",
     "event_chain",
     "action_chain",
 )
@@ -64,6 +73,36 @@ def _output_key(raw: str, run_dir: Path) -> str:
         return Path(raw).name
 
 
+def _node_artifacts(run_dir: Path) -> dict[str, str]:
+    """Project ``artifacts/nodes.jsonl`` to ``locator -> content_hash``.
+
+    A malformed index is unverifiable evidence, so it fails closed instead of
+    being treated as an empty artifact set.
+    """
+    try:
+        nodes = load_nodes(run_dir)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise ValueError(f"artifact node index unreadable: {run_dir}: {exc}") from exc
+    artifacts: dict[str, str] = {}
+    for node in nodes:
+        artifacts[str(node.locator)] = str(node.content_hash)
+    return dict(sorted(artifacts.items()))
+
+
+def _summary_digest(run_dir: Path) -> str | None:
+    """Canonical digest of ``pipeline_summary.json``; ``None`` when absent."""
+    path = run_dir / "pipeline_summary.json"
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"pipeline summary unreadable: {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"pipeline summary is not an object: {path}")
+    return summary_digest(data)
+
+
 def _facts(run_dir: Path) -> dict:
     log = EventLog(run_dir, run_dir.name)
     events = log.read_all()
@@ -73,10 +112,20 @@ def _facts(run_dir: Path) -> dict:
     actions = ledger.read_all()
     ledger_ok, ledger_message = ledger.verify_chain()
 
-    artifacts: dict[str, str] = {}
+    ledger_artifacts: dict[str, str] = {}
     for action in actions:
         for raw, digest in (action.get("outputs") or {}).items():
-            artifacts[_output_key(str(raw), run_dir)] = str(digest)
+            ledger_artifacts[_output_key(str(raw), run_dir)] = str(digest)
+
+    if actions:
+        artifacts = ledger_artifacts
+        artifacts_source = "ledger"
+    elif (run_dir / NODES_FILE).is_file():
+        artifacts = _node_artifacts(run_dir)
+        artifacts_source = "node_index"
+    else:
+        artifacts = {}
+        artifacts_source = "none"
 
     return {
         "run_id": run_dir.name,
@@ -86,6 +135,8 @@ def _facts(run_dir: Path) -> dict:
         "params": [str(action.get("params_sha256", "")) for action in actions],
         "statuses": [str(action.get("status", "")) for action in actions],
         "artifacts": dict(sorted(artifacts.items())),
+        "artifacts_source": artifacts_source,
+        "summary_digest": _summary_digest(run_dir),
         "event_chain_ok": bool(chain_ok),
         "event_chain_message": chain_message,
         "action_chain_ok": bool(ledger_ok),
@@ -120,6 +171,8 @@ def _summary(facts: Mapping[str, Any]) -> dict:
         "stages": facts["stages"],
         "actions": facts["action_count"],
         "artifacts": len(facts["artifacts"]),
+        "artifacts_source": facts["artifacts_source"],
+        "summary_digest": facts["summary_digest"],
         "event_chain_ok": facts["event_chain_ok"],
         "action_chain_ok": facts["action_chain_ok"],
     }
@@ -168,6 +221,13 @@ def compare_runs(left_dir: str | Path, right_dir: str | Path) -> dict:
     artifact_difference = _artifact_difference(left["artifacts"], right["artifacts"])
     if artifact_difference is not None:
         differences.append(artifact_difference)
+
+    if left["summary_digest"] != right["summary_digest"]:
+        differences.append({
+            "kind": "run_summary",
+            "left": left["summary_digest"],
+            "right": right["summary_digest"],
+        })
 
     if not (left["event_chain_ok"] and right["event_chain_ok"]):
         differences.append({
