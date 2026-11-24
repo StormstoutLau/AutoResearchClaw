@@ -226,7 +226,7 @@ repo_stats: knowledge paper_count=0 paper_duplicates=0 kg_nodes=0 kg_edges=0 ill
 | verify-anchor | 10 真实 / 0 缺失 / 0 漂移 |
 | step_enforce | `digest_bound=1` |
 | pre-commit | 全绿 |
-| PR CI | 待 CI |
+| PR CI | 8/8（Packaging/Extras/Tests 3.11-3.14/Roadmap/Spec gates） |
 
 ## 11. 未做与边界
 
