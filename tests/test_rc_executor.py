@@ -1346,6 +1346,86 @@ class TestResearchDecisionStructured:
         assert data["decision"] is None
         assert data["decision_parse_failed"] is True
 
+    def test_drift_guard_pauses_unrelated_analysis(
+        self, tmp_path: Path, rc_config: RCConfig, adapters: AdapterBundle
+    ) -> None:
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        stage_dir = run_dir / "stage-15"
+        stage_dir.mkdir(parents=True)
+        _write_prior_artifact(
+            run_dir, 1, "goal.md",
+            "# Goal\nWe study dropout calibration for shallow MLPs on tabular data.\n",
+        )
+        _write_prior_artifact(
+            run_dir, 8, "hypotheses.md", "- H1: MC dropout lowers ECE.\n"
+        )
+        _write_prior_artifact(
+            run_dir, 14, "analysis.md",
+            "# Analysis\nThe poem uses iambic pentameter. [Doe, 2024]\n"
+            "The castle archive was catalogued in 1450. [Roe, 1999]\n",
+        )
+        fake_llm = FakeLLMClient("## Decision\nPROCEED\n## Justification\nKeep going.")
+        result = rc_executor._execute_research_decision(
+            stage_dir, run_dir, rc_config, adapters, llm=fake_llm
+        )
+        import json
+        assert result.status == StageStatus.PAUSED
+        assert result.error == "E_DRIFT_DETECTED"
+        report = json.loads((stage_dir / "drift_report.json").read_text())
+        assert report["action"] == "pause"
+        structured = json.loads((stage_dir / "decision_structured.json").read_text())
+        assert structured["drift"]["action"] == "pause"
+
+    def test_drift_guard_allows_related_analysis(
+        self, tmp_path: Path, rc_config: RCConfig, adapters: AdapterBundle
+    ) -> None:
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        stage_dir = run_dir / "stage-15"
+        stage_dir.mkdir(parents=True)
+        text = (
+            "We study dropout calibration for shallow MLPs on tabular data. "
+            "MC dropout lowers ECE with an effect size of 0.6."
+        )
+        _write_prior_artifact(run_dir, 1, "goal.md", "# Goal\n" + text)
+        _write_prior_artifact(run_dir, 8, "hypotheses.md", "- H1: MC dropout lowers ECE.")
+        _write_prior_artifact(run_dir, 14, "analysis.md", "# Conclusion\n" + text)
+        fake_llm = FakeLLMClient("## Decision\nPROCEED\n## Justification\nMatches the goal.")
+        result = rc_executor._execute_research_decision(
+            stage_dir, run_dir, rc_config, adapters, llm=fake_llm
+        )
+        import json
+        assert result.status == StageStatus.DONE
+        report = json.loads((stage_dir / "drift_report.json").read_text())
+        assert report["action"] in ("pass", "warn")
+
+    def test_drift_guard_exempts_approved_pivot(
+        self, tmp_path: Path, rc_config: RCConfig, adapters: AdapterBundle
+    ) -> None:
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        stage_dir = run_dir / "stage-15"
+        stage_dir.mkdir(parents=True)
+        _write_prior_artifact(run_dir, 1, "goal.md", "# Goal\n" + ("dropout calibration " * 10))
+        _write_prior_artifact(run_dir, 8, "hypotheses.md", "- H1: MC dropout lowers ECE.")
+        _write_prior_artifact(
+            run_dir, 14, "analysis.md", "# Analysis\nThe poem uses iambic pentameter."
+        )
+        (stage_dir / "scope_change_approval.json").write_text(
+            '{"schema": "arc-scope-change-approval/1", "approved": true, '
+            '"reason": "approved pivot", "approved_by": "hitl"}',
+            encoding="utf-8",
+        )
+        fake_llm = FakeLLMClient("## Decision\nPIVOT\n## Justification\nNew scope.")
+        result = rc_executor._execute_research_decision(
+            stage_dir, run_dir, rc_config, adapters, llm=fake_llm
+        )
+        import json
+        assert result.status == StageStatus.DONE
+        report = json.loads((stage_dir / "drift_report.json").read_text())
+        assert report["action"] == "exempt"
+
 
 class TestExperimentDesignGuard:
     # The schema-deficit guard added in _execute_experiment_design uses

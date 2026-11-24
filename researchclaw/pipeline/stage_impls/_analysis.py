@@ -1089,6 +1089,48 @@ def _format_agent_decision_md(
     return "\n".join(lines) + "\n"
 
 
+def _apply_drift_guard(
+    stage_dir: Path,
+    run_dir: Path,
+    decision: str,
+    decision_md: str,
+    analysis: str,
+) -> tuple[Any, StageResult | None]:
+    """Assess drift after Stage 15 parsed a decision; pause on a tripwire.
+
+    The report is always written. On ``pause`` the decision text gets a
+    re-anchoring section and the caller must return ``StageStatus.PAUSED``
+    without advancing the checkpoint.
+    """
+    from researchclaw.guards.drift import (
+        assess_drift,
+        format_reanchor_section,
+        write_drift_report,
+    )
+
+    report = assess_drift(run_dir, stage_dir, decision, decision_md, analysis)
+    write_drift_report(stage_dir, report)
+    if report.action != "pause":
+        return report, None
+
+    with (stage_dir / "decision.md").open("a", encoding="utf-8") as handle:
+        handle.write(format_reanchor_section(report))
+    logger.warning(
+        "Stage 15 drift guard paused the pipeline: rq_cos=%s unsupported=%s reasons=%s",
+        report.rq_cos,
+        report.unsupported_ratio,
+        report.reasons,
+    )
+    return report, StageResult(
+        stage=Stage.RESEARCH_DECISION,
+        status=StageStatus.PAUSED,
+        artifacts=("decision.md", "decision_structured.json", "drift_report.json"),
+        error="E_DRIFT_DETECTED",
+        evidence_refs=("stage-15/decision.md", "stage-15/drift_report.json"),
+        decision="refine",
+    )
+
+
 def _agent_requirements_decision(
     *,
     stage_dir: Path,
@@ -1130,6 +1172,10 @@ def _agent_requirements_decision(
 
     decision_md = _format_agent_decision_md(verdict, decision, retry_count, rerun_triggered)
     (stage_dir / "decision.md").write_text(decision_md, encoding="utf-8")
+    _analysis_text = _read_prior_artifact(run_dir, "analysis.md") or ""
+    drift_report, drift_pause = _apply_drift_guard(
+        stage_dir, run_dir, decision, decision_md, _analysis_text
+    )
     decision_payload = {
         "decision": decision,
         "verdict": verdict,
@@ -1138,10 +1184,13 @@ def _agent_requirements_decision(
         "max_retries": _REQUIREMENTS_MAX_RETRIES,
         "generated": _utcnow_iso(),
         "source": "agent_requirements_gate",
+        "drift": drift_report.to_dict(),
     }
     (stage_dir / "decision_structured.json").write_text(
         json.dumps(decision_payload, indent=2), encoding="utf-8"
     )
+    if drift_pause is not None:
+        return drift_pause
     # Also persist the verdict for the runner / downstream stages to pick up
     (run_dir / "requirements_verdict.json").write_text(
         json.dumps(verdict, indent=2), encoding="utf-8"
@@ -1370,15 +1419,21 @@ Generated: {_utcnow_iso()}
     if _quality_warnings:
         logger.warning("T3.1: Decision quality warnings: %s", _quality_warnings)
 
+    drift_report, drift_pause = _apply_drift_guard(
+        stage_dir, run_dir, decision, decision_md, analysis
+    )
     decision_payload = {
         "decision": decision,
         "raw_text_excerpt": decision_md[:500],
         "quality_warnings": _quality_warnings,
+        "drift": drift_report.to_dict(),
         "generated": _utcnow_iso(),
     }
     (stage_dir / "decision_structured.json").write_text(
         json.dumps(decision_payload, indent=2), encoding="utf-8"
     )
+    if drift_pause is not None:
+        return drift_pause
     _ledger = _update_plan_ledger(run_dir, decision)
     if _ledger is not None:
         decision_payload["plan_ledger"] = {
