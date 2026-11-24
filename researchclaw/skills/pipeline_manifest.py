@@ -25,7 +25,8 @@ from researchclaw.skills.schema import STAGE_NAME_TO_NUMBER
 
 MANIFEST_NAME = "pipeline.json"
 SKILL_NAME = "SKILL.md"
-MANIFEST_VERSION = 1
+MANIFEST_VERSION = 2
+SUPPORTED_VERSIONS = (1, 2)
 KIND = "pipeline-skill"
 SUCCESS_CRITERIA = ("run.completed", "no_stage_failed", "stage23.completed")
 
@@ -118,8 +119,13 @@ def export_manifest(
     description: str = "",
     repo_commit: str = "",
     tool_versions: Mapping[str, str] | None = None,
+    config_path: str | Path | None = None,
 ) -> dict:
-    """Export a successful run into ``skill_dir``; returns the manifest dict."""
+    """Export a successful run into ``skill_dir``; returns the manifest dict.
+
+    ``config_path`` (P-148) adds a sanitized config snapshot and bumps the
+    manifest to v2. Without it the export stays v1 (no config, no re-run).
+    """
     run_dir = Path(run_dir).resolve()
     skill_dir = Path(skill_dir).resolve()
     log = EventLog(run_dir, run_dir.name)
@@ -176,7 +182,7 @@ def export_manifest(
         })
 
     body = {
-        "manifest_version": MANIFEST_VERSION,
+        "manifest_version": 1,
         "kind": KIND,
         "name": name,
         "description": description,
@@ -196,6 +202,11 @@ def export_manifest(
         "env_keys": env_keys,
         "readpoints": readpoints,
     }
+    if config_path is not None:
+        from researchclaw.skills.config_sanitizer import write_sanitized_snapshot
+
+        body["manifest_version"] = 2
+        body["config"] = write_sanitized_snapshot(config_path, skill_dir)
     integrity = "sha256:" + _sha256_text(canonical_json(body))
     manifest = dict(body)
     manifest["integrity"] = {"algorithm": "sha256", "manifest_sha256": integrity}
@@ -223,13 +234,15 @@ def validate_manifest(
     *,
     stage_map: Mapping[str, int] | None = None,
     tool_versions: Mapping[str, str] | None = None,
+    skill_dir: str | Path | None = None,
 ) -> tuple[list[str], list[str]]:
     """Return ``(errors, warnings)``; errors are fail-closed."""
     errors: list[str] = []
     warnings: list[str] = []
     data = dict(manifest)
-    if data.get("manifest_version") != MANIFEST_VERSION:
-        errors.append("manifest_version must be %d" % MANIFEST_VERSION)
+    version = data.get("manifest_version")
+    if version not in SUPPORTED_VERSIONS:
+        errors.append("manifest_version must be one of %s" % (SUPPORTED_VERSIONS,))
     if data.get("kind") != KIND:
         errors.append("kind must be %r" % KIND)
 
@@ -266,7 +279,39 @@ def validate_manifest(
             elif str(tool.get("version", "")) != str(current_tools[name]):
                 warnings.append("tool version drift: %s (%s != %s)"
                                 % (name, tool.get("version"), current_tools[name]))
+
+    if version == 2:
+        errors.extend(_validate_config(data, skill_dir))
     return errors, warnings
+
+
+def _validate_config(data: Mapping[str, Any], skill_dir: str | Path | None) -> list[str]:
+    """v2 must carry a sanitized config snapshot whose hash still matches."""
+    from researchclaw.skills.config_sanitizer import SNAPSHOT_NAME
+
+    errors: list[str] = []
+    config = data.get("config")
+    if not isinstance(config, dict):
+        return ["config snapshot block is missing for manifest v2"]
+    pointer = str(config.get("pointer", ""))
+    path = Path(pointer)
+    if not pointer or path.is_absolute() or ".." in path.parts:
+        errors.append("config pointer must stay inside the skill directory")
+        return errors
+    if path.name != SNAPSHOT_NAME:
+        errors.append("config pointer must reference %s" % SNAPSHOT_NAME)
+    if skill_dir is not None:
+        target = Path(skill_dir) / path
+        if not target.is_file():
+            errors.append("config snapshot missing: %s" % pointer)
+        else:
+            actual = hash_path(target)
+            if actual != config.get("sha256"):
+                errors.append("config snapshot hash mismatch")
+    redacted = config.get("redacted_keys") or []
+    if not isinstance(redacted, list):
+        errors.append("config.redacted_keys must be a list")
+    return errors
 
 
 def load_pipeline_skill(skill_dir: str | Path) -> tuple[dict | None, list[str]]:
@@ -295,5 +340,6 @@ def load_pipeline_skill(skill_dir: str | Path) -> tuple[dict | None, list[str]]:
         tool_versions = {tool.name: str(getattr(tool, "version", "")) for tool in registry.tools}
     except Exception:  # noqa: BLE001 - registry is optional for pure discovery
         tool_versions = None
-    errors, _warnings = validate_manifest(data, tool_versions=tool_versions)
+    errors, _warnings = validate_manifest(data, tool_versions=tool_versions,
+                                         skill_dir=skill_dir)
     return (None, errors) if errors else (data, [])

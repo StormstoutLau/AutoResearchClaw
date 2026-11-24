@@ -1176,12 +1176,15 @@ def cmd_actions(args: argparse.Namespace) -> int:
 
 
 def cmd_pipeline_skill(args: argparse.Namespace) -> int:
-    """Verify a pipeline skill against its run (P-147). Exit 0 reproducible,
-    1 drift, 2 unusable input."""
+    """Verify a pipeline skill against its run (P-147) or emit a reuse plan
+    (P-148). Exit 0 ok, 1 drift, 2 unusable input."""
     import json
 
     from researchclaw.skills.pipeline_manifest import load_pipeline_skill
     from researchclaw.skills.reproducibility import verify_reproducibility
+
+    if getattr(args, "ps_command", "verify") == "plan":
+        return _cmd_pipeline_plan(args)
 
     skill_dir = Path(cast(str, args.skill_dir))
     run_dir = Path(cast(str, args.run_dir))
@@ -1221,6 +1224,50 @@ def cmd_pipeline_skill(args: argparse.Namespace) -> int:
         for item in report["readpoint_failures"]:
             print(f"  - readpoint {item['reason']}: {item['artifact']}")
     return 0 if report["reproducible"] else 1
+
+
+def _cmd_pipeline_plan(args: argparse.Namespace) -> int:
+    """Emit a reuse plan from a v2 manifest (sanitized config snapshot)."""
+    import json
+
+    from researchclaw.skills.pipeline_manifest import load_pipeline_skill
+
+    skill_dir = Path(cast(str, args.skill_dir))
+    if not skill_dir.is_dir():
+        print(f"pipeline-skill: skill directory does not exist: {skill_dir}", file=sys.stderr)
+        return 2
+    manifest, errors = load_pipeline_skill(skill_dir)
+    if manifest is None:
+        print("pipeline-skill: manifest unusable: " + "; ".join(errors), file=sys.stderr)
+        return 2
+    if manifest.get("manifest_version") != 2:
+        print("pipeline-skill: manifest has no config snapshot; "
+              "re-export with config_path to enable a reuse plan", file=sys.stderr)
+        return 2
+
+    config = manifest.get("config") or {}
+    snapshot = skill_dir / str(config.get("pointer", ""))
+    command = f'researchclaw run --config "{snapshot}" --topic "<your topic>"'
+    redacted = config.get("redacted_keys") or []
+    plan = {
+        "command": command,
+        "config_snapshot": str(snapshot),
+        "stages": [node.get("stage") for node in manifest.get("stages") or []],
+        "tools": [tool.get("name") for tool in manifest.get("tools") or []],
+        "redacted_keys": redacted,
+        "needs_manual_fill": bool(redacted),
+        "note": "Redacted placeholders must be filled before running; nothing executes from this command.",
+    }
+    if args.json:
+        print(json.dumps(plan, ensure_ascii=False, indent=2))
+        return 0
+    print(f"plan: {command}")
+    print(f"plan: stages={plan['stages']} tools={plan['tools']}")
+    if redacted:
+        print("plan: redacted keys (fill manually):")
+        for key in redacted:
+            print(f"  - {key}")
+    return 0
 
 
 # ── Research Enhancement commands (Agent D) ───────────────────────
@@ -1603,9 +1650,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ps_sub = ps_p.add_subparsers(dest="ps_command", required=True)
     psv_p = ps_sub.add_parser("verify", help="Check artifacts/actions/chain still intact")
-    _ = psv_p.add_argument("--skill-dir", required=True, help="Exported skill directory")
+    psv_p.add_argument("--skill-dir", required=True, help="Exported skill directory")
     _ = psv_p.add_argument("--run-dir", required=True, help="Run artifacts directory")
     _ = psv_p.add_argument("--json", action="store_true", help="Print the report as JSON")
+
+    psp_p = ps_sub.add_parser("plan", help="Emit a reuse plan from the sanitized config")
+    _ = psp_p.add_argument("--skill-dir", required=True, help="Exported skill directory")
+    _ = psp_p.add_argument("--json", action="store_true", help="Print the plan as JSON")
 
     # G1b: supervisor（A1-3）
     sup_p = sub.add_parser("supervisor", help="Supervise a run and restart retryable failures")
