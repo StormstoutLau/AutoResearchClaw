@@ -11,7 +11,7 @@ upstream: null
 # 实施：定时重型执行路径（P-129）
 
 > **基于设计**：[DESIGN.md](./DESIGN.md)（v1.0 / verified）。
-> **变更**：新增 [.github/workflows/heavy.yml](../../.github/workflows/heavy.yml) 一个文件。
+> **变更**：新增 `.github/workflows/heavy.yml` 一个文件（P-141 已删除）。
 > **未改动**：`ci.yml`、`tests/`、`researchclaw/`、`tests/ci_exclusions.yaml`、分支保护设置。
 
 ---
@@ -20,7 +20,7 @@ upstream: null
 
 | 文件 | 改动 | 性质 |
 |---|---|---|
-| [.github/workflows/heavy.yml](../../.github/workflows/heavy.yml) | 新建 36 行工作流 | 新增 |
+| `.github/workflows/heavy.yml` | 新建 36 行工作流（P-141 已删除） | 新增 |
 | `spec/arc-ci-heavy-schedule/` | 四文档 | 新增 |
 | `tools/spec_runner/sessions/specwf-p129-ci-heavy-schedule.jsonl` | 五步决策流 | 新增 |
 | `docs/PROGRESS.md` | 追加 P-129 行 | 追加 |

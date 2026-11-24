@@ -109,7 +109,6 @@ def test_lease_keeper_renews(tmp_path):
     assert read_lease(tmp_path).expires_at >= first
 
 
-@pytest.mark.heavy  # 时序竞争：续期检查周期与墙钟 sleep 的隐式前提（P-125，见 spec/arc-ci-flaky-heavy/）
 def test_lease_keeper_reports_loss(tmp_path):
     lease = acquire(tmp_path, owner="me:1", ttl=300)
     lost = []

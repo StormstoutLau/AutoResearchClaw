@@ -87,7 +87,6 @@ class TestFileWait:
         # Response file should be cleaned up
         assert not (hitl_dir / "response.json").exists()
 
-    @pytest.mark.heavy  # 时序竞争：读/解析窗口与写入线程交错（P-125，见 spec/arc-ci-flaky-heavy/）
     def test_poll_with_delayed_response(self, tmp_path: Path) -> None:
         hitl_dir = tmp_path / "hitl"
         hitl_dir.mkdir(parents=True)
