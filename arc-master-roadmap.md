@@ -1,14 +1,14 @@
 ---
 id: arc-master-roadmap
 type: design
-version: 1.4t
+version: 1.4u
 status: draft
 date: 2026-11-24
 depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-textbook, clawsgo-cleanroom-arc]
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.4t）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.4u）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -130,6 +130,8 @@ upstream: arb-v2-decisions
 > **修订**：v1.4s（2026-11-24，P-144）**总纲回填：G4 收口 + 当前进度**：P-106 已交付 G4-M5（A4-7 七处 allowlist / A4-8 三十一处 safe_join + 一豁免 / A4-9 HostProfile + 零 shell=True），CHECKLIST **83/84**，唯一待办为 Linux 分支待 CI `ubuntu-latest` 首跑；**G4 记为 10/10**。至此 P0 阶段全部收口，P1 仅剩 G5/G8a：**完成 64 / 106，开放 42**（G5 14、G6 5、G7 15、G8a 4、G8b 4）。P-107..P-143 的 CI/CD 治理、heavy 退场与动作账本属总纲外工作，不改变 106 口径。**106 计数不变**。依据：[P-106 实施](spec/arc-g4-m5-host-boundary/IMPLEMENTATION.md)、[本回填](spec/arc-roadmap-backfill/RESEARCH.md)。
 >
 > **修订**：v1.4t（2026-11-24，P-153）**总纲回填：G8a 收口**：P-152 交付 `ResearchPlan v1`（`researchclaw/plan/`：schema + V1–V12 + 原子存储 + Stage 2/7/8/9/14 接入），A8a-1..4 全过，CHECKLIST **34/34**；**G8a 记为 4/4**。Q15 默认值（深度 3 / 扇出 8 / 节点 40 / `max_versions=3`）由 P-152 provisional 落地，待 ARC-Bench 校准。进度 **68 / 106，开放 38**（G5 14、G6 5、G7 15、G8b 4）。P-107..P-151 的 CI/CD 治理、heavy 退场、动作账本、pipeline 复用与等价性属总纲外工作，不改变 106 口径。**106 计数不变**。依据：[P-152 实施](spec/arc-research-plan/IMPLEMENTATION.md)。
+>
+> **修订**：v1.4u（2026-11-24，P-154）**G5 三问裁决**：Q4 = A（复用既有 embedding 回退链 API→SBERT→TF-IDF 256d，降级显式 `retrieval_degraded`）；Q6 = A（本地关系词表扩到 17 类，外部 KG 只留 `KnowledgeSource` 接口）；Q7 = A（Paper 首批 500 条高置信度，全量 2,487 登记后续）。G5 实施批可开工；K4 全文仍被 Paper Phase 2 阻断。**106 计数不变**。依据：[P-154 决策](spec/arc-g5-decisions/DESIGN.md)。
 
 ---
 
@@ -239,7 +241,7 @@ flowchart LR
 
 ---
 
-### 3.1 当前进度（2026-11-24，v1.4t）
+### 3.1 当前进度（2026-11-24，v1.4u）
 
 | 阶段 | 优先级 | 验收 | 已完成 | 状态 |
 |---|---|---|---|---|
@@ -764,10 +766,10 @@ G0a → G-1 → G0b ─┬→ G1 ─┐
 | Q1 | Python 双轨（3.11 内核 + 3.12 子进程）还是统一 3.12 | G2 | **双轨 B** | **已裁决（B 双轨，P-042；3.11 内核实跑 94 文件 0 语法失败）** |
 | Q2 | Lean 是否作为安装前置 | G2 | **否，可选 Tier-3** | **已裁决（B 最小 vendor + sidecar + Lean 可选；许可证与第三方审计均已关闭：P-043/P-044）** |
 | Q3 | Spec "touch = migrate" 是否立即生效 | G0b | 新文档立即，存量入 grandfather | **已裁决（B 基线+棘轮，P-019/P-020，2026-11-10）** |
-| Q4 | Embedding 后端（OpenAI / sentence-transformers / TF-IDF） | G5 | 默认本地，缺失即降级并标记 | 待确认 |
+| Q4 | Embedding 后端（OpenAI / sentence-transformers / TF-IDF） | G5 | 默认本地，缺失即降级并标记 | **已裁决（A 复用 API→SBERT→TF-IDF 回退链，P-154）** |
 | Q5 | R1 后端：纯文件 + supervisor vs SQLite WAL | G1 | **先纯文件**，压测后再评估 | **已裁决（A 纯文件，P-026；依据 P-025 五步法）** |
-| Q6 | KG 扩词表 vs 外包外部 KG 服务 | G5 | 先扩词表（6→14），外包留接口 | 待确认 |
-| Q7 | Paper 首批范围（全部 2,487 还是子集） | G5 | 先 500 条高置信度做闭环 | 待确认 |
+| Q6 | KG 扩词表 vs 外包外部 KG 服务 | G5 | 先扩词表（6→14），外包留接口 | **已裁决（A 本地扩到 17 类 + 外部接口，P-154）** |
+| Q7 | Paper 首批范围（全部 2,487 还是子集） | G5 | 先 500 条高置信度做闭环 | **已裁决（A 首批 500 条，P-154；全量后续）** |
 | Q8 | 沙箱默认档（local / docker / 托管） | G4 | 开发 local，生产 docker | 待确认 |
 | Q9 | 事件保留期（30 天 / 永久） | G1/G7 | 30 天 + 归档摘要永久 | **已裁决（热30/归档365/摘要永久，P-026）** |
 | Q10 | MCP 协议版本对齐（SDK 2.x vs 2026-07-28 规范） | G4 | 开工前做兼容矩阵 | 待确认 |
