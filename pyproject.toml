@@ -58,12 +58,6 @@ packages = ["researchclaw"]
 # repo-root file onto the already-present package path and broke wheel builds
 # (duplicate archive entry) plus test_packaging.py's no-force-include contract.
 
-[tool.pytest.ini_options]
-# P-112 D-5：heavy 仅作运行时选择开关；集合成员唯一声明源 = tests/ci_exclusions.yaml
-markers = [
-    "heavy: 需要真实外部依赖/资源，或存在已知时序竞争需隔离的用例（由 tests/ci_exclusions.yaml 登记，CI 默认排除）",
-]
-
 [build-system]
 requires = ["hatchling>=1.30,<2"]
 build-backend = "hatchling.build"

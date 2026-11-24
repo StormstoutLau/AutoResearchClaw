@@ -1,17 +1,9 @@
 version: 1
-exclusions:
-  - path: tests/test_hitl_advanced.py
-    reason: "F-1 时序竞争：test_poll_with_delayed_response 的读/解析窗口与写入线程交错，已四次误红（3.11/3.14/3.13/3.12），见 spec/arc-ci-flaky-heavy/RESEARCH.md §3.1"
-    marker: heavy
-    owner: P-125
-    since: 2026-11-16
-  - path: tests/test_supervisor.py
-    reason: "F-2 时序竞争：test_lease_keeper_reports_loss 依赖「墙钟 sleep ≥ 若干续期检查周期」的隐式前提，见 spec/arc-ci-flaky-heavy/RESEARCH.md §3.2"
-    marker: heavy
-    owner: P-125
-    since: 2026-11-16
+exclusions: []
 # 契约（ci_coverage_check.py 校验）：
 #   - 粒度 = 文件（path 必须 ∈ git ls-files tests/test_*.py）
 #   - 五字段 path / reason / marker / owner / since 均必填；marker 固定为 heavy
 #   - 文件内含 pytest.mark.heavy ⇔ 必须在此登记（声明源与运行时开关同改）
 #   - reason 须区分「真实外部依赖」与「时序竞争」，不得套用模板话术
+#   - P-141 起默认 CI 收集全部测试，本表为空；若未来重新隔离，需同时恢复
+#     pyproject 的 heavy marker 定义与独立 workflow。
