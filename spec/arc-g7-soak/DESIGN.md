@@ -10,7 +10,7 @@ upstream: arc-master-roadmap
 
 # 设计：G7 第一段「soak 工具链」（P-160）
 
-> **基于调研**：[RESEARCH.md](./RESEARCH.md)（v1.0 / verified）。
+> **基于调研**：[RESEARCH.md](./RESEARCH.md)（v1.1 / verified）。
 > **变更面**：新增 `researchclaw/soak/`（driver/verifier/report）与 `soak` CLI；修复 `EventLog` 轮转边界恢复与 `runner` 的归档-only checkpoint 恢复；新增测试与报告模板。
 > **本段定位**：A7-1 的**工具链 + 缩时演练**、A7-4 的**完整验收**；不包含 A7-2/A7-3/A7-5/A7-6/A7-7、FA、OB。
 > **修订**：v1.1（2026-11-24，Step 6 反馈）D-4 收敛签名从“终态 + 完整阶段序列”改为**终态三字段**（状态/阶段/名称）；阶段序列保留为报告诊断。理由：runner 先写 checkpoint（`runner.py:950`）再发 `stage.completed`（`:951-953`），两者之间崩溃会永久缺失一条阶段事件，序列签名会把“同终态”误报为“不收敛”。A7-1 的原文是“收敛到同一终态”，终态三字段与判据一致。
