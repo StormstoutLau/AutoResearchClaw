@@ -16,8 +16,9 @@ from typing import Any, Awaitable, Callable, Mapping
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError
 
+from researchclaw.runtime.action_ledger import ActionLedger
 from researchclaw.runtime.event_log import EventLog, canonical_json
-from researchclaw.tools.approvals import is_approved
+from researchclaw.tools.approvals import is_approved, read_approvals
 from researchclaw.tools.registry import Registry, ToolSpec, unfreeze
 
 logger = logging.getLogger(__name__)
@@ -79,10 +80,12 @@ class ToolInvoker:
         *,
         event_log: EventLog | None = None,
         approvals_path: str | Path | None = None,
+        action_ledger: ActionLedger | None = None,
     ) -> None:
         self.registry = registry
         self.handlers = handlers
         self.event_log = event_log
+        self.action_ledger = action_ledger
         self.approvals_dir = Path(approvals_path).parent if approvals_path else None
         self._validators = {
             spec.name: Draft202012Validator(unfreeze(spec.input_schema))
@@ -111,9 +114,10 @@ class ToolInvoker:
             return _error(E_APPROVAL_REQUIRED,
                           f"tool '{name}' requires approval")
 
+        call_event = None
         if self.event_log is not None:
             try:
-                self.event_log.append("tool.call", {
+                call_event = self.event_log.append("tool.call", {
                     "tool": name,
                     "call_id": call_id,
                     "risk": spec.risk,
@@ -139,7 +143,7 @@ class ToolInvoker:
             exit_code = int(result["exit_code"])
 
         duration_ms = int((time.perf_counter() - started) * 1000)
-        self._emit("tool.result", {
+        result_event = self._emit("tool.result", {
             "tool": name,
             "call_id": call_id,
             "risk": spec.risk,
@@ -148,20 +152,49 @@ class ToolInvoker:
             "result_summary": _result_summary(result),
             "duration_ms": duration_ms,
         })
+        self._record_action(name, arguments, call_id, call_event, result_event,
+                            exit_code, result)
         return result
+
+    def _record_action(self, name, arguments, call_id, call_event, result_event,
+                       exit_code, result) -> None:
+        if self.action_ledger is None:
+            return
+        try:
+            self.action_ledger.record(
+                name,
+                arguments,
+                action_id=call_id,
+                approver=self._approver(name),
+                status="ok" if result.get("success") else "error",
+                exit_code=exit_code,
+                event_seq_call=getattr(call_event, "seq", None),
+                event_seq_result=getattr(result_event, "seq", None),
+            )
+        except Exception:  # noqa: BLE001 - the action already happened
+            logger.warning("action ledger append failed", exc_info=True)
+
+    def _approver(self, name: str) -> str | None:
+        if self.approvals_dir is None:
+            return None
+        entry = read_approvals(self.approvals_dir).get(str(name)) or {}
+        if entry.get("approved") is not True:
+            return None
+        return entry.get("by")
 
     def _approved(self, name: str) -> bool:
         if self.approvals_dir is None:
             return False
         return is_approved(self.approvals_dir, name)
 
-    def _emit(self, event_type: str, payload: dict[str, Any]) -> None:
+    def _emit(self, event_type: str, payload: dict[str, Any]):
         if self.event_log is None:
-            return
+            return None
         try:
-            self.event_log.append(event_type, payload)
+            return self.event_log.append(event_type, payload)
         except Exception:  # noqa: BLE001 - execution already happened
             logger.warning("tool event append failed", exc_info=True)
+            return None
 
 
 def emit_orphan_markers(event_log: EventLog) -> list[str]:
