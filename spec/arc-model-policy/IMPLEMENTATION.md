@@ -140,7 +140,7 @@ $ python -m pytest tests/test_rc_llm.py tests/test_reviewer_llm.py \
 | verify-anchor | 10 真实 / 0 缺失 / 0 漂移 |
 | step_enforce | `digest_bound=1` |
 | pre-commit | 全绿 |
-| PR CI | 首轮 1 failed（前端事件类型未同步，已修）；重跑待确认 |
+| PR CI | 8/8（首轮前端契约 1 failed 已修；重跑 8/8） |
 
 ## 11. 未做与边界
 
