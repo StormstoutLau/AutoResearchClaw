@@ -604,6 +604,44 @@ def _execute_experiment_design(
         yaml.dump(plan, default_flow_style=False, allow_unicode=True),
         encoding="utf-8",
     )
+
+    # G8a / P-152: experiment nodes bound to exp_plan.yaml, two-way checked.
+    try:
+        from researchclaw.plan import (
+            add_experiment_nodes,
+            check_experiment_plan_consistency,
+            load_plan,
+            update_plan,
+            validate_plan,
+        )
+
+        _research_plan = load_plan(run_dir)
+        if _research_plan is not None:
+            _exp_dict = plan if isinstance(plan, dict) else {}
+            _updated = add_experiment_nodes(_research_plan, _exp_dict)
+            _mismatches = check_experiment_plan_consistency(_updated, _exp_dict)
+            if _mismatches:
+                return StageResult(
+                    stage=Stage.EXPERIMENT_DESIGN,
+                    status=StageStatus.FAILED,
+                    artifacts=(),
+                    error="research plan / exp_plan mismatch: "
+                    + "; ".join(_mismatches[:5]),
+                )
+            _plan_budget = float(getattr(config.experiment, "max_budget_usd", 5.0))
+            _violations = validate_plan(_updated, run_budget_usd=_plan_budget)
+            if _violations:
+                return StageResult(
+                    stage=Stage.EXPERIMENT_DESIGN,
+                    status=StageStatus.FAILED,
+                    artifacts=(),
+                    error="invalid research plan after Stage 9: "
+                    + "; ".join(item.message for item in _violations[:5]),
+                )
+            update_plan(run_dir, _updated, stage=9)
+    except Exception:  # noqa: BLE001 - planning must not break the stage
+        logger.warning("ResearchPlan update failed at Stage 9", exc_info=True)
+
     return StageResult(
         stage=Stage.EXPERIMENT_DESIGN,
         status=StageStatus.DONE,

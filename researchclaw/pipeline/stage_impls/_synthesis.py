@@ -83,6 +83,17 @@ Under-reported failure behavior under distribution shift.
 {_utcnow_iso()}
 """
     (stage_dir / "synthesis.md").write_text(synthesis_md, encoding="utf-8")
+
+    # G8a / P-152: gaps become plan unknowns plus literature/question nodes.
+    try:
+        from researchclaw.plan import add_synthesis_gaps, update_from_stage
+
+        update_from_stage(
+            run_dir, 7, lambda research_plan: add_synthesis_gaps(research_plan, synthesis_md)
+        )
+    except Exception:  # noqa: BLE001 - planning must not break the stage
+        logger.warning("ResearchPlan update failed at Stage 7", exc_info=True)
+
     return StageResult(
         stage=Stage.SYNTHESIS,
         status=StageStatus.DONE,
@@ -230,6 +241,16 @@ def _execute_hypothesis_gen(
         pass
 
     (stage_dir / "hypotheses.md").write_text(hypotheses_md, encoding="utf-8")
+
+    # G8a / P-152: each hypothesis becomes a plan node resting on literature.
+    try:
+        from researchclaw.plan import add_hypothesis_nodes, update_from_stage
+
+        update_from_stage(
+            run_dir, 8, lambda research_plan: add_hypothesis_nodes(research_plan, hypotheses_md)
+        )
+    except Exception:  # noqa: BLE001 - planning must not break the stage
+        logger.warning("ResearchPlan update failed at Stage 8", exc_info=True)
 
     # --- Novelty check (non-blocking) ---
     novelty_artifacts: tuple[str, ...] = ()

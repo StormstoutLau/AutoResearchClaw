@@ -758,6 +758,21 @@ Generated: {_utcnow_iso()}
         except Exception as _chart_exc:
             logger.warning("Stage 14: Early chart generation failed: %s", _chart_exc)
 
+    # G8a / P-152: record whether analysis actually produced metrics.
+    try:
+        from researchclaw.plan import mark_analysis_done, update_from_stage
+
+        _metrics_present = bool(exp_data.get("metrics_summary"))
+        update_from_stage(
+            run_dir,
+            14,
+            lambda research_plan: mark_analysis_done(
+                research_plan, metrics_present=_metrics_present
+            ),
+        )
+    except Exception:  # noqa: BLE001 - planning must not break the stage
+        logger.warning("ResearchPlan update failed at Stage 14", exc_info=True)
+
     return StageResult(
         stage=Stage.RESULT_ANALYSIS,
         status=StageStatus.DONE,

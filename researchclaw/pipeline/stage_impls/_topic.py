@@ -215,9 +215,56 @@ Derived from `goal.md` for topic: {config.research.topic}
         except Exception:  # noqa: BLE001
             logger.debug("IMP-35: Topic evaluation skipped (non-blocking)")
 
+    # --- G8a / P-152: structured ResearchPlan v1 ---
+    # The plan is derived deterministically from the decomposition artefact, so
+    # planning adds no extra LLM call. An invalid plan fails the stage before
+    # Stage 3, as required by the design (RP-1..RP-3, RP-6, RP-7, RP-12).
+    plan_artifacts: tuple[str, ...] = ()
+    try:
+        from researchclaw.plan import build_initial_plan, validate_plan, write_plan
+
+        budget_usd = float(getattr(config.experiment, "max_budget_usd", 5.0))
+        research_plan = build_initial_plan(
+            topic=config.research.topic,
+            goal_text=goal_text,
+            problem_tree=body,
+            run_budget_usd=budget_usd,
+            domains=getattr(config.research, "domains", []) or [],
+        )
+        violations = validate_plan(research_plan, run_budget_usd=budget_usd)
+        if violations:
+            return StageResult(
+                stage=Stage.PROBLEM_DECOMPOSE,
+                status=StageStatus.FAILED,
+                artifacts=(),
+                error="invalid research plan: " + "; ".join(
+                    violation.message for violation in violations[:5]
+                ),
+            )
+        written = write_plan(run_dir, research_plan, stage=2)
+        (stage_dir / "plan_meta.json").write_text(
+            json.dumps(
+                {
+                    "pointer": "plan/plan.v1.json",
+                    "version": written["version"],
+                    "digest": written["plan_digest"],
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        plan_artifacts = ("plan_meta.json",)
+    except Exception as exc:  # noqa: BLE001 - an unbuildable plan must stop the run
+        return StageResult(
+            stage=Stage.PROBLEM_DECOMPOSE,
+            status=StageStatus.FAILED,
+            artifacts=(),
+            error=f"research plan write failed: {exc}",
+        )
+
     return StageResult(
         stage=Stage.PROBLEM_DECOMPOSE,
         status=StageStatus.DONE,
-        artifacts=("problem_tree.md",),
+        artifacts=("problem_tree.md",) + plan_artifacts,
         evidence_refs=("stage-02/problem_tree.md",),
     )
