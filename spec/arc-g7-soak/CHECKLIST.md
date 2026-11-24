@@ -102,7 +102,7 @@ upstream: arc-master-roadmap
 | 环境 | DoR | DoD | 状态 | 说明 |
 |---|---|---|---|---|
 | C-1 Python 3.13（本机） | 本机可用 | 新增测试全绿 | ✅ | 3.13.5，27 passed |
-| C-2 Python 3.11（CI） | CI 可用 | CI 全绿 | ✅ | 第一轮 8/8（3.11/3.12/3.13/3.14 全 pass） |
+| C-2 Python 3.11（CI） | CI 可用 | CI 全绿 | ✅ | 两轮 8/8（`088ef41` / `3af1d55`） |
 | C-3 Windows 硬杀路径 | 本机 Windows | `taskkill /F /T /PID` 生效，worker 被终止 | ✅ | T10/T22 passed |
 
 ## 8. ADD 审计（Step 10）

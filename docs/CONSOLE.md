@@ -6,10 +6,10 @@
 ## 当前状态（compact）
 | 项 | 值 |
 |---|---|
-| 在册批次 | 158（done 156 · pending 0 · in-progress 1 · blocked 0 · 其他 1） |
-| 最近批次 | P-160 in-progress（2026-11-24） |
+| 在册批次 | 158（done 157 · pending 0 · in-progress 0 · blocked 0 · 其他 1） |
+| 最近批次 | P-160 done（2026-11-24） |
 | session 覆盖 | 158 个 P（最近 specwf-p159-roadmap-g6 · 2026-11-25T05:08:00+08:00） |
-| 行动队列 | Needs Attention 0 · Ready to Verify 2 · Recommended 0 |
+| 行动队列 | Needs Attention 0 · Ready to Verify 1 · Recommended 0 |
 | feature 阶段 | 100（调研 14 · 设计 2 · 实施 1 · 验收 83 · 未启动 0） |
 
 ## ⚑ 需要你 / NEXT
@@ -17,10 +17,9 @@
 > DoR：`blocked`；或执行态但无 session（决策链缺失） · DoD：阻塞解除（状态列改判）或决策链补齐（首个决策事件落盘）
 （无）
 
-**Ready to Verify**（2 项）
+**Ready to Verify**（1 项）
 > DoR：最新轮含 gate exit 2（软性存疑）；或五步完整待收（最远 step = `finalize`） · DoD：新轮消解存疑（重跑 gate exit 0 或用户裁决）或收束（进已完成段）
 - **P-106** G4-M5 调研+设计交付：宿主边界（A4-7 env allowlist / A4-8 safe_join / A4-9 HostProfile / M4-D6 AST 守卫）——RESEARCH v1.0：AST 全量盘点 subprocess 调用 **朴素命中 60 / 23 文件（58 真实，剔 2 同名 `call` 误报：`mcp/registry_adapter.py:85`、`pipeline/executor.py:618`），shell=True 为 0（限 researchclaw/**；tools 域 spec_runner.py:171 有 1 处，v1.2 复审限定口径）**；`build_subprocess_env`（H-6）消费点仅 2 处（`sandbox.py:329/430`、`mcp/client.py:71`），**env 全量透传 6 处**（stat:381 / biology:457 / collider:682 / hitl:211 / opencode_bridge:462 / code_agent:462，**中期盘点记 5 处 → 订正补 hitl/hooks.py:211**），48 处默认继承按宿主工具（A）/工作负载执行（B，含 `renderer.py:264` 本地执行生成脚本——密钥暴露面最大）/生命周期（C）三分类；写点 **319 处 / 87 文件**（write_text/write_bytes/写模式 open/shutil/os.replace），`safe_join`（H-7）消费点仅 1 处（`_execution.py:1258`），变量名驱动写点 37 处（**A4-8 验收口径收敛为「动态名 × 外部可控」子集，非全量改写**）；`runtime/` 无 `host_profile.py`、`hardware.py` 已有 `HardwareProfile`/`detect_hardware` 探测能力（**HostProfile 定型 = 只读快照 + 委托探测，不承载 env/network 策略字段，防第三真值源**，P-105 D-Q1=C 延续）；`tests/test_boundary_coverage.py` 不存在，守卫定型 = 注册制白名单 + 兜底扫描（P-102 X-6 实证成立：纯 AST 判 env 来源误报 2/60，中间变量不可静态追踪）；未决项 U-1..U-4（HostProfile 与 hardware 关系 / 守卫注册表形态 / 「沙箱后端」判定边界 6 处 vs 8 处 / safe_join 验收子集） —— 决策链五步完整（最远 finalize）
-- **P-160** G7 第一段 soak 工具链（T1，P2）：① 新增 `researchclaw/soak/`——`SoakDriver`（阶段边界硬杀注入、进度前置、full jitter、租约回收、时长/预算硬上限）、`verify_run`（链/seq/run_id/游标/checkpoint 一致性/终态签名）、`build_report/render_markdown/write_report`（JSON+MD：重启次数、恢复耗时、失败阶段分布、回放读数、72h field gate）；② CLI `soak run/verify/report`；③ 修复四项写入边界缺陷——F-1 轮转后 active 缺失导致 seq 重置、F-1b torn tail 未截断导致后续事件不可见、F-2 归档-only 无法恢复 checkpoint、F-4 Windows 并发读者使 checkpoint `os.replace` 抛 `WinError 5`（5×50ms 重试）；④ 缩时演练：3 次硬杀后与 baseline 终态签名一致；⑤ 读数——新增 27 passed，executor 207 passed，runtime/CLI 56 + 54 passed；⑥ 边界——不跑真实 72h（U-1），不做并发/双平面/漂移/OB —— 决策链五步完整（最远 finalize）
 
 **Recommended**（0 项）
 > DoR：未开工（`pending` 且无决策流）；或推进中（最远 step 未到链尾） · DoD：推进至链尾（最远 step = `finalize`）或状态列改判（`blocked` / `done`）
@@ -134,7 +133,6 @@
 | P | 事项 | 状态（PROGRESS 原词） | 派生依据 | 行动档 |
 |---|------|--------------------|---------|--------|
 | P-106 | G4-M5 调研+设计交付：宿主边界（A4-7 env allowlist / A4-8 safe_join / A4-9 HostProfile / M4-D6 AST 守卫）——RESEARCH v1.0：AST 全量盘点 subprocess 调用 **朴素命中 60 / 23 文件（58 真实，剔 2 同名 `call` 误报：`mcp/registry_adapter.py:85`、`pipeline/executor.py:618`），shell=True 为 0（限 researchclaw/**；tools 域 spec_runner.py:171 有 1 处，v1.2 复审限定口径）**；`build_subprocess_env`（H-6）消费点仅 2 处（`sandbox.py:329/430`、`mcp/client.py:71`），**env 全量透传 6 处**（stat:381 / biology:457 / collider:682 / hitl:211 / opencode_bridge:462 / code_agent:462，**中期盘点记 5 处 → 订正补 hitl/hooks.py:211**），48 处默认继承按宿主工具（A）/工作负载执行（B，含 `renderer.py:264` 本地执行生成脚本——密钥暴露面最大）/生命周期（C）三分类；写点 **319 处 / 87 文件**（write_text/write_bytes/写模式 open/shutil/os.replace），`safe_join`（H-7）消费点仅 1 处（`_execution.py:1258`），变量名驱动写点 37 处（**A4-8 验收口径收敛为「动态名 × 外部可控」子集，非全量改写**）；`runtime/` 无 `host_profile.py`、`hardware.py` 已有 `HardwareProfile`/`detect_hardware` 探测能力（**HostProfile 定型 = 只读快照 + 委托探测，不承载 env/network 策略字段，防第三真值源**，P-105 D-Q1=C 延续）；`tests/test_boundary_coverage.py` 不存在，守卫定型 = 注册制白名单 + 兜底扫描（P-102 X-6 实证成立：纯 AST 判 env 来源误报 2/60，中间变量不可静态追踪）；未决项 U-1..U-4（HostProfile 与 hardware 关系 / 守卫注册表形态 / 「沙箱后端」判定边界 6 处 vs 8 处 / safe_join 验收子集） | `verify` | 决策链五步完整（最远 finalize） | Ready to Verify |
-| P-160 | G7 第一段 soak 工具链（T1，P2）：① 新增 `researchclaw/soak/`——`SoakDriver`（阶段边界硬杀注入、进度前置、full jitter、租约回收、时长/预算硬上限）、`verify_run`（链/seq/run_id/游标/checkpoint 一致性/终态签名）、`build_report/render_markdown/write_report`（JSON+MD：重启次数、恢复耗时、失败阶段分布、回放读数、72h field gate）；② CLI `soak run/verify/report`；③ 修复四项写入边界缺陷——F-1 轮转后 active 缺失导致 seq 重置、F-1b torn tail 未截断导致后续事件不可见、F-2 归档-only 无法恢复 checkpoint、F-4 Windows 并发读者使 checkpoint `os.replace` 抛 `WinError 5`（5×50ms 重试）；④ 缩时演练：3 次硬杀后与 baseline 终态签名一致；⑤ 读数——新增 27 passed，executor 207 passed，runtime/CLI 56 + 54 passed；⑥ 边界——不跑真实 72h（U-1），不做并发/双平面/漂移/OB | `in-progress` | 决策链五步完整（最远 finalize） | Ready to Verify |
 
 ## 决策链状态机
 ```mermaid
@@ -1871,7 +1869,7 @@ flowchart LR
 <details>
 <summary><b>arc-g7-soak</b> ｜ 验收 ｜ P-160</summary>
 
-**派生状态**：`in-progress` —— 决策链五步完整（最远 finalize） · 行动档：Ready to Verify
+**派生状态**：`done` —— PROGRESS 状态列 = done
 
 ```mermaid
 flowchart LR
@@ -2694,7 +2692,7 @@ flowchart LR
 
 
 ## 追溯覆盖
-- 活动事项 2 / 有 session 2 / 五步完整 2
+- 活动事项 1 / 有 session 1 / 五步完整 1
 - 决策链缺失：无
 - 未开工（立项已登记，无决策流）：无
 - **缺映射（I-8 显式缺口）**：`arc-ci-heavy-exit`
@@ -2703,7 +2701,6 @@ flowchart LR
 ## ✅ 已完成（最近 8 条）
 | P | 事项 | 最远 step | 上次事件 | 优先级 |
 |---|------|----------|---------|--------|
-| P-152 | ResearchPlan v1 计划对象（T1，兑现 G8a）：① 新增 `researchclaw/plan/`——`schema.py`（`research-plan/1`、V1–V12、`plan_digest`/`seal_plan`）、`store.py`（`plan.v1.json`/`index.json`/`plan_events.jsonl` 原子写、`update_from_stage`）、`derive.py`（阶段确定性派生）；② Stage 2 从 `problem_tree.md` 派生 question 节点并校验，非法即 FAILED 并写 `plan_meta.json`；Stage 7 gaps→`unknowns` + literature/question 节点；Stage 8 每个 hypothesis 一个节点并依赖 literature；Stage 9 每个 `proposed_methods` 一个 experiment 节点并与 `exp_plan.yaml` 双向检查，不一致即 FAILED；Stage 14 标记 analysis/experiment done/failed；③ Q15 默认值冻结：深度 ≤3、扇出 ≤8、节点 ≤40、`max_versions=3`（仅字段，G8b 才用）；④ 读数：21 条新用例（20 单元 + 1 Stage 2 集成）、207 条阶段/计划回归、244 条执行器/新颖性回归；⑤ 边界：计划为抽取式而非生成式，G8b 版本化/Progress Ledger/懒惰分解未做，V7 收敛为 literature | finalize | 2026-11-24 | P1 |
 | P-153 | 总纲回填：G8a 收口（T3）：① P-152 已合并 `db4ad47`，G8a 4/4、CHECKLIST 34/34，总纲仍停在 v1.4s；② 六处回填：front-matter 1.4t、标题、修订行、§3.1 进度表（G8a 4/4、合计 68、开放 38）、G8a 阶段标题与实施记录、§6/§7 下一批改为 G5；③ Q15 状态改 provisional（P-152 采用 3/40），不宣称正式裁决；④ 口径：P-145..P-151 不计入 106，P-152 计入 G8a；⑤ 算术 68 = 64+4、38 = 14+5+15+4 | finalize | 2026-11-24 | P1 |
 | P-154 | G5 三问裁决（T3）：① Q4 = A——复用 `memory/embeddings.py` 的 API→SBERT→TF-IDF 256d 回退链，实际后端与 `retrieval_degraded` 显式记录；② Q6 = A——`RelationType` 由 8 类扩到 17 类（新增 depends_on/proves/contains/topic_contains/generalizes/applies/prerequisite/example_of/formalized_in），外部 KG 只留 `KnowledgeSource` 接口；③ Q7 = A——Paper 首批 500 条高置信度（metadata_confidence=1 优先、classification 归一后降序、已整理 PDF 优先、paper_id 稳定排序），DOI/标题+年份去重，全量 2,487 登记后续；④ 总纲 v1.4u：Q4/Q6/Q7 标已裁决，G5 实施批可开工，K4 全文仍被 Paper Phase 2 阻断；⑤ G5 实施契约与 A5/GQ 映射写入 DESIGN，A5-2 本阶段读数改为 500 | finalize | 2026-11-24 | P1 |
 | P-155 | G5 实施批（T1，合并 P-154 决策后的唯一实施批）：① 新增 8 模块——`models`（PaperRecord/KGNode/KGEdge/QueryResult/SkillPackInfo/Citation）、`paper_index`（500 选择、DOI/标题+年份去重、置信度归一）、`textbook_kg`（15 实体/17 关系、非法边拒绝计数）、`store`（kb/paper/kg 只读查询、空库与 `retrieval_degraded`）、`stats`（`knowledge_counts` 单一计数源）、`skillpack`（5 份 pack、digest + HMAC-SHA256、缺失密钥 fail-closed）、`grounded_qa`（citation 四字段、insufficient、降级、矛盾）、`read_position`（kind/instance 原子保存/恢复）；② 接线——`KnowledgeBaseConfig.grounded_qa_policy`（默认 warn）+ Stage 20 读取 `grounded_qa/result.json`，block 时 `E20_GQ_CONTRADICTION`；`m7_stats`/`repo_stats` 增 `--knowledge` 共用同一计数函数；`knowledge/__init__` 导出公共 API；③ 读数——T01-T28 28/28 green，7 测试文件 30 passed（含 2 条 Stage 20 接线），相关回归 261 passed；④ 边界——不含全量 2,487、外部 KG 服务、PDF→Markdown、非对称签名；GQ 默认关闭零文件 | finalize | 2026-11-25 | P1 |
@@ -2711,7 +2708,8 @@ flowchart LR
 | P-157 | 总纲回填：G5 + G8b 收口（T3）：① P-155（`bd3a0d7`）与 P-156（`d5f570f`）已合并，G5 41/41、G8b 33/33；② 八处回填：front-matter 1.4v、标题、修订行、§3.1（G5 14/14、G8b 4/4、合计 86、开放 20）、口径注、G5 实施记录、G8b 实施记录、§7 下一批改 G6/G7；③ 算术 86 = 68+14+4，20 = 5+15；④ 口径：P-155 计 G5、P-156 计 G8b，106 不变 | finalize | 2026-11-25 | P2 |
 | P-158 | G6 模型分层与预算治理（T1，P2，含 Q12）：① Q12 裁决 = 接受 P2 + 默认单层实施——默认 policy 四 role→balanced、tier model 空→primary，分层 opt-in；② 新增 `model_policy.yaml` + `llm/model_policy.py`——加载/校验、`route` 表驱动（gate_reject/two_failures/context_over_80，budget_left=0 不升级）、`resolve_model`、`policy_digest`、`pre_call_budget_check`、`check_local_only`；③ 接线——`ModelPolicyConfig(enabled/path/run_budget_usd/local_only)`、`LLMClient.chat` 调用前本地/预算检查（`BudgetExhausted` + `budget_exhausted` 事件）、role 路由、`CostRecord.policy_version`；④ 读数——17 passed、回归 431 passed；⑤ 边界——不训练 router、不做跨 provider 比价、local_only 只做调用前主机检查 | finalize | 2026-11-25 | P2 |
 | P-159 | 总纲回填：G6 收口（T3）：① P-158（`77adf29`）已合并，G6 CHECKLIST 34/34、17 passed、回归 431；② 七处回填：front-matter 1.4w、标题、修订行、§3.1（G6 5/5、合计 91、开放 15）、口径注、G6 实施记录、§7 下一批仅 G7；③ Q12 状态改已裁决；④ 算术 91 = 86+5，15 = 20-5 | finalize | 2026-11-25 | P2 |
-| … | **另有 148 条已完成折叠** | — | — | — |
+| P-160 | G7 第一段 soak 工具链（T1，P2）：① 新增 `researchclaw/soak/`——`SoakDriver`（阶段边界硬杀注入、进度前置、full jitter、租约回收、时长/预算硬上限）、`verify_run`（链/seq/run_id/游标/checkpoint 一致性/终态签名）、`build_report/render_markdown/write_report`（JSON+MD：重启次数、恢复耗时、失败阶段分布、回放读数、72h field gate）；② CLI `soak run/verify/report`；③ 修复四项写入边界缺陷——F-1 轮转后 active 缺失导致 seq 重置、F-1b torn tail 未截断导致后续事件不可见、F-2 归档-only 无法恢复 checkpoint、F-4 Windows 并发读者使 checkpoint `os.replace` 抛 `WinError 5`（5×50ms 重试）；④ 缩时演练：3 次硬杀后与 baseline 终态签名一致；⑤ 读数——新增 27 passed，executor 207 passed，runtime/CLI 56 + 54 passed；⑥ 边界——不跑真实 72h（U-1），不做并发/双平面/漂移/OB | finalize | 2026-11-24 | P2 |
+| … | **另有 149 条已完成折叠** | — | — | — |
 
 ## ⑂ fork / 支线
 - 本地分支属**环境态**，不纳入派生视图（保证跨环境可复现；P-070 追加轮方案 A）
