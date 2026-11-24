@@ -253,7 +253,7 @@ $ python -m pytest tests/test_rc_kb.py tests/test_knowledge_graph.py tests/test_
 | step_enforce | `digest_bound=1` |
 | pre-commit | 全绿 |
 | PR CI | 8/8（Packaging/Extras/Tests 3.11-3.14/Roadmap/Spec gates） |
-| PR CI（复审修复轮） | 待 CI |
+| PR CI（复审修复轮） | 8/8 |
 
 ## 11. 未做与边界
 

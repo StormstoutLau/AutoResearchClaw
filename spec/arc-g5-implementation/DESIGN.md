@@ -191,7 +191,7 @@ knowledge_counts(kb_root) -> dict
 - SkillPack 使用 stdlib HMAC，避免新增密码学依赖；密钥缺失 fail-closed。
 - GQ 与 Stage 20 只做最小接线；默认 warn，不改变既有门禁行为。
 - 单批覆盖 G5 全部 14 项；不再拆 P-156。
-- 异构复审（跨模型，2026-11-25）5 项修复：paper 查询 `backend` 由失实的 `tfidf` 改为 `lexical` 并修订本决策（embedding 链留后续）；manifest 相对路径锚定仓库根（消除 CWD 依赖）；`metadata_confidence` 落库 0–1 fail-closed；`year`/`metadata_confidence` 类型错误补行号上下文；删除 `store.load_json` 死代码。
+- 异构复审（跨模型，2026-11-25）5 项修复：paper 查询 `backend` 由失实的 `tfidf` 改为 `lexical` 并修订本决策（embedding 链留后续）；manifest 相对路径锚定仓库根（消除 CWD 依赖）；`metadata_confidence` 落库 0–1 fail-closed；`year`/`metadata_confidence` 类型错误补行号上下文；删除 `store.load_json` 死代码。修复轮 CI 8/8。
 
 ## 10. 非目标
 
