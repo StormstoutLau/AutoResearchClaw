@@ -263,3 +263,22 @@ def canonical_load(line: str) -> dict:
     if not isinstance(data, dict):
         raise ValueError("action record must be an object")
     return data
+
+
+def query_actions(
+    run_dir: str | Path,
+    *,
+    tool: str | None = None,
+    status: str | None = None,
+    limit: int | None = None,
+) -> list[dict]:
+    """Read-only ledger query (P-147). Torn tail stops the scan like ``read_all``."""
+    ledger = ActionLedger(run_dir, Path(run_dir).name, fsync=False)
+    rows = ledger.read_all()
+    if tool is not None:
+        rows = [r for r in rows if str(r.get("tool", "")) == tool]
+    if status is not None:
+        rows = [r for r in rows if str(r.get("status", "")) == status]
+    if limit is not None:
+        rows = rows[: max(0, int(limit))]
+    return rows
