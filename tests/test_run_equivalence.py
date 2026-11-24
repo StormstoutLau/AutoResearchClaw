@@ -1,6 +1,7 @@
-"""P-149: rerun equivalence comparator and the deterministic double-run check."""
+"""P-149/P-150: rerun equivalence comparator and the deterministic double-run check."""
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -21,6 +22,9 @@ def _build_run(
     params: dict | None = None,
     output: str = "ok",
     status: str = "ok",
+    with_action: bool = True,
+    node_artifacts: dict[str, str] | None = None,
+    summary: str = '{"ok":true}',
 ) -> Path:
     """One deterministic fixture run; volatile fields vary by construction."""
     run = root / name
@@ -28,17 +32,20 @@ def _build_run(
     log = EventLog(run, name, fsync=False)
     log.append("run.started", {})
     log.append("stage.started", {"stage": 1, "name": "topic_init"}, stage=1)
-    ledger = ActionLedger(run, name, fsync=False)
-    artifact = run / "out.txt"
-    artifact.write_text(output, encoding="utf-8")
-    ledger.record(
-        tool,
-        {"q": "x"} if params is None else params,
-        outputs=[artifact],
-        status=status,
-        exit_code=0 if status == "ok" else 1,
-        event_seq_call=2,
-    )
+    if with_action:
+        ledger = ActionLedger(run, name, fsync=False)
+        artifact = run / "out.txt"
+        artifact.write_text(output, encoding="utf-8")
+        ledger.record(
+            tool,
+            {"q": "x"} if params is None else params,
+            outputs=[artifact],
+            status=status,
+            exit_code=0 if status == "ok" else 1,
+            event_seq_call=2,
+        )
+    if node_artifacts:
+        _write_nodes(run, node_artifacts)
     log.append("stage.completed", {"stage": 1, "name": "topic_init"}, stage=1)
     if stage_23_failed:
         log.append("stage.failed", {"stage": 23, "name": "citation_verify"}, stage=23)
@@ -46,8 +53,37 @@ def _build_run(
         log.append("stage.started", {"stage": 23, "name": "citation_verify"}, stage=23)
         log.append("stage.completed", {"stage": 23, "name": "citation_verify"}, stage=23)
     log.append("run.completed", {})
-    (run / "pipeline_summary.json").write_text('{"ok":true}', encoding="utf-8")
+    (run / "pipeline_summary.json").write_text(summary, encoding="utf-8")
     return run
+
+
+def _write_nodes(run: Path, contents: dict[str, str]) -> None:
+    """Write a minimal but schema-complete artifact node index."""
+    lines: list[str] = []
+    for locator, text in sorted(contents.items()):
+        path = run / locator
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        digest = "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+        node_id = "an-" + hashlib.sha256((locator + digest).encode("utf-8")).hexdigest()[:16]
+        lines.append(json.dumps({
+            "node_id": node_id,
+            "type": "stage_artifact",
+            "locator": locator,
+            "content_hash": digest,
+            "parent_ids": [],
+            "inputs_digest": "sha256:" + "0" * 64,
+            "producer": {"stage": 1, "stage_name": "TOPIC_INIT", "attempt": 1},
+            "materialized": False,
+            "sensitive": False,
+            "size_bytes": len(text.encode("utf-8")),
+            "created_at": "2026-11-24T00:00:00+00:00",
+            "evidence": None,
+        }, sort_keys=True, ensure_ascii=False))
+    (run / "artifacts").mkdir(exist_ok=True)
+    (run / "artifacts" / "nodes.jsonl").write_text(
+        "\n".join(lines) + "\n", encoding="utf-8"
+    )
 
 
 def _tamper_event(run: Path) -> None:
@@ -81,7 +117,7 @@ class TestCompareRuns:
         report = compare_runs(left, right)
         assert report["equivalent"] is True
         assert report["differences"] == []
-        assert report["checks"] == 8
+        assert report["checks"] == 9
 
     def test_detects_stage_sequence_difference(self, tmp_path: Path) -> None:
         left = _build_run(tmp_path, "run-a")
@@ -177,6 +213,72 @@ class TestCompareRuns:
             if p.is_file()
         }
         assert before == after
+
+    def test_node_index_fallback_equivalent(self, tmp_path: Path) -> None:
+        nodes = {"stage-01/goal.md": "goal", "stage-03/plan.yaml": "plan"}
+        left = _build_run(tmp_path, "run-a", with_action=False, node_artifacts=nodes)
+        right = _build_run(tmp_path, "run-b", with_action=False, node_artifacts=nodes)
+        report = compare_runs(left, right)
+        assert report["equivalent"] is True
+        assert report["left"]["artifacts_source"] == "node_index"
+        assert report["left"]["artifacts"] == 2
+
+    def test_node_index_fallback_detects_change(self, tmp_path: Path) -> None:
+        left = _build_run(
+            tmp_path, "run-a", with_action=False,
+            node_artifacts={"stage-01/goal.md": "goal-a"},
+        )
+        right = _build_run(
+            tmp_path, "run-b", with_action=False,
+            node_artifacts={"stage-01/goal.md": "goal-b"},
+        )
+        report = compare_runs(left, right)
+        assert report["equivalent"] is False
+        diff = next(item for item in report["differences"] if item["kind"] == "artifacts")
+        assert diff["changed"] == ["stage-01/goal.md"]
+
+    def test_ledger_preferred_over_node_index(self, tmp_path: Path) -> None:
+        left = _build_run(
+            tmp_path, "run-a", node_artifacts={"stage-01/goal.md": "goal-a"},
+        )
+        right = _build_run(
+            tmp_path, "run-b", node_artifacts={"stage-01/goal.md": "goal-b"},
+        )
+        report = compare_runs(left, right)
+        assert report["equivalent"] is True
+        assert report["left"]["artifacts_source"] == "ledger"
+        assert report["left"]["artifacts"] == 1
+
+    def test_detects_summary_difference(self, tmp_path: Path) -> None:
+        left = _build_run(tmp_path, "run-a")
+        right = _build_run(tmp_path, "run-b", summary='{"ok":false}')
+        report = compare_runs(left, right)
+        assert report["equivalent"] is False
+        assert _kinds(report) == {"run_summary"}
+
+    def test_detects_missing_summary(self, tmp_path: Path) -> None:
+        left = _build_run(tmp_path, "run-a")
+        right = _build_run(tmp_path, "run-b")
+        (right / "pipeline_summary.json").unlink()
+        report = compare_runs(left, right)
+        assert report["equivalent"] is False
+        diff = next(item for item in report["differences"] if item["kind"] == "run_summary")
+        assert diff["right"] is None
+
+    def test_malformed_node_index_raises(self, tmp_path: Path) -> None:
+        left = _build_run(tmp_path, "run-a", with_action=False)
+        right = _build_run(tmp_path, "run-b", with_action=False)
+        (right / "artifacts").mkdir(exist_ok=True)
+        (right / "artifacts" / "nodes.jsonl").write_text("{not json}\n", encoding="utf-8")
+        with pytest.raises(ValueError):
+            compare_runs(left, right)
+
+    def test_malformed_summary_raises(self, tmp_path: Path) -> None:
+        left = _build_run(tmp_path, "run-a")
+        right = _build_run(tmp_path, "run-b")
+        (right / "pipeline_summary.json").write_text("{not json}", encoding="utf-8")
+        with pytest.raises(ValueError):
+            compare_runs(left, right)
 
 
 class TestCli:
