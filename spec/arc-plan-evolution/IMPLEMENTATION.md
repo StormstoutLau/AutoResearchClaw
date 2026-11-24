@@ -188,7 +188,7 @@ ledger_40_nodes_ms=0.224
 | verify-anchor | 10 真实 / 0 缺失 / 0 漂移 |
 | step_enforce | `digest_bound=1` |
 | pre-commit | 全绿 |
-| PR CI | 待 CI |
+| PR CI | 8/8（Packaging/Extras/Tests 3.11-3.14/Roadmap/Spec gates） |
 
 ## 11. 未做与边界
 
