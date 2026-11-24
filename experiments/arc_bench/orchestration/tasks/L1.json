@@ -1,0 +1,61 @@
+{
+  "schema": "arc-orchestration-task/1",
+  "id": "L1",
+  "class": "L",
+  "title": "Independent audit of a diphoton peak",
+  "source_manifest": "experiments/arc_bench/config/physics/manifests/P01.yaml",
+  "version": 1,
+  "prompt": "Reproduce the diphoton peak position and audit it independently: one owner builds the pipeline, one recomputes from raw evidence without seeing the pipeline summary, and one extracts the published value. Report all three values and the absolute deltas.",
+  "delegation_style": "distinct_roles",
+  "subgoals": [
+    {
+      "id": "producer",
+      "capability": "hep_pipeline",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["banner"],
+      "acceptance": "one peak position in GeV from the local pipeline"
+    },
+    {
+      "id": "verifier",
+      "capability": "hep_verify",
+      "depends_on": ["producer"],
+      "inputs": ["raw_evidence"],
+      "outputs": ["audit"],
+      "acceptance": "recomputed peak from raw evidence only; must not read the pipeline summary"
+    },
+    {
+      "id": "literature",
+      "capability": "lit_extract",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["published_peaks"],
+      "acceptance": "one published peak value in GeV"
+    }
+  ],
+  "worker_pool": [
+    {"id": "producer_agent", "capabilities": ["hep_pipeline"]},
+    {"id": "verifier_agent", "capabilities": ["hep_verify"]},
+    {"id": "literature_agent", "capabilities": ["lit_extract"]}
+  ],
+  "aggregate": {
+    "columns": ["role", "peak_gev", "delta_gev"],
+    "key": ["role"],
+    "invalid_policy": "exclude",
+    "conflict_required": false,
+    "conflict_rule": null,
+    "arithmetic": null,
+    "group_by": []
+  },
+  "trap": null,
+  "budget": {"tokens": 12000, "wall_seconds": 60, "max_workers": 3, "max_depth": 2},
+  "truth": {
+    "rows": [
+      {"subgoal": "producer", "role": "producer", "peak_gev": 125.10, "delta_gev": 0.0},
+      {"subgoal": "verifier", "role": "verifier", "peak_gev": 125.09, "delta_gev": 0.01},
+      {"subgoal": "literature", "role": "literature", "peak_gev": 125.20, "delta_gev": 0.10}
+    ],
+    "invalid_subgoals": [],
+    "expected_conflicts": []
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "schema": "arc-orchestration-task/1",
+  "id": "D2",
+  "class": "D",
+  "title": "Dimensionality reduction comparison on tabular datasets",
+  "source_manifest": "experiments/arc_bench/config/ml/manifests/ML05.yaml",
+  "version": 1,
+  "prompt": "Compare PCA, t-SNE and UMAP embeddings on three tabular datasets over two seeds. Report silhouette and trustworthiness and per-method means.",
+  "delegation_style": "capability",
+  "subgoals": [
+    {
+      "id": "breast_cancer",
+      "capability": "dimred_metrics",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["metrics_rows"],
+      "acceptance": "6 rows; schema (dataset,method,seed,silhouette,trustworthiness)"
+    },
+    {
+      "id": "digits",
+      "capability": "dimred_metrics",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["metrics_rows"],
+      "acceptance": "6 rows; schema (dataset,method,seed,silhouette,trustworthiness)"
+    },
+    {
+      "id": "wine",
+      "capability": "dimred_metrics",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["metrics_rows"],
+      "acceptance": "6 rows; schema (dataset,method,seed,silhouette,trustworthiness)"
+    }
+  ],
+  "worker_pool": [
+    {"id": "dimred_runner", "capabilities": ["dimred_metrics"]}
+  ],
+  "aggregate": {
+    "columns": ["dataset", "method", "seed", "silhouette", "trustworthiness"],
+    "key": ["dataset", "method", "seed"],
+    "invalid_policy": "exclude",
+    "conflict_required": false,
+    "conflict_rule": null,
+    "arithmetic": "mean_by_group",
+    "group_by": ["method"]
+  },
+  "trap": null,
+  "budget": {"tokens": 18000, "wall_seconds": 60, "max_workers": 3, "max_depth": 2},
+  "truth": {
+    "rows": [
+      {"subgoal": "breast_cancer", "dataset": "breast_cancer", "method": "pca", "seed": 1, "silhouette": 0.241, "trustworthiness": 0.882},
+      {"subgoal": "breast_cancer", "dataset": "breast_cancer", "method": "pca", "seed": 2, "silhouette": 0.238, "trustworthiness": 0.879},
+      {"subgoal": "breast_cancer", "dataset": "breast_cancer", "method": "tsne", "seed": 1, "silhouette": 0.412, "trustworthiness": 0.941},
+      {"subgoal": "breast_cancer", "dataset": "breast_cancer", "method": "tsne", "seed": 2, "silhouette": 0.409, "trustworthiness": 0.938},
+      {"subgoal": "breast_cancer", "dataset": "breast_cancer", "method": "umap", "seed": 1, "silhouette": 0.397, "trustworthiness": 0.927},
+      {"subgoal": "breast_cancer", "dataset": "breast_cancer", "method": "umap", "seed": 2, "silhouette": 0.401, "trustworthiness": 0.930},
+      {"subgoal": "digits", "dataset": "digits", "method": "pca", "seed": 1, "silhouette": 0.183, "trustworthiness": 0.812},
+      {"subgoal": "digits", "dataset": "digits", "method": "pca", "seed": 2, "silhouette": 0.181, "trustworthiness": 0.815},
+      {"subgoal": "digits", "dataset": "digits", "method": "tsne", "seed": 1, "silhouette": 0.462, "trustworthiness": 0.952},
+      {"subgoal": "digits", "dataset": "digits", "method": "tsne", "seed": 2, "silhouette": 0.458, "trustworthiness": 0.949},
+      {"subgoal": "digits", "dataset": "digits", "method": "umap", "seed": 1, "silhouette": 0.441, "trustworthiness": 0.944},
+      {"subgoal": "digits", "dataset": "digits", "method": "umap", "seed": 2, "silhouette": 0.445, "trustworthiness": 0.947},
+      {"subgoal": "wine", "dataset": "wine", "method": "pca", "seed": 1, "silhouette": 0.214, "trustworthiness": 0.836},
+      {"subgoal": "wine", "dataset": "wine", "method": "pca", "seed": 2, "silhouette": 0.217, "trustworthiness": 0.839},
+      {"subgoal": "wine", "dataset": "wine", "method": "tsne", "seed": 1, "silhouette": 0.381, "trustworthiness": 0.918},
+      {"subgoal": "wine", "dataset": "wine", "method": "tsne", "seed": 2, "silhouette": 0.378, "trustworthiness": 0.915},
+      {"subgoal": "wine", "dataset": "wine", "method": "umap", "seed": 1, "silhouette": 0.366, "trustworthiness": 0.907},
+      {"subgoal": "wine", "dataset": "wine", "method": "umap", "seed": 2, "silhouette": 0.369, "trustworthiness": 0.910}
+    ],
+    "invalid_subgoals": [],
+    "expected_conflicts": []
+  }
+}

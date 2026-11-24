@@ -1,0 +1,73 @@
+{
+  "schema": "arc-orchestration-task/1",
+  "id": "A3",
+  "class": "A",
+  "title": "Contour coverage with overlapping analyses",
+  "source_manifest": "experiments/arc_bench/config/physics/manifests/P03.yaml",
+  "version": 1,
+  "prompt": "Estimate signal-region coverage for three contour definitions. Two analyses overlap; deduplicate the evidence by coverage and report the merged value with the conflict.",
+  "delegation_style": "capability",
+  "subgoals": [
+    {
+      "id": "c1",
+      "capability": "hep_contour",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["evidence_rows"],
+      "acceptance": "two analysis rows for contour c1"
+    },
+    {
+      "id": "c2",
+      "capability": "hep_contour",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["evidence_rows"],
+      "acceptance": "two analysis rows for contour c2"
+    },
+    {
+      "id": "c3",
+      "capability": "hep_contour",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["evidence_rows"],
+      "acceptance": "two analysis rows for contour c3"
+    }
+  ],
+  "worker_pool": [
+    {"id": "contour_a", "capabilities": ["hep_contour"]},
+    {"id": "contour_b", "capabilities": ["hep_contour"]},
+    {"id": "contour_c", "capabilities": ["hep_contour"]}
+  ],
+  "aggregate": {
+    "columns": ["region", "coverage"],
+    "key": ["region"],
+    "invalid_policy": "exclude",
+    "conflict_required": true,
+    "conflict_rule": "dedupe_overlap",
+    "arithmetic": null,
+    "group_by": []
+  },
+  "trap": null,
+  "budget": {"tokens": 16000, "wall_seconds": 60, "max_workers": 3, "max_depth": 2},
+  "truth": {
+    "rows": [
+      {"subgoal": "c1", "region": "c1", "source": "analysis_x", "coverage": 0.82, "n": 4},
+      {"subgoal": "c1", "region": "c1", "source": "analysis_y", "coverage": 0.79, "n": 2},
+      {"subgoal": "c2", "region": "c2", "source": "analysis_y", "coverage": 0.80, "n": 2},
+      {"subgoal": "c2", "region": "c2", "source": "analysis_x", "coverage": 0.77, "n": 4},
+      {"subgoal": "c3", "region": "c3", "source": "analysis_x", "coverage": 0.88, "n": 5},
+      {"subgoal": "c3", "region": "c3", "source": "analysis_y", "coverage": 0.86, "n": 3}
+    ],
+    "invalid_subgoals": [],
+    "expected_rows": [
+      {"region": "c1", "coverage": 0.82},
+      {"region": "c2", "coverage": 0.80},
+      {"region": "c3", "coverage": 0.88}
+    ],
+    "expected_conflicts": [
+      {"id": "c1", "chosen": 0.82, "rule": "dedupe_overlap"},
+      {"id": "c2", "chosen": 0.80, "rule": "dedupe_overlap"},
+      {"id": "c3", "chosen": 0.88, "rule": "dedupe_overlap"}
+    ]
+  }
+}

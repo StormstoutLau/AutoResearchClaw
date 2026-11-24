@@ -1,0 +1,64 @@
+{
+  "schema": "arc-orchestration-task/1",
+  "id": "L2",
+  "class": "L",
+  "title": "Ensemble families under label noise",
+  "source_manifest": "experiments/arc_bench/config/ml/manifests/ML02.yaml",
+  "version": 1,
+  "prompt": "Benchmark bagging, boosting and stacking under two noise levels. Each model family must be evaluated by a separate owner, and the report must list accuracy per family and noise level.",
+  "delegation_style": "distinct_roles",
+  "subgoals": [
+    {
+      "id": "bagging",
+      "capability": "ml_ensemble",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["accuracy_row"],
+      "acceptance": "2 rows; schema (family,noise,accuracy)"
+    },
+    {
+      "id": "boosting",
+      "capability": "ml_ensemble",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["accuracy_row"],
+      "acceptance": "2 rows; schema (family,noise,accuracy)"
+    },
+    {
+      "id": "stacking",
+      "capability": "ml_ensemble",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["accuracy_row"],
+      "acceptance": "2 rows; schema (family,noise,accuracy)"
+    }
+  ],
+  "worker_pool": [
+    {"id": "bag_agent", "capabilities": ["ml_ensemble"]},
+    {"id": "boost_agent", "capabilities": ["ml_ensemble"]},
+    {"id": "stack_agent", "capabilities": ["ml_ensemble"]}
+  ],
+  "aggregate": {
+    "columns": ["family", "noise", "accuracy"],
+    "key": ["family", "noise"],
+    "invalid_policy": "exclude",
+    "conflict_required": false,
+    "conflict_rule": null,
+    "arithmetic": null,
+    "group_by": []
+  },
+  "trap": null,
+  "budget": {"tokens": 14000, "wall_seconds": 60, "max_workers": 3, "max_depth": 2},
+  "truth": {
+    "rows": [
+      {"subgoal": "bagging", "family": "bagging", "noise": 0.0, "accuracy": 0.921},
+      {"subgoal": "bagging", "family": "bagging", "noise": 0.2, "accuracy": 0.884},
+      {"subgoal": "boosting", "family": "boosting", "noise": 0.0, "accuracy": 0.934},
+      {"subgoal": "boosting", "family": "boosting", "noise": 0.2, "accuracy": 0.871},
+      {"subgoal": "stacking", "family": "stacking", "noise": 0.0, "accuracy": 0.928},
+      {"subgoal": "stacking", "family": "stacking", "noise": 0.2, "accuracy": 0.889}
+    ],
+    "invalid_subgoals": [],
+    "expected_conflicts": []
+  }
+}

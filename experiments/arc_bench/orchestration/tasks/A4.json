@@ -1,0 +1,73 @@
+{
+  "schema": "arc-orchestration-task/1",
+  "id": "A4",
+  "class": "A",
+  "title": "Bootstrap interval width with method conflict",
+  "source_manifest": "experiments/arc_bench/config/statistics/manifests/S02.yaml",
+  "version": 1,
+  "prompt": "Compare percentile and BCa bootstrap intervals on three slices. Prefer BCa when the methods disagree and record the rejected interval.",
+  "delegation_style": "capability",
+  "subgoals": [
+    {
+      "id": "b1",
+      "capability": "stats_ci",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["evidence_rows"],
+      "acceptance": "two method rows for slice b1"
+    },
+    {
+      "id": "b2",
+      "capability": "stats_ci",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["evidence_rows"],
+      "acceptance": "two method rows for slice b2"
+    },
+    {
+      "id": "b3",
+      "capability": "stats_ci",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["evidence_rows"],
+      "acceptance": "two method rows for slice b3"
+    }
+  ],
+  "worker_pool": [
+    {"id": "ci_a", "capabilities": ["stats_ci"]},
+    {"id": "ci_b", "capabilities": ["stats_ci"]},
+    {"id": "ci_c", "capabilities": ["stats_ci"]}
+  ],
+  "aggregate": {
+    "columns": ["slice", "ci_width"],
+    "key": ["slice"],
+    "invalid_policy": "exclude",
+    "conflict_required": true,
+    "conflict_rule": "method_evidence",
+    "arithmetic": null,
+    "group_by": []
+  },
+  "trap": null,
+  "budget": {"tokens": 16000, "wall_seconds": 60, "max_workers": 3, "max_depth": 2},
+  "truth": {
+    "rows": [
+      {"subgoal": "b1", "slice": "b1", "method": "bca", "ci_width": 0.42, "n": 5},
+      {"subgoal": "b1", "slice": "b1", "method": "percentile", "ci_width": 0.39, "n": 5},
+      {"subgoal": "b2", "slice": "b2", "method": "bca", "ci_width": 0.51, "n": 5},
+      {"subgoal": "b2", "slice": "b2", "method": "percentile", "ci_width": 0.55, "n": 5},
+      {"subgoal": "b3", "slice": "b3", "method": "bca", "ci_width": 0.33, "n": 5},
+      {"subgoal": "b3", "slice": "b3", "method": "percentile", "ci_width": 0.31, "n": 5}
+    ],
+    "invalid_subgoals": [],
+    "expected_rows": [
+      {"slice": "b1", "ci_width": 0.42},
+      {"slice": "b2", "ci_width": 0.51},
+      {"slice": "b3", "ci_width": 0.33}
+    ],
+    "expected_conflicts": [
+      {"id": "b1", "chosen": 0.42, "rule": "method_evidence"},
+      {"id": "b2", "chosen": 0.51, "rule": "method_evidence"},
+      {"id": "b3", "chosen": 0.33, "rule": "method_evidence"}
+    ]
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "schema": "arc-orchestration-task/1",
+  "id": "C2",
+  "class": "C",
+  "title": "CNOT ablation with two independent targets",
+  "source_manifest": "experiments/arc_bench/config/quantum/manifests/Q02.yaml",
+  "version": 1,
+  "prompt": "Ablate the CNOT gate in two configurations and report fidelity. You may consider splitting the work into 10 parallel sub-jobs for finer coverage.",
+  "delegation_style": "capability",
+  "subgoals": [
+    {
+      "id": "cnot_on",
+      "capability": "quantum_ablate",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["fidelity_row"],
+      "acceptance": "one fidelity row with CNOT enabled"
+    },
+    {
+      "id": "cnot_off",
+      "capability": "quantum_ablate",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["fidelity_row"],
+      "acceptance": "one fidelity row with CNOT disabled"
+    }
+  ],
+  "worker_pool": [
+    {"id": "ablate_a", "capabilities": ["quantum_ablate"]},
+    {"id": "ablate_b", "capabilities": ["quantum_ablate"]}
+  ],
+  "aggregate": {
+    "columns": ["target", "fidelity"],
+    "key": ["target"],
+    "invalid_policy": "exclude",
+    "conflict_required": false,
+    "conflict_rule": null,
+    "arithmetic": null,
+    "group_by": []
+  },
+  "trap": {
+    "kind": "over_split",
+    "subgoals": ["cnot_on", "cnot_off"],
+    "hint": "two configurations are the whole experiment; ten-way splitting is redundant"
+  },
+  "budget": {"tokens": 12000, "wall_seconds": 60, "max_workers": 2, "max_depth": 2},
+  "truth": {
+    "rows": [
+      {"subgoal": "cnot_on", "target": "cnot_on", "fidelity": 0.992},
+      {"subgoal": "cnot_off", "target": "cnot_off", "fidelity": 0.978}
+    ],
+    "invalid_subgoals": [],
+    "expected_conflicts": []
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "schema": "arc-orchestration-task/1",
+  "id": "L3",
+  "class": "L",
+  "title": "Bootstrap coverage with staged audit",
+  "source_manifest": "experiments/arc_bench/config/statistics/manifests/S01.yaml",
+  "version": 1,
+  "prompt": "Estimate a coverage probability by simulation, audit the confidence interval from the raw samples, then summarize coverage. Report each stage's estimate and interval.",
+  "delegation_style": "distinct_roles",
+  "subgoals": [
+    {
+      "id": "point_estimate",
+      "capability": "stats_sim",
+      "depends_on": [],
+      "inputs": ["task.prompt"],
+      "outputs": ["raw_samples"],
+      "acceptance": "point estimate plus raw samples"
+    },
+    {
+      "id": "ci_audit",
+      "capability": "stats_audit",
+      "depends_on": ["point_estimate"],
+      "inputs": ["raw_samples"],
+      "outputs": ["audit_table"],
+      "acceptance": "confidence interval recomputed from raw samples"
+    },
+    {
+      "id": "coverage_report",
+      "capability": "stats_report",
+      "depends_on": ["ci_audit"],
+      "inputs": ["audit_table"],
+      "outputs": ["coverage_row"],
+      "acceptance": "coverage summary derived from the audit table"
+    }
+  ],
+  "worker_pool": [
+    {"id": "sim_agent", "capabilities": ["stats_sim"]},
+    {"id": "audit_agent", "capabilities": ["stats_audit"]},
+    {"id": "report_agent", "capabilities": ["stats_report"]}
+  ],
+  "aggregate": {
+    "columns": ["stage", "estimate", "ci_low", "ci_high"],
+    "key": ["stage"],
+    "invalid_policy": "exclude",
+    "conflict_required": false,
+    "conflict_rule": null,
+    "arithmetic": null,
+    "group_by": []
+  },
+  "trap": null,
+  "budget": {"tokens": 12000, "wall_seconds": 60, "max_workers": 3, "max_depth": 3},
+  "truth": {
+    "rows": [
+      {"subgoal": "point_estimate", "stage": "point", "estimate": 0.942, "ci_low": 0.931, "ci_high": 0.952},
+      {"subgoal": "ci_audit", "stage": "audit", "estimate": 0.940, "ci_low": 0.929, "ci_high": 0.950},
+      {"subgoal": "coverage_report", "stage": "coverage", "estimate": 0.938, "ci_low": 0.927, "ci_high": 0.948}
+    ],
+    "invalid_subgoals": [],
+    "expected_conflicts": []
+  }
+}
