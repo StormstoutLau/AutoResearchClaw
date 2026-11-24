@@ -1886,7 +1886,7 @@ flowchart LR
 | design | DESIGN.md ✓ | soak 工具链决策 | 2026-11-24 22:20 | D-1..D-11、J-1..J-10、A7 映射与回退点冻结。 | #1 2026-11-24 |
 | implement | IMPLEMENTATION.md ✓ | TDD 实现 soak 与四项写入边界修复 | 2026-11-24 22:40 | S-1..S-9（除 S-8）、J-1..J-10、E-1..E-7 全绿；S-8 72h 留 … | #1 2026-11-24 |
 | verify | CHECKLIST.md ✓ | 门禁与文档一致性 | 2026-11-24 22:55 | 本地门禁与回归通过；待 pre-commit 与 CI 两轮。 | #1 2026-11-24 |
-| finalize | —（finalize 不新增制品） | P-160 收口 | 2026-11-24 23:05 | P-160 收口；PR 待授权合并。 | #1 2026-11-24 |
+| finalize | —（finalize 不新增制品） | P-160 收口 | 2026-11-24 23:05 | P-160 收口；CHECKLIST 47/48（仅 72h 现场 pending）；PR #4… | #1 2026-11-24 |
 
 **决策链**（sessions 机械重数）：research → design → implement → verify → finalize
 

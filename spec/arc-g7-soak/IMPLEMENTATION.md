@@ -346,7 +346,7 @@ release(run_dir, lease); sys.exit(0)
 | 回归 | `test_rc_executor` 207 passed（249.96s）；`test_event_log` 16 passed；runtime/CLI 56 passed；`test_rc_runner/checkpoint/sentinel/hitl` 92 passed + 1 环境失败（`bash -n` 的 Windows 路径转换，非本批）；`test_boundary_coverage` 17 passed（首轮 2 failed → 登记 S-061/S-062 后绿） |
 | 全量（本机 3.13） | 3866 passed / 108 skipped / 8 failed；8 项中 2 项为本批边界登记缺失（已修），余 6 项为环境：memory Keras3×4、hitl `.sh` WinError 193×1、sentinel bash 路径×1；CI Linux 需复核 |
 | 门禁 | dc_validator 四文档 0 违规；grandfather 0/0/0；repo_stats/console_gen 一致；blackbox module ok；step-gate 5/5；step_enforce digest_bound=1；pre-commit/CI 待跑 |
-| CI | 待两轮 |
+| CI | 第一轮 8/8 全绿（Tests 3.11/3.12/3.13/3.14、Spec gates、Roadmap、Packaging、Extras）；第二轮待本次读数回填提交 |
 
 ## 11. Review 记录（Step 6，自查·单视角）
 

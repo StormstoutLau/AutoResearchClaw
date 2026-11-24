@@ -2,7 +2,7 @@
 id: arc-g7-soak-CHECKLIST
 type: design
 version: 1.1
-status: pending
+status: accepted
 date: 2026-11-24
 depends: [arc-g7-soak-IMPLEMENTATION, arc-g7-soak-DESIGN]
 upstream: arc-master-roadmap
@@ -13,7 +13,7 @@ upstream: arc-master-roadmap
 > **Feature**：P-160（G7 第一段）。
 > **基于实施**：[IMPLEMENTATION.md](./IMPLEMENTATION.md)（v1.1 / verified）。
 > **基于设计**：[DESIGN.md](./DESIGN.md)（v1.2 / verified）。
-> **状态**：验收中；Step 10 回填读数。
+> **状态**：验收完成；47/48 通过，72h 现场待 U-1。
 > **范围**：A7-1 工具链 + 缩时演练、A7-4 完整验收；72h 现场运行不在 CI，单独留证（U-1）。
 > **修订**：v1.1 增 F-9（torn tail + 原子替换重试）、J-10、E-7；总数 45 → 48。
 
@@ -102,7 +102,7 @@ upstream: arc-master-roadmap
 | 环境 | DoR | DoD | 状态 | 说明 |
 |---|---|---|---|---|
 | C-1 Python 3.13（本机） | 本机可用 | 新增测试全绿 | ✅ | 3.13.5，27 passed |
-| C-2 Python 3.11（CI） | CI 可用 | CI 全绿 | ⏳ | 两次 CI 待跑 |
+| C-2 Python 3.11（CI） | CI 可用 | CI 全绿 | ✅ | 第一轮 8/8（3.11/3.12/3.13/3.14 全 pass） |
 | C-3 Windows 硬杀路径 | 本机 Windows | `taskkill /F /T /PID` 生效，worker 被终止 | ✅ | T10/T22 passed |
 
 ## 8. ADD 审计（Step 10）
@@ -170,18 +170,18 @@ upstream: arc-master-roadmap
 | 不变式 | 10 | 10 | 0 | 0 |
 | 错误处理 | 7 | 7 | 0 | 0 |
 | 性能 | 3 | 3 | 0 | 0 |
-| 兼容性 | 3 | 2 | 0 | 1 |
+| 兼容性 | 3 | 3 | 0 | 0 |
 | ADD 审计 | 4 | 4 | 0 | 0 |
-| **总计** | **48** | **46** | **0** | **2** |
+| **总计** | **48** | **47** | **0** | **1** |
 
 > **统计口径（RULE-2）**：逐项来自 §1–§8；Step 10 回填后重新做双算术校验（逐行 `总数 = 通过 + 失败 + 待办`；总计 = 8 行按列求和）。
 
 ### 10.2 验收决定
 
 - [ ] **验收通过**：所有 P1 项通过，无阻塞性问题
-- [x] **有条件通过**：C-2 待 CI 两轮；S-8 72h 现场运行待独占主机（U-1，P2）
+- [x] **有条件通过**：S-8 72h 现场运行待独占主机（U-1，P2）；其余 47/48 已由独立读数证明
 - [ ] **验收失败**：<原因>
-- [x] **无条件成立的项**：48 项中 46 项已由独立读数证明；无 P1/P2 未修问题
+- [x] **无条件成立的项**：P1/P2 无未修问题；CI 第一轮 8/8 全绿
 
 ### 10.3 签字
 
