@@ -1160,6 +1160,36 @@ def _agent_requirements_decision(
     )
 
 
+def _update_plan_ledger(run_dir: Path, decision: str) -> dict | None:
+    """G8b: write ``plan/ledger.json`` and request a replan on REFINE/PIVOT.
+
+    The ledger is a read-only projection; a request never mutates the plan.
+    """
+    try:
+        from researchclaw.plan import (
+            compute_ledger,
+            load_plan,
+            read_events,
+            read_ledger,
+            request_replan,
+            write_ledger,
+        )
+
+        plan = load_plan(run_dir)
+        if plan is None:
+            return None
+        ledger = compute_ledger(
+            plan, previous=read_ledger(run_dir), events=read_events(run_dir)
+        )
+        write_ledger(run_dir, ledger)
+        if str(decision).upper() in ("REFINE", "PIVOT"):
+            request_replan(run_dir, reason=str(decision).lower(), ledger=ledger)
+        return ledger
+    except Exception:  # noqa: BLE001 - planning must not break the stage
+        logger.warning("ResearchPlan ledger update failed at Stage 15", exc_info=True)
+        return None
+
+
 def _execute_research_decision(
     stage_dir: Path,
     run_dir: Path,
@@ -1349,6 +1379,21 @@ Generated: {_utcnow_iso()}
     (stage_dir / "decision_structured.json").write_text(
         json.dumps(decision_payload, indent=2), encoding="utf-8"
     )
+    _ledger = _update_plan_ledger(run_dir, decision)
+    if _ledger is not None:
+        decision_payload["plan_ledger"] = {
+            key: _ledger.get(key)
+            for key in (
+                "plan_version",
+                "is_complete",
+                "is_looping",
+                "forward_progress",
+                "next_node",
+            )
+        }
+        (stage_dir / "decision_structured.json").write_text(
+            json.dumps(decision_payload, indent=2), encoding="utf-8"
+        )
     logger.info("Research decision: %s", decision)
 
     return StageResult(

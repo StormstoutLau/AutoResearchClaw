@@ -22,6 +22,10 @@ INDEX_NAME = "index.json"
 EVENTS_NAME = "plan_events.jsonl"
 
 
+def plan_filename(version: int) -> str:
+    return f"plan.v{int(version)}.json"
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -44,7 +48,24 @@ def plan_dir(run_dir: str | Path) -> Path:
     return Path(run_dir) / PLAN_DIR
 
 
-def plan_path(run_dir: str | Path) -> Path:
+def read_index(run_dir: str | Path) -> dict | None:
+    path = plan_dir(run_dir) / INDEX_NAME
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def plan_path(run_dir: str | Path, version: int | None = None) -> Path:
+    """Path of the requested version; ``None`` follows ``index.json``."""
+    if version is not None:
+        return plan_dir(run_dir) / plan_filename(version)
+    index = read_index(run_dir)
+    if index and index.get("file"):
+        return plan_dir(run_dir) / str(index["file"])
     return plan_dir(run_dir) / PLAN_NAME
 
 
@@ -96,14 +117,16 @@ def read_events(run_dir: str | Path) -> list[dict]:
 
 def _write(run_dir: str | Path, plan: Mapping[str, Any], *, stage: int, event: str) -> dict:
     sealed = seal_plan(plan)
+    version = int(sealed.get("version", 1))
+    filename = plan_filename(version)
     _atomic_write(
-        plan_path(run_dir),
+        plan_dir(run_dir) / filename,
         json.dumps(sealed, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
     )
     index = {
-        "version": sealed.get("version", 1),
+        "version": version,
         "digest": sealed.get("plan_digest", ""),
-        "file": PLAN_NAME,
+        "file": filename,
     }
     _atomic_write(
         plan_dir(run_dir) / INDEX_NAME,
@@ -114,7 +137,46 @@ def _write(run_dir: str | Path, plan: Mapping[str, Any], *, stage: int, event: s
         event,
         {
             "stage": int(stage),
-            "version": sealed.get("version", 1),
+            "version": version,
+            "digest": sealed.get("plan_digest", ""),
+        },
+    )
+    return sealed
+
+
+def write_replan(
+    run_dir: str | Path,
+    plan: Mapping[str, Any],
+    *,
+    stage: int,
+    diff: Mapping[str, Any],
+    reason: str,
+) -> dict:
+    """Persist a new plan version with its diff and a ``plan.replanned`` event."""
+    sealed = seal_plan(plan)
+    version = int(sealed.get("version", 1))
+    filename = plan_filename(version)
+    _atomic_write(
+        plan_dir(run_dir) / filename,
+        json.dumps(sealed, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
+    )
+    _atomic_write(
+        plan_dir(run_dir) / INDEX_NAME,
+        json.dumps(
+            {"version": version, "digest": sealed.get("plan_digest", ""), "file": filename},
+            indent=2,
+            ensure_ascii=False,
+        ) + "\n",
+    )
+    append_event(
+        run_dir,
+        "plan.replanned",
+        {
+            "stage": int(stage),
+            "version": version,
+            "parent_version": sealed.get("parent_version"),
+            "reason": str(reason),
+            "diff": dict(diff),
             "digest": sealed.get("plan_digest", ""),
         },
     )
