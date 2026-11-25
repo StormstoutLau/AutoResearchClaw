@@ -10,7 +10,7 @@ upstream: arc-master-roadmap
 
 # 审查验收 Checklist：run_id 稳定性与 A7-1 现场适配（P-174）
 
-> **状态**：**16/18 通过 + 2 待办**（C-2 CI 待回填；C-3 72h 待现场）。
+> **状态**：**17/18 通过 + 1 待现场**（C-3 72h 未启动，不伪绿；C-2 两轮 CI 8/8）。
 > **计数**：**18 项 = 文档 4 + 功能 5 + 接口 2 + 不变式 3 + 错误 1 + 兼容 3**。
 
 ## 1. 文档一致性
@@ -58,7 +58,7 @@ upstream: arc-master-roadmap
 | 环境/项 | DoR | DoD | 状态 | 证据 |
 |---|---|---|---|---|
 | C-1 本机 3.13 | 3.13.5 | 定向 + 全量 | ✅ | 61 passed；全量 3953 passed / 6 环境态 |
-| C-2 CI 3.11–3.14 | CI 矩阵 | 两轮 8/8 | ⏳ | 待推送后回填 |
+| C-2 CI 3.11–3.14 | CI 矩阵 | 两轮 8/8 | ✅ | run `45608919405` attempt 1 & 2：8/8 全 success |
 | C-3 A7-1 72h 现场 | 基线收敛后启动 | wall≥259200、restarts≥3 | ⏳ 待现场 | 基线运行中；72h 未启动，不伪绿 |
 
 ## 7. 诚实边界
@@ -83,4 +83,4 @@ upstream: arc-master-roadmap
 | `verify-anchor` | **10 真实 / 0 硬性 / 0 软性** |
 | `step_enforce` | `mode=batch pid=P-174 digest_bound=1` |
 | `pre-commit` | **10/10 Passed**（含 private-config 脱敏后） |
-| 两轮 CI | 待推送后回填 |
+| 两轮 CI | run `45608919405` attempt 1 & 2，**8/8 success** |
