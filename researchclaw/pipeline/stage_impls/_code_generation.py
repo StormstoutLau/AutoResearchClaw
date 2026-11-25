@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import logging
 import re
@@ -35,6 +36,44 @@ from researchclaw.prompts import PromptManager
 from researchclaw.utils.paths import safe_join
 
 logger = logging.getLogger(__name__)
+
+
+def _entrypoint_issues(main_code: str) -> list[str]:
+    """Reasons why ``main.py`` cannot run as an experiment entrypoint (P-178).
+
+    Stage 12 expects a script that executes and prints ``METRIC_DEF``; a
+    config-only module returns rc=0 with no metrics and is misread as a crash.
+    """
+    code = str(main_code or "")
+    if not code.strip():
+        return ["main.py is empty or missing"]
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as exc:
+        return [f"main.py has a syntax error: {exc.msg} (line {exc.lineno})"]
+
+    has_guard = False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.If):
+            continue
+        test = node.test
+        if (
+            isinstance(test, ast.Compare)
+            and isinstance(test.left, ast.Name)
+            and test.left.id == "__name__"
+            and len(test.comparators) == 1
+            and isinstance(test.comparators[0], ast.Constant)
+            and test.comparators[0].value == "__main__"
+        ):
+            has_guard = True
+            break
+
+    issues: list[str] = []
+    if not has_guard:
+        issues.append('main.py missing `if __name__ == "__main__":` block')
+    if "METRIC_DEF" not in code:
+        issues.append("main.py never prints METRIC_DEF")
+    return issues
 
 # Improvement G: Continuous-action environments that are incompatible with DQN
 _CONTINUOUS_ENVS = {
@@ -1794,6 +1833,29 @@ Multi-file experiment project with {len(files)} file(s): {file_list}
             artifacts=tuple(artifacts),
             evidence_refs=tuple(f"stage-10/{a}" for a in artifacts),
             error=f"Topic-experiment misalignment: {alignment_note}",
+        )
+
+    # P-178: refuse to ship a non-runnable entrypoint (config-only main.py etc.)
+    _main_code = files.get("main.py", "") if isinstance(files, dict) else ""
+    if not _main_code:
+        _main_path = exp_dir / "main.py"
+        if _main_path.is_file():
+            try:
+                _main_code = _main_path.read_text(encoding="utf-8")
+            except OSError:
+                _main_code = ""
+    _entry_issues = _entrypoint_issues(_main_code)
+    if _entry_issues:
+        logger.error(
+            "Stage 10: generated entrypoint is not runnable: %s", _entry_issues
+        )
+        return StageResult(
+            stage=Stage.CODE_GENERATION,
+            status=StageStatus.FAILED,
+            artifacts=tuple(artifacts),
+            evidence_refs=tuple(f"stage-10/{a}" for a in artifacts),
+            error="generated entrypoint is not runnable: "
+            + "; ".join(_entry_issues[:5]),
         )
 
     return StageResult(
