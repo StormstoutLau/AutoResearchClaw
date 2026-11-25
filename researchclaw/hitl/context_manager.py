@@ -114,6 +114,41 @@ class ContextManager:
 
         return messages
 
+    def compress_messages(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        budget: int | None = None,
+    ) -> list[dict[str, str]]:
+        """Compress a built message list so it fits ``budget`` characters.
+
+        System messages are preserved (and only summarized when they alone
+        exceed the budget); conversation turns go through the sliding-window
+        policy in :meth:`_trim_chat_history`.
+        """
+        if not messages:
+            return []
+
+        limit = self.max_total_chars if budget is None else max(0, int(budget))
+        system = [m for m in messages if m.get("role") == "system"]
+        convo = [m for m in messages if m.get("role") != "system"]
+
+        system_chars = sum(len(m.get("content", "")) for m in system)
+        if system and system_chars >= limit:
+            per = max(1, limit // len(system))
+            return [
+                {
+                    "role": "system",
+                    "content": self.summarize_artifact(
+                        m.get("content", ""), per
+                    ),
+                }
+                for m in system
+            ]
+
+        remaining = max(0, limit - system_chars)
+        return system + self._trim_chat_history(convo, remaining)
+
     def summarize_artifact(self, content: str, max_chars: int = 2000) -> str:
         """Compress a large artifact into a summary.
 
@@ -149,7 +184,7 @@ class ContextManager:
 
         # If still too long, take first and last portions
         if len(summary) > max_chars:
-            half = max_chars // 2
+            half = max(1, max_chars // 2)
             summary = summary[:half] + "\n...[truncated]...\n" + summary[-half:]
 
         # Add stats header
