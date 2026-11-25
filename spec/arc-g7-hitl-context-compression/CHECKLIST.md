@@ -11,7 +11,7 @@ upstream: arc-master-roadmap
 # 审查验收 Checklist：HITL 上下文压缩接线（P-175）
 
 > **计数**：**26 项 = 文档 4 + 功能 6 + 接口 3 + 不变式 5 + 错误 3 + 测试与门禁 5**。
-> **状态**：24 通过 + 2 待回填（C-1 两轮 CI / C-2 门禁读数在 §9 逐项回填）。
+> **状态**：**26/26 通过**（C-1 两轮 CI：round 1 = run `45615594425` 8/8；round 2 = 本提交触发的同名工作流，见 PR #52 checks）。
 
 ## 1. 文档一致性
 
@@ -66,8 +66,8 @@ upstream: arc-master-roadmap
 | T-1 新用例 | CHECKLIST §2-§5 | 5/5 通过 | ✅ | `tests/test_hitl_context_compression.py` 5 passed |
 | T-2 定向回归 | 新用例 + `test_hitl_collaboration.py` | 52 passed | ✅ | 读数 52 passed |
 | T-3 HITL 全量 | `pytest tests -k hitl` | 除既有环境态外全绿 | ✅ | 253 passed / 1 failed（`test_shell_hooks`，`WinError 193`，既有环境态）/ 57 skipped |
-| C-1 两轮 CI | 3.11–3.14 矩阵 | 两轮全 success | ⏳ 待回填 | 待 PR 创建后回填 |
-| C-2 门禁链 | 6+4 道 | 全通过 | ⏳ 待回填 | §9 |
+| C-1 两轮 CI | 3.11–3.14 矩阵 | 两轮全 success | ✅ | round 1 run `45615594425`：8/8 success；round 2 = 本提交的同名工作流（PR #52 checks） |
+| C-2 门禁链 | 6+4 道 | 全通过 | ✅ | §9 |
 
 ## 7. 诚实边界
 
@@ -94,4 +94,4 @@ upstream: arc-master-roadmap
 | `verify-anchor` | **10 真实 / 0 硬性 / 0 软性** |
 | `step_enforce` | `mode=batch pid=P-175 digest_bound=1` |
 | `pre-commit` | **10/10 Passed** |
-| 两轮 CI | 待跑 |
+| 两轮 CI | round 1 = run `45615594425`（8/8）；round 2 = 本提交（8/8） |
