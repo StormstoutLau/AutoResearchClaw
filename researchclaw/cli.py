@@ -242,6 +242,11 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     run_id = _generate_run_id(config.research.topic)
     run_dir = Path(output or f"artifacts/{run_id}")
+    # P-173: an explicit run directory is the stable identity across restarts.
+    # Without this, every `run --output <dir> --resume` minted a new run_id,
+    # so events/mandate/verify_run disagreed with the directory name.
+    if output:
+        run_id = run_dir.name
 
     # BUG-119 / BUG-216: When --resume or --from-stage is used without
     # --output, search for the most recent existing run directory that

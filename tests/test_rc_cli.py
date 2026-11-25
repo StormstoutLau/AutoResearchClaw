@@ -361,6 +361,45 @@ def test_cmd_run_missing_config_shows_init_hint(
     assert "researchclaw init" in capsys.readouterr().err
 
 
+def test_output_dir_name_is_the_stable_run_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P-173: --output must not mint a new run_id on every resume."""
+    monkeypatch.chdir(tmp_path)
+    config_path = tmp_path / "config.arc.yaml"
+    _write_valid_config(config_path)
+    out = tmp_path / "g7-baseline"
+    captured: dict = {}
+
+    import researchclaw.pipeline.runner as runner_mod
+    monkeypatch.setattr(
+        runner_mod,
+        "execute_pipeline",
+        lambda **kw: captured.update(kw) or [],
+    )
+
+    args = argparse.Namespace(
+        config=str(config_path),
+        topic=None,
+        output=str(out),
+        from_stage=None,
+        auto_approve=True,
+        skip_preflight=True,
+        resume=False,
+        skip_noncritical_stage=False,
+        no_graceful_degradation=False,
+        incremental_experiment=False,
+        mode=None,
+        profile=None,
+        interventions=None,
+        to_stage=None,
+    )
+    rc_cli.cmd_run(args)
+
+    assert captured["run_id"] == "g7-baseline"
+    assert captured["run_dir"] == out
+
+
 def test_resume_finds_existing_checkpoint_dir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
