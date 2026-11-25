@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from researchclaw.hitl.chat import ChatMessage, ChatSession, build_stage_context
+from researchclaw.hitl.context_manager import ContextManager
 from researchclaw.utils.paths import safe_join
 
 logger = logging.getLogger(__name__)
@@ -59,9 +60,12 @@ class CollaborationSession:
         self.chat.stage_name = stage_name
         self.chat.topic = topic
 
-        # Build and inject context
+        # Build and inject context (compressed at request time by the manager)
+        context_manager = ContextManager(run_dir)
+        self.chat.context_manager = context_manager
         context = build_stage_context(
-            stage_num, stage_name, topic, run_dir, artifacts
+            stage_num, stage_name, topic, run_dir, artifacts,
+            context_manager=context_manager,
         )
         self.chat.add_system_message(context)
 

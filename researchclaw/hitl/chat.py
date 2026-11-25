@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from researchclaw.hitl.context_manager import CONTEXT_BUDGETS
+
 logger = logging.getLogger(__name__)
 
 
@@ -61,6 +63,7 @@ class ChatSession:
     messages: list[ChatMessage] = field(default_factory=list)
     context: dict[str, Any] = field(default_factory=dict)
     max_turns: int = 50
+    context_manager: Any = None
 
     @property
     def turn_count(self) -> int:
@@ -129,6 +132,8 @@ class ChatSession:
             )
 
         messages = self.build_llm_messages()
+        if self.context_manager is not None:
+            messages = self.context_manager.compress_messages(messages)
 
         try:
             response = llm_client.chat(messages)
@@ -181,11 +186,15 @@ def build_stage_context(
     topic: str,
     run_dir: Path,
     artifacts: tuple[str, ...] = (),
+    *,
+    context_manager: Any = None,
 ) -> str:
     """Build a rich context string for the chat system prompt.
 
     Reads stage outputs and preceding stage summaries to give the AI
-    full awareness of the current pipeline state.
+    full awareness of the current pipeline state. When a
+    ``context_manager`` is supplied, oversized artifacts and guidance are
+    compressed extractively instead of being hard-truncated mid-sentence.
     """
     lines = [
         f"You are collaborating with a human researcher on Stage {stage_num} "
@@ -202,9 +211,14 @@ def build_stage_context(
             if fpath.is_file():
                 try:
                     content = fpath.read_text(encoding="utf-8")
-                    # Truncate very large files
+                    # Compress very large files (extractive when possible)
                     if len(content) > 3000:
-                        content = content[:3000] + "\n...[truncated]"
+                        if context_manager is not None:
+                            content = context_manager.summarize_artifact(
+                                content, 3000
+                            )
+                        else:
+                            content = content[:3000] + "\n...[truncated]"
                     lines.append(f"\n### {fname}\n```\n{content}\n```")
                 except (OSError, UnicodeDecodeError):
                     lines.append(f"\n### {fname}\n[Error reading file]")
@@ -214,6 +228,13 @@ def build_stage_context(
     if guidance_file and guidance_file.exists():
         try:
             guidance = guidance_file.read_text(encoding="utf-8")
+            if (
+                context_manager is not None
+                and len(guidance) > CONTEXT_BUDGETS["guidance"]
+            ):
+                guidance = context_manager.summarize_artifact(
+                    guidance, CONTEXT_BUDGETS["guidance"]
+                )
             lines.append(f"\n## Human Guidance\n{guidance}")
         except (OSError, UnicodeDecodeError):
             pass
