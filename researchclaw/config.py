@@ -804,6 +804,12 @@ class MultiProjectConfig:
     projects_dir: str = ".researchclaw/projects"
     max_concurrent: int = 2
     shared_knowledge: bool = True
+    # G7 A7-6/A7-7: attempt-level admission (supervisor spawn boundary).
+    max_concurrent_attempts: int = 2
+    hitl_priority_slots: int = 1
+    max_inflight_llm_calls: int = 0
+    slot_root: str = ".researchclaw/slots"
+    queue_timeout_sec: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -1693,11 +1699,25 @@ def _parse_knowledge_graph_config(data: dict[str, Any]) -> KnowledgeGraphConfig:
 def _parse_multi_project_config(data: dict[str, Any]) -> MultiProjectConfig:
     if not data:
         return MultiProjectConfig()
+    max_attempts = max(1, _safe_int(data.get("max_concurrent_attempts"), 2))
+    reserved = _safe_int(data.get("hitl_priority_slots"), 1)
+    reserved = max(0, min(reserved, max_attempts))
     return MultiProjectConfig(
         enabled=bool(data.get("enabled", False)),
         projects_dir=data.get("projects_dir", ".researchclaw/projects"),
         max_concurrent=int(data.get("max_concurrent", 2)),
         shared_knowledge=bool(data.get("shared_knowledge", True)),
+        max_concurrent_attempts=max_attempts,
+        hitl_priority_slots=reserved,
+        max_inflight_llm_calls=max(
+            0, _safe_int(data.get("max_inflight_llm_calls"), 0)
+        ),
+        slot_root=str(
+            data.get("slot_root") or ".researchclaw/slots"
+        ),
+        queue_timeout_sec=max(
+            0.0, _safe_float(data.get("queue_timeout_sec"), 0.0)
+        ),
     )
 
 

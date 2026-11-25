@@ -1,0 +1,52 @@
+# G7 A7-1 72h field run 模板（P-173）。
+# 用法：复制为 config.g7-field.yaml（不要提交真实端点/凭据），按注释替换占位符。
+# 关键约束：llm.base_url 必须是本机 loopback（local_only 只允许 127.0.0.1/localhost/::1）。
+project:
+  name: g7-field
+  mode: full-auto
+
+research:
+  topic: "REPLACE_WITH_FIXED_TOPIC"
+  domains: []
+  graceful_degradation: true
+
+runtime:
+  timezone: "Asia/Shanghai"
+  max_parallel_tasks: 1
+
+notifications:
+  channel: console
+
+knowledge_base:
+  backend: markdown
+  root: artifacts/kb
+
+llm:
+  provider: openai-compatible
+  # SSH 隧道：ssh -N -L 18000:127.0.0.1:8000 user@cluster
+  base_url: "http://127.0.0.1:18000/v1"
+  api_key_env: "LOCAL_MODEL_KEY"   # 本地服务可填任意非空值
+  primary_model: "REPLACE_WITH_CLUSTER_MODEL"
+  fallback_models: []
+  timeout_sec: 600
+
+experiment:
+  mode: sandbox                    # 小规模真实实验；不要用 simulated
+  time_budget_sec: 600
+  max_iterations: 3
+  cli_agent:
+    provider: llm                  # Stage 10/13 与其余 stage 同一裸 API 模型
+    timeout_sec: 600
+
+model_policy:
+  enabled: true
+  local_only: true
+  run_budget_usd: 0.0              # 本地模型；由 soak --duration 与 time_budget_sec 限资源
+
+multi_project:
+  enabled: true
+  max_concurrent_attempts: 2
+  hitl_priority_slots: 1
+  max_inflight_llm_calls: 2
+  slot_root: ".researchclaw/slots"
+  queue_timeout_sec: 300
