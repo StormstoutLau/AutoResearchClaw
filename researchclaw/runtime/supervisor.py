@@ -16,7 +16,14 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from researchclaw.runtime.exit_codes import RETRYABLE, is_retryable
+from researchclaw.runtime.admission import (
+    AdmissionTimeout,
+    BudgetRejected,
+    Slot,
+    SlotRegistry,
+    preflight_budget,
+)
+from researchclaw.runtime.exit_codes import CONFIG, RETRYABLE, is_retryable
 from researchclaw.runtime.lease import is_expired, is_pid_alive, read_lease, release
 
 DEFAULT_MAX_RESTARTS = 5
@@ -44,6 +51,7 @@ class SupervisorResult:
     elapsed: float
     exhausted: bool = False
     history: list[dict] = field(default_factory=list)
+    queued: bool = False
 
 
 class Supervisor:
@@ -59,6 +67,10 @@ class Supervisor:
         cap_delay: float = DEFAULT_CAP_DELAY,
         sleep=None,
         spawn=None,
+        admission: SlotRegistry | None = None,
+        slot_class: str = "normal",
+        run_budget_usd: float = 0.0,
+        admission_timeout: float = 0.0,
     ) -> None:
         self.run_id = run_id
         self.run_dir = Path(run_dir)
@@ -69,6 +81,10 @@ class Supervisor:
         self.cap_delay = cap_delay
         self._sleep = sleep or time.sleep
         self._spawn = spawn or subprocess.Popen
+        self.admission = admission
+        self.slot_class = slot_class
+        self.run_budget_usd = float(run_budget_usd or 0.0)
+        self.admission_timeout = float(admission_timeout or 0.0)
         self.history: list[dict] = []
 
     # ------------------------------------------------------------ helpers
@@ -103,6 +119,37 @@ class Supervisor:
                            if self.run_dir.parent.exists() else None)
         return int(proc.wait())
 
+    def _admit(self) -> tuple[Slot | None, str]:
+        """Reserve an attempt slot (and reject an exhausted budget) before spawn."""
+        if self.run_budget_usd > 0:
+            try:
+                preflight_budget(self.run_dir, self.run_budget_usd)
+            except BudgetRejected as exc:
+                self._log({
+                    "event": "admission_budget_rejected",
+                    "spent_usd": round(exc.spent_usd, 6),
+                    "budget_usd": round(exc.budget_usd, 6),
+                })
+                return None, "budget"
+        if self.admission is None:
+            return None, ""
+        try:
+            slot = self.admission.acquire(
+                self.run_id,
+                slot_class=self.slot_class,
+                timeout=self.admission_timeout,
+            )
+        except AdmissionTimeout as exc:
+            self._log({"event": "admission_timeout", "error": str(exc)})
+            return None, "timeout"
+        self._log({
+            "event": "admission_granted",
+            "slot_id": slot.slot_id,
+            "fencing": slot.fencing,
+            "slot_class": slot.slot_class,
+        })
+        return slot, ""
+
     # ------------------------------------------------------------ loop
 
     def run(self) -> SupervisorResult:
@@ -110,8 +157,27 @@ class Supervisor:
         restarts = 0
         last_rc = 0
         while True:
-            self._clear_stale_lease()
-            rc = self._run_once()
+            slot, failure = self._admit()
+            if failure:
+                elapsed = time.monotonic() - started
+                self._log({"event": "supervisor_stop", "rc": CONFIG,
+                           "reason": "admission_" + failure})
+                return SupervisorResult(
+                    CONFIG, restarts, elapsed, False, self.history,
+                    queued=failure == "timeout",
+                )
+            try:
+                self._clear_stale_lease()
+                self._log({"event": "worker_started", "restarts": restarts})
+                rc = self._run_once()
+            finally:
+                if slot is not None:
+                    released = self.admission.release(slot)
+                    self._log({
+                        "event": "admission_released",
+                        "slot_id": slot.slot_id,
+                        "released": released,
+                    })
             last_rc = rc
             elapsed = time.monotonic() - started
             self._log({"event": "worker_exit", "rc": rc, "restarts": restarts,

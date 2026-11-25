@@ -486,19 +486,75 @@ def cmd_supervisor(args: argparse.Namespace) -> int:
     if not (run_dir / "checkpoint.json").exists() and not (run_dir / "events.jsonl").exists():
         print(f"Error: no resumable run at {run_dir}", file=sys.stderr)
         return 65
+
+    # G7 A7-6/A7-7: attempt admission is opt-in via multi_project.enabled.
+    admission = None
+    slot_class = "normal"
+    run_budget_usd = 0.0
+    admission_timeout = 0.0
+    config_path = cast(str | None, getattr(args, "config", None))
+    if config_path:
+        try:
+            from researchclaw.config import RCConfig
+            from researchclaw.runtime.admission import SlotRegistry
+
+            cfg = RCConfig.load(config_path, check_paths=False)
+            mp = cfg.multi_project
+            if mp.enabled and mp.max_concurrent_attempts > 0:
+                admission = SlotRegistry(
+                    mp.slot_root,
+                    max_attempts=mp.max_concurrent_attempts,
+                    hitl_priority_slots=mp.hitl_priority_slots,
+                )
+                run_budget_usd = float(cfg.model_policy.run_budget_usd or 0.0)
+                admission_timeout = float(mp.queue_timeout_sec or 0.0)
+                if getattr(args, "hitl_priority", False):
+                    slot_class = "hitl"
+        except Exception as exc:  # noqa: BLE001 - admission must never break resume
+            print(f"[supervisor] admission disabled: {exc}", file=sys.stderr)
+
     supervisor = Supervisor(
         run_id=run_dir.name,
         run_dir=run_dir,
-        worker_cmd=default_worker_cmd(run_dir, cast(str | None, args.config)),
+        worker_cmd=default_worker_cmd(run_dir, config_path),
         max_restarts=int(args.max_restarts),
         max_wall_seconds=float(args.max_wall_seconds),
+        admission=admission,
+        slot_class=slot_class,
+        run_budget_usd=run_budget_usd,
+        admission_timeout=admission_timeout,
     )
     result = supervisor.run()
+    suffix = " queued=true" if result.queued else ""
     print(
         f"[supervisor] exit={result.exit_code} restarts={result.restarts} "
-        f"elapsed={result.elapsed:.0f}s exhausted={result.exhausted}"
+        f"elapsed={result.elapsed:.0f}s exhausted={result.exhausted}{suffix}"
     )
     return result.exit_code
+
+
+def cmd_ops(args: argparse.Namespace) -> int:
+    """G7 A7-5: read-only operational view across runs."""
+    from researchclaw.runtime.ops import build_ops_view
+
+    view = build_ops_view(cast(str, args.runs_root))
+    if getattr(args, "json", False):
+        print(json.dumps(view, ensure_ascii=False, indent=2))
+        return 0
+    totals = view["totals"]
+    print(
+        f"runs={totals['runs']} restarts={totals['restarts']} "
+        f"failures={totals['failures']} recovery_seconds={totals['recovery_seconds']}"
+    )
+    for row in view["runs"]:
+        stages = ",".join(
+            f"{stage}x{count}" for stage, count in sorted(row["failure_stages"].items())
+        ) or "-"
+        print(
+            f"  {row['run_id']}: status={row['status']} last_stage={row['last_stage']} "
+            f"restarts={row['restarts']} failures={stages} events={row['events']}"
+        )
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -1862,6 +1918,17 @@ def build_parser() -> argparse.ArgumentParser:
     _ = sup_p.add_argument("--config", "-c", default=None, help="Config file path")
     _ = sup_p.add_argument("--max-restarts", type=int, default=5)
     _ = sup_p.add_argument("--max-wall-seconds", type=float, default=1800)
+    _ = sup_p.add_argument(
+        "--hitl-priority", action="store_true",
+        help="Use the HITL lane when multi_project admission is enabled",
+    )
+
+    # G7: cross-run operational view（P-172）
+    ops_p = sub.add_parser("ops", help="Read-only operational view across runs")
+    _ = ops_p.add_argument("--runs-root", default="artifacts",
+                           help="Directory containing run directories")
+    _ = ops_p.add_argument("--json", action="store_true",
+                           help="Print the view as JSON")
 
     # G7: soak toolchain（P-160）
     soak_p = sub.add_parser("soak", help="Run/verify long-running soak sessions")
@@ -2106,6 +2173,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_run(args)
     elif command == "supervisor":
         return cmd_supervisor(args)
+    elif command == "ops":
+        return cmd_ops(args)
     elif command == "soak":
         return cmd_soak(args)
     elif command == "validate":

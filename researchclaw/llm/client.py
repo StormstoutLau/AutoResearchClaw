@@ -11,6 +11,7 @@ Features:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -18,6 +19,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -97,6 +99,8 @@ class LLMConfig:
     model_policy_enabled: bool = False
     model_policy: dict[str, Any] = field(default_factory=dict)
     policy_version: int = 0
+    # G7 A7-6: per-run concurrent LLM call cap (0 = unlimited).
+    max_inflight_llm_calls: int = 0
 
 
 class LLMClient:
@@ -202,6 +206,14 @@ class LLMClient:
             model_policy_enabled=policy_enabled,
             model_policy=policy_data,
             policy_version=1 if policy_enabled else 0,
+            max_inflight_llm_calls=int(
+                getattr(
+                    getattr(rc_config, "multi_project", None),
+                    "max_inflight_llm_calls",
+                    0,
+                )
+                or 0
+            ),
         )
         client = cls(config)
 
@@ -268,6 +280,14 @@ class LLMClient:
             run_budget_usd=float(getattr(policy_cfg, "run_budget_usd", 0.0) or 0.0),
             local_only=bool(getattr(policy_cfg, "local_only", False)),
             policy_version=1 if bool(getattr(policy_cfg, "enabled", False)) else 0,
+            max_inflight_llm_calls=int(
+                getattr(
+                    getattr(rc_config, "multi_project", None),
+                    "max_inflight_llm_calls",
+                    0,
+                )
+                or 0
+            ),
         )
         client = cls(config)
 
@@ -355,7 +375,10 @@ class LLMClient:
 
         for m in models:
             try:
-                resp = self._call_with_retry(m, messages, max_tok, temp, json_mode)
+                with self._inflight_guard():
+                    resp = self._call_with_retry(
+                        m, messages, max_tok, temp, json_mode
+                    )
                 if strip_thinking:
                     from researchclaw.utils.thinking_tags import strip_thinking_tags
 
@@ -380,6 +403,33 @@ class LLMClient:
         raise RuntimeError(
             f"All models failed. Last error: {last_error}"
         ) from last_error
+
+    @contextlib.contextmanager
+    def _inflight_guard(self):
+        """Cap concurrent provider calls inside one run (G7 A7-6).
+
+        No-op unless ``max_inflight_llm_calls > 0`` and a run directory is
+        registered; the limiter is per run so it never couples independent
+        runs (cross-run fairness is the slot registry's job).
+        """
+        limit = int(getattr(self.config, "max_inflight_llm_calls", 0) or 0)
+        if limit <= 0:
+            yield
+            return
+        try:
+            from researchclaw.cost_tracker import get_global_tracker
+
+            run_dir = get_global_tracker().run_dir
+        except Exception:  # noqa: BLE001 - accounting absence must not block
+            run_dir = None
+        if run_dir is None:
+            yield
+            return
+        from researchclaw.llm.inflight import InflightLimiter
+
+        limiter = InflightLimiter(Path(run_dir) / ".inflight", limit)
+        with limiter.slot(timeout=float(self.config.timeout_sec or 300)):
+            yield
 
     def _model_chain_for(
         self,
