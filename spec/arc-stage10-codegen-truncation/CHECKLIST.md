@@ -11,7 +11,7 @@ upstream: arc-master-roadmap
 # 审查验收 Checklist：Stage 10 截断容错与出口门（P-178）
 
 > **计数**：**23 项 = 文档 4 + 功能 8 + 不变式 5 + 错误 3 + 测试 3**。
-> **状态**：功能/不变式/错误已回填；门禁与 CI 见 §6。
+> **状态**：23/23 功能面通过；门禁全绿；CI round 1 = run `45635526103` 8/8（round 2 见 PR #54）。
 
 ## 1. 文档一致性
 
@@ -70,7 +70,7 @@ upstream: arc-master-roadmap
 | `verify-anchor` | **10 真实 / 0 硬性 / 0 软性** |
 | `step_enforce` | `mode=batch pid=P-178 digest_bound=1` |
 | `pre-commit` | **10/10 Passed** |
-| 两轮 CI | 待跑 |
+| 两轮 CI | round 1 = run `45635526103`（8/8）；round 2 = 本提交 |
 
 ## 7. 诚实边界
 
