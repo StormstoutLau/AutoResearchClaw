@@ -1,6 +1,7 @@
 """G1b supervisor loop and lease keeper (A1-3, R-2, R-3)."""
 from __future__ import annotations
 
+import json
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -231,6 +232,27 @@ def test_budget_is_rejected_before_spawn(tmp_path):
     assert result.exit_code == exit_codes.CONFIG
     assert result.queued is False
     assert reg.snapshot()["active"] == 0
+
+
+def test_corrupt_registry_fails_closed_without_spawning(tmp_path):
+    slot_root = tmp_path / "slots"
+    slot_root.mkdir()
+    (slot_root / "registry.json").write_text("{not json", encoding="utf-8")
+    (slot_root / "registry.bak.json").write_text("[]", encoding="utf-8")
+    reg = SlotRegistry(slot_root, max_attempts=1, hitl_priority_slots=0)
+    spawned = []
+    sup, _ = _admitted(tmp_path, [0], spawned, registry=reg)
+
+    result = sup.run()
+
+    assert spawned == []
+    assert result.exit_code == exit_codes.CONFIG
+    assert result.queued is False
+    events = [
+        json.loads(line) for line in
+        (tmp_path / "supervisor.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert any(row.get("event") == "admission_corrupt" for row in events)
 
 
 def test_hitl_slot_uses_the_reserved_capacity(tmp_path):

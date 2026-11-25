@@ -10,6 +10,7 @@ import pytest
 from researchclaw.runtime.admission import (
     AdmissionTimeout,
     BudgetRejected,
+    RegistryCorrupt,
     SlotRegistry,
     preflight_budget,
 )
@@ -112,14 +113,43 @@ def test_registry_file_is_readable_and_fencing_is_monotonic(tmp_path: Path) -> N
     assert first.fencing == 1
 
 
-def test_corrupt_registry_fails_open_to_empty_state(tmp_path: Path) -> None:
+def test_corrupt_primary_recovers_from_backup(tmp_path: Path) -> None:
+    reg = SlotRegistry(tmp_path, max_attempts=1, hitl_priority_slots=0)
+    first = reg.acquire("run-a")
+    reg.release(first)
     (tmp_path / "registry.json").write_text("{not json", encoding="utf-8")
 
-    reg = SlotRegistry(tmp_path, max_attempts=1, hitl_priority_slots=0)
-    slot = reg.acquire("run-a", timeout=0)
+    slot = reg.acquire("run-b", timeout=0)
 
-    assert slot.fencing == 1
+    assert reg.last_error == "recovered_from_backup"
+    assert slot.fencing == 2
     assert reg.snapshot()["active"] == 1
+    assert json.loads((tmp_path / "registry.json").read_text(encoding="utf-8"))
+
+
+def test_missing_primary_recovers_from_backup(tmp_path: Path) -> None:
+    reg = SlotRegistry(tmp_path, max_attempts=1, hitl_priority_slots=0)
+    first = reg.acquire("run-a")
+    reg.release(first)
+    (tmp_path / "registry.json").unlink()
+
+    slot = reg.acquire("run-b", timeout=0)
+
+    assert reg.last_error == "recovered_from_backup"
+    assert slot.fencing == 2
+    assert (tmp_path / "registry.json").is_file()
+
+
+def test_both_copies_corrupt_fail_closed(tmp_path: Path) -> None:
+    reg = SlotRegistry(tmp_path, max_attempts=1, hitl_priority_slots=0)
+    reg.acquire("run-a")
+    (tmp_path / "registry.json").write_text("{not json", encoding="utf-8")
+    (tmp_path / "registry.bak.json").write_text("[]", encoding="utf-8")
+
+    with pytest.raises(RegistryCorrupt):
+        reg.acquire("run-b", timeout=0)
+    with pytest.raises(RegistryCorrupt):
+        reg.snapshot()
 
 
 def test_preflight_budget_rejects_at_or_over_limit(tmp_path: Path) -> None:

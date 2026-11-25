@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
 import time
 from dataclasses import dataclass
@@ -23,6 +24,7 @@ from researchclaw.runtime.filelock import exclusive_lock
 from researchclaw.runtime.lease import is_pid_alive
 
 REGISTRY_NAME = "registry.json"
+REGISTRY_BACKUP_NAME = "registry.bak.json"
 REGISTRY_LOCK = "registry.lock"
 DEFAULT_TTL_SECONDS = 6 * 3600
 DEFAULT_LOCK_TIMEOUT = 10.0
@@ -30,6 +32,10 @@ DEFAULT_LOCK_TIMEOUT = 10.0
 
 class AdmissionTimeout(RuntimeError):
     """No slot became available within the caller's wait budget."""
+
+
+class RegistryCorrupt(RuntimeError):
+    """The registry and its backup are both unreadable — fail closed."""
 
 
 class BudgetRejected(RuntimeError):
@@ -98,7 +104,7 @@ def _parse(value: str) -> datetime:
 
 
 def _empty_state() -> dict[str, Any]:
-    return {"version": 1, "fencing": 0, "slots": [], "queue": []}
+    return {"version": 1, "revision": 0, "fencing": 0, "slots": [], "queue": []}
 
 
 class SlotRegistry:
@@ -136,6 +142,10 @@ class SlotRegistry:
         return self.root / REGISTRY_NAME
 
     @property
+    def backup_path(self) -> Path:
+        return self.root / REGISTRY_BACKUP_NAME
+
+    @property
     def lock_path(self) -> Path:
         return self.root / REGISTRY_LOCK
 
@@ -145,18 +155,15 @@ class SlotRegistry:
 
     # ------------------------------------------------------------ state
 
-    def _load(self) -> dict[str, Any]:
-        if not self.registry_path.is_file():
-            return _empty_state()
+    def _read_state(self, path: Path) -> dict[str, Any]:
         try:
-            data = json.loads(self.registry_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            self.last_error = "corrupt_registry"
-            return _empty_state()
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RegistryCorrupt(f"{path}: unreadable registry") from exc
         if not isinstance(data, dict):
-            self.last_error = "corrupt_registry"
-            return _empty_state()
+            raise RegistryCorrupt(f"{path}: registry is not an object")
         state = _empty_state()
+        state["revision"] = int(data.get("revision", 0) or 0)
         state["fencing"] = int(data.get("fencing", 0) or 0)
         state["slots"] = [
             row for row in data.get("slots") or [] if isinstance(row, dict)
@@ -166,14 +173,64 @@ class SlotRegistry:
         ]
         return state
 
+    def _load(self) -> dict[str, Any]:
+        """Load the highest-revision valid registry; never silently reset.
+
+        The backup is written before the primary. A crash between the two
+        leaves a newer backup, and a corrupted primary is recovered from it.
+        When both copies are unreadable the caller must fail closed — clearing
+        the registry would roll ``fencing`` back and over-admit.
+        """
+        primary_state = None
+        backup_state = None
+        seen_error = False
+        for label, path in (("primary", self.registry_path),
+                            ("backup", self.backup_path)):
+            if not path.is_file():
+                continue
+            try:
+                state = self._read_state(path)
+            except RegistryCorrupt:
+                seen_error = True
+                continue
+            if label == "primary":
+                primary_state = state
+            else:
+                backup_state = state
+        if primary_state is None and backup_state is None:
+            if seen_error:
+                raise RegistryCorrupt("registry and backup are unreadable")
+            return _empty_state()
+        if backup_state is None:
+            return primary_state
+        if primary_state is None or (
+            backup_state["revision"] > primary_state["revision"]
+        ):
+            self.last_error = "recovered_from_backup"
+            self._restore(self.backup_path)
+            return backup_state
+        return primary_state
+
+    def _restore(self, source: Path) -> None:
+        target = self.registry_path
+        tmp = target.with_name(target.name + ".restore.tmp")
+        shutil.copyfile(source, tmp)
+        os.replace(tmp, target)
+
     def _save(self, state: dict[str, Any]) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
+        state["revision"] = int(state.get("revision", 0)) + 1
         target = self.registry_path
-        tmp = target.with_suffix(".json.tmp")
+        tmp = target.with_name(target.name + ".tmp")
         with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(json.dumps(state, ensure_ascii=False, indent=2) + "\n")
             fh.flush()
             os.fsync(fh.fileno())
+        backup_tmp = self.backup_path.with_name(
+            self.backup_path.name + ".tmp"
+        )
+        shutil.copyfile(tmp, backup_tmp)
+        os.replace(backup_tmp, self.backup_path)
         os.replace(tmp, target)
 
     # ------------------------------------------------------------ helpers

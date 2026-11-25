@@ -19,6 +19,7 @@ from pathlib import Path
 from researchclaw.runtime.admission import (
     AdmissionTimeout,
     BudgetRejected,
+    RegistryCorrupt,
     Slot,
     SlotRegistry,
     preflight_budget,
@@ -142,6 +143,10 @@ class Supervisor:
         except AdmissionTimeout as exc:
             self._log({"event": "admission_timeout", "error": str(exc)})
             return None, "timeout"
+        except RegistryCorrupt as exc:
+            # Fail closed: never spawn without a trustworthy slot state.
+            self._log({"event": "admission_corrupt", "error": str(exc)})
+            return None, "corrupt"
         self._log({
             "event": "admission_granted",
             "slot_id": slot.slot_id,
