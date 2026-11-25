@@ -12,7 +12,9 @@ from .derive import (
     check_experiment_plan_consistency,
     mark_analysis_done,
 )
+from .exp_plan import ensure_methods
 from .ledger import compute_ledger, read_ledger, write_ledger
+from .rebuild import rebuild_plan
 from .replan import (
     ReplanError,
     apply_replan,
@@ -68,6 +70,7 @@ __all__ = [
     "check_experiment_plan_consistency",
     "compute_ledger",
     "decompose_node",
+    "ensure_methods",
     "load_plan",
     "mark_analysis_done",
     "plan_diff",
@@ -76,6 +79,7 @@ __all__ = [
     "read_events",
     "read_index",
     "read_ledger",
+    "rebuild_plan",
     "replan",
     "request_replan",
     "search_experiment_candidates",

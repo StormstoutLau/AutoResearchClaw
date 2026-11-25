@@ -19,7 +19,10 @@ RETRYABLE_CODE = RETRYABLE
 REVOKED_HINTS = ("401", "403", "unauthorized", "forbidden", "revoked",
                  "invalid api key", "authentication")
 CONFIG_HINTS = ("config", "configuration", "version incompatible",
-                "schema", "invalid argument", "not found: config")
+                "schema", "invalid argument", "not found: config",
+                # P-177: deterministic plan/contract violations never self-heal
+                "invalid research plan", "research plan / exp_plan mismatch",
+                "replanned plan is invalid")
 PAUSED_STATUSES = ("paused", "blocked_approval", "rejected")
 
 

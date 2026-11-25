@@ -86,11 +86,28 @@ Under-reported failure behavior under distribution shift.
 
     # G8a / P-152: gaps become plan unknowns plus literature/question nodes.
     try:
-        from researchclaw.plan import add_synthesis_gaps, update_from_stage
+        from researchclaw.plan import (
+            add_synthesis_gaps,
+            load_plan,
+            update_from_stage,
+            validate_plan,
+        )
 
         update_from_stage(
             run_dir, 7, lambda research_plan: add_synthesis_gaps(research_plan, synthesis_md)
         )
+        _plan = load_plan(run_dir)
+        if _plan is not None:
+            _constraints = _plan.get("constraints") or {}
+            _violations = validate_plan(_plan, _constraints.get("budget_usd"))
+            if _violations:
+                return StageResult(
+                    stage=Stage.SYNTHESIS,
+                    status=StageStatus.FAILED,
+                    artifacts=(),
+                    error="invalid research plan after Stage 7: "
+                    + "; ".join(item.message for item in _violations[:5]),
+                )
     except Exception:  # noqa: BLE001 - planning must not break the stage
         logger.warning("ResearchPlan update failed at Stage 7", exc_info=True)
 
@@ -244,11 +261,28 @@ def _execute_hypothesis_gen(
 
     # G8a / P-152: each hypothesis becomes a plan node resting on literature.
     try:
-        from researchclaw.plan import add_hypothesis_nodes, update_from_stage
+        from researchclaw.plan import (
+            add_hypothesis_nodes,
+            load_plan,
+            update_from_stage,
+            validate_plan,
+        )
 
         update_from_stage(
             run_dir, 8, lambda research_plan: add_hypothesis_nodes(research_plan, hypotheses_md)
         )
+        _plan = load_plan(run_dir)
+        if _plan is not None:
+            _constraints = _plan.get("constraints") or {}
+            _violations = validate_plan(_plan, _constraints.get("budget_usd"))
+            if _violations:
+                return StageResult(
+                    stage=Stage.HYPOTHESIS_GEN,
+                    status=StageStatus.FAILED,
+                    artifacts=(),
+                    error="invalid research plan after Stage 8: "
+                    + "; ".join(item.message for item in _violations[:5]),
+                )
     except Exception:  # noqa: BLE001 - planning must not break the stage
         logger.warning("ResearchPlan update failed at Stage 8", exc_info=True)
 

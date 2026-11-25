@@ -538,6 +538,29 @@ def cmd_supervisor(args: argparse.Namespace) -> int:
     return result.exit_code
 
 
+def cmd_plan(args: argparse.Namespace) -> int:
+    """ResearchPlan maintenance (P-177): rebuild from stage artifacts."""
+    from pathlib import Path as _Path
+
+    from researchclaw.plan.rebuild import rebuild_plan
+
+    run_dir = _Path(cast(str, args.run_dir))
+    if not run_dir.exists():
+        print(f"Error: run directory not found: {run_dir}", file=sys.stderr)
+        return 78
+    result = rebuild_plan(run_dir, stage=int(getattr(args, "stage", 9)))
+    if getattr(args, "json", False):
+        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+    else:
+        print(
+            f"[plan] rebuild nodes={result['nodes']} depth={result['depth']} "
+            f"fanout={result['fanout']} persisted={result['persisted']}"
+        )
+        for item in result["violations"]:
+            print(f"  violation: {item}")
+    return 0 if not result["violations"] else 65
+
+
 def cmd_ops(args: argparse.Namespace) -> int:
     """G7 A7-5: read-only operational view across runs."""
     from researchclaw.runtime.ops import build_ops_view
@@ -1935,6 +1958,17 @@ def build_parser() -> argparse.ArgumentParser:
     _ = ops_p.add_argument("--json", action="store_true",
                            help="Print the view as JSON")
 
+    # P-177: ResearchPlan maintenance (rebuild from stage artifacts)
+    plan_p = sub.add_parser("plan", help="ResearchPlan maintenance")
+    plan_sub = plan_p.add_subparsers(dest="plan_command", required=True)
+    plan_rb = plan_sub.add_parser("rebuild", help="Rebuild plan from stage artifacts")
+    _ = plan_rb.add_argument("--run-dir", required=True,
+                             help="Run artifacts directory")
+    _ = plan_rb.add_argument("--stage", type=int, default=9,
+                             help="Stage to record the plan update against")
+    _ = plan_rb.add_argument("--json", action="store_true",
+                             help="Print the result as JSON")
+
     # G7: soak toolchain（P-160）
     soak_p = sub.add_parser("soak", help="Run/verify long-running soak sessions")
     soak_sub = soak_p.add_subparsers(dest="soak_command", required=True)
@@ -2180,6 +2214,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_supervisor(args)
     elif command == "ops":
         return cmd_ops(args)
+    elif command == "plan":
+        return cmd_plan(args)
     elif command == "soak":
         return cmd_soak(args)
     elif command == "validate":

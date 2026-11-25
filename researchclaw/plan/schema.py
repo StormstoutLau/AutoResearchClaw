@@ -25,7 +25,9 @@ NODE_TYPES = (
 )
 NODE_STATUSES = ("proposed", "active", "done", "failed", "abandoned")
 MAX_NODES = 40
-DEFAULT_MAX_DEPTH = 3
+# P-177: 3 forced every experiment onto the literature node (hub); 4 allows the
+# semantic chain question -> literature -> hypothesis -> experiment -> analysis.
+DEFAULT_MAX_DEPTH = 4
 DEFAULT_MAX_FANOUT = 8
 
 _REQUIRED_TOP = (
