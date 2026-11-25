@@ -129,4 +129,4 @@ python -m researchclaw ops --runs-root artifacts
 | 步骤 | 严格按 §1 分诊 → §3.1 启动 supervisor → §4 三项验证 |
 | 耗时 | supervisor 全程 **0.34s**；`recovery_seconds=0.08s`（远低于 30 分钟门槛） |
 | 结果 | `soak verify` ok/converged（`last_seq=4`）、`audit` exit 0、`ops` 读数与 checkpoint 一致（`last_stage=4`、`status=completed`） |
-| 限制 | 合成 worker（本机无真实 LLM 凭据）；恢复代码路径与生产一致（Supervisor/spawn/restart/stale lease）。**未做**独立新人盲测，已登记为 U-172-1 |
+| 限制 | 合成 worker（本机无真实 LLM 凭据）；恢复代码路径与生产一致（Supervisor/spawn/restart/stale lease）。**未做**独立新人盲测，已登记为 U-172-1，A7-5 记「部分」而非完全通过 |

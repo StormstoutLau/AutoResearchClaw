@@ -10,7 +10,7 @@ upstream: arc-master-roadmap
 
 # 审查验收 Checklist：G7 并发/双平面段（P-172）
 
-> **状态**：验收完成；**43/43 通过**（C-2 两轮 CI 8/8）。
+> **状态**：**42/43 通过 + 1 部分**（A7-5 无独立新人盲测，U-172-1；C-2 两轮 CI 8/8）。
 > **计数**：**43 项 = 文档 4 + 功能 14 + 接口 6 + 不变式 10 + 错误 6 + 兼容 3**。
 
 ## 0. DoR / DoD
@@ -90,7 +90,7 @@ upstream: arc-master-roadmap
 | C-1 本机 3.13 | 本机 3.13.5 | 新增面全绿 | ✅ | 39 passed（新增面）、215 passed（相关面） |
 | C-2 CI 3.11–3.14 | CI 矩阵 | 两轮 8/8 | ✅ | run `45579389211` attempt 1 & 2：Spec gates / Packaging / Extras / 3.11 / 3.12 / 3.13 / 3.14 / Roadmap 全 success |
 | C-3 默认行为不变 | 默认关闭/0 | 全量无新增失败 | ✅ | 3945 passed / 6 环境态失败 / 108 skipped（同 P-171 基线） |
-| A7-5 演练 | Runbook §1-§4 | 合成 run 恢复 + 三项验证 | ✅ | supervisor `elapsed=0.34s restarts=1`；`verify ok/converged`；`recovery_seconds=0.08s`；`ops last_stage=4 status=completed` |
+| A7-5 演练 | Runbook §1-§4 | 合成 run 恢复 + 三项验证 | ⚠ 部分 | supervisor `elapsed=0.34s restarts=1`；`verify ok/converged`；`recovery_seconds=0.08s`；`ops last_stage=4 status=completed`。**无独立新人盲测**（U-172-1），不宣称 A7-5 完全通过 |
 
 ## 7. 诚实边界
 
