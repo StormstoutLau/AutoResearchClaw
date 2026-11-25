@@ -303,6 +303,21 @@ def _execute_experiment_design(
                     pass
         if isinstance(parsed, dict):
             plan = parsed
+            # P-177: a dict without proposed_methods is a contract violation,
+            # not a parse failure; repair before the consistency check.
+            try:
+                from researchclaw.plan.exp_plan import ensure_methods
+
+                plan = ensure_methods(
+                    plan,
+                    llm=llm,
+                    topic=config.research.topic,
+                    hypotheses=hypotheses,
+                )
+            except Exception:  # noqa: BLE001 - repair must not break the stage
+                logger.warning(
+                    "Stage 09: exp_plan contract repair failed", exc_info=True
+                )
         else:
             logger.warning(
                 "Stage 09: LLM response could not be parsed as YAML "
