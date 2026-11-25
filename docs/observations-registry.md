@@ -36,6 +36,10 @@ upstream: arc-master-roadmap
 | O-165-4 | P-165 O-4 | 摘要尾绑定只在 `events_summary.json` 存在时生效；soak verifier 不产摘要，偏移链在无摘要 run 上无尾闭包 | low | 引入摘要生产者时 | 文档批次 | open | 同上 |
 | O-165-5 | P-165 O-5 | POSIX 真路径（真实子进程+真实 killpg）无提交测试；CI Linux 的 fake worker 无孙进程 | medium | A7-2 多 run 并发落地时 | A7-2 批次 | open | 同上 |
 | **O-165-6** | P-165 O-6 | `validate_task` 校验 `max_workers ≥ 最宽层` 但**未校验** `max_depth ≥ 层数`；配错会使 gold 永久 budget_exceeded → OB-1 红 | **high** | 下次触碰任务语料时 | 下个 orchestration 批次 | open | 同上 |
+| O-168-1 | P-168 O-1 | agent-mode requirements 路径的漂移接线无测试覆盖（集成用例只走标准决策路径）；代码读确认 `_analysis.py` L1176-1193 接线正确 | medium | 下次触碰 Stage 15 时 | 下次 Stage 15 批次 | open | [arc-g7-drift-guard-review-20261125.md §4](arc-g7-drift-guard-review-20261125.md) |
+| O-168-2 | P-168 O-2 | agent 路径 drift PAUSE 时早退于 `requirements_verdict.json` 写出，verdict 仅存于 decision_structured.json | low | 下游依赖 verdict 文件时 | 下次 Stage 15 批次 | open | 同上 |
+| O-168-3 | P-168 O-3 | p_only 分句要求 `。！？` 后有空白；无空格中文文本整段成单句 → `p_only_ratio` 恒 0（DESIGN D-4 已声明的限制，探针具体化） | medium | 中文 run 实际使用前 | 下次 drift 批次 | open | 同上 |
+| O-168-4 | P-168 O-4 | `_read_prior` 捕获全部异常返回空串 → 接线错误会静默降级为 insufficient_inputs WARN | medium | Stage 15 报告异常偏低时 | 下次 drift 批次 | open | 同上 |
 
 ## 2. 承接规则
 
