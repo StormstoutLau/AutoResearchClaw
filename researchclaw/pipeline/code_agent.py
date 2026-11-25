@@ -214,12 +214,22 @@ class CodeAgent:
                 runs_ok=bool(files), score=1.0 if files else 0.0,
             )
 
-        # Phase 5: Review dialog
+        # Phase 5: Review dialog (P-178: never review an empty project)
         review_rounds = 0
-        if self._cfg.review_max_rounds > 0:
+        if self._cfg.review_max_rounds > 0 and best.files:
+            before_review = dict(best.files)
             best.files, review_rounds = self._phase4_review(
                 best.files, topic, exp_plan, metric,
             )
+            if best.files != before_review:
+                # A review that rewrites files must not bypass the hard gates.
+                self._log_event("  Review changed files — revalidating")
+                if self._cfg.hard_validation:
+                    best.files = self._hard_validate_and_repair(
+                        best.files, topic, exp_plan, metric, pkg_hint, arch_spec,
+                    )
+                best.files = self._exec_fix_loop(best.files)
+                best.score = 1.0 if best.files else 0.0
 
         elapsed = time.time() - t0
         self._log_event(
@@ -266,10 +276,15 @@ class CodeAgent:
             self._log_event("  Injected domain context into blueprint prompt")
 
         resp = self._chat(sp.system, sp.user, max_tokens=8192)
+        if getattr(resp, "truncated", False):
+            self._log_event(
+                "  Blueprint truncated (finish_reason=length) — retrying with 32768"
+            )
+            resp = self._chat(sp.system, sp.user, max_tokens=32768)
 
-        # Extract YAML block from response
+        # Extract YAML block from response (tolerate an unclosed fence)
         arch_spec = resp.content
-        yaml_match = re.search(r"```ya?ml\s*\n(.*?)```", arch_spec, re.DOTALL)
+        yaml_match = re.search(r"```ya?ml\s*\n(.*?)(?:```|\Z)", arch_spec, re.DOTALL)
         if yaml_match:
             arch_spec = yaml_match.group(1).strip()
 
@@ -332,6 +347,14 @@ class CodeAgent:
         values before parsing.
         """
         import yaml
+
+        # P-178: strip a leading/trailing fence left by truncated output.
+        cleaned = str(yaml_text or "").strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```[A-Za-z]*[ \t]*\n?", "", cleaned, count=1)
+        if cleaned.rstrip().endswith("```"):
+            cleaned = cleaned.rstrip()[:-3].rstrip()
+        yaml_text = cleaned
 
         # Pre-process: sanitize values that contain Python type annotations,
         # unclosed quotes, or other patterns that break YAML parsing.
@@ -504,6 +527,11 @@ class CodeAgent:
                 pkg_hint=pkg_hint,
             )
             resp = self._chat(sp.system, sp.user, max_tokens=8192)
+            if getattr(resp, "truncated", False):
+                self._log_event(
+                    f"  {file_name}: truncated — retrying with 32768"
+                )
+                resp = self._chat(sp.system, sp.user, max_tokens=32768)
 
             # Extract code from response
             code = self._extract_single_file_code(resp.content, file_name)
@@ -984,9 +1012,13 @@ class CodeAgent:
         resp = self._chat(sp.system, sp.user, max_tokens=max_tokens)
 
         files = self._extract_files(resp.content)
-        if not files and resp.content.strip():
-            # Retry with higher token budget
-            self._log_event("  Empty extraction, retrying with 32768 tokens")
+        truncated = bool(getattr(resp, "truncated", False))
+        if not files and (resp.content.strip() or truncated):
+            # Retry with higher token budget (P-178: also on truncation)
+            self._log_event(
+                "  Empty extraction%s, retrying with 32768 tokens"
+                % (" after truncation" if truncated else "")
+            )
             resp = self._chat(sp.system, sp.user, max_tokens=32768)
             files = self._extract_files(resp.content)
 

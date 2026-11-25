@@ -581,7 +581,15 @@ def _safe_json_loads(text: str, default: Any) -> Any:
     return default
 
 
+def _close_unterminated_fence(text: str) -> str:
+    """Append a closing fence when a truncated response left one open (P-178)."""
+    if str(text).count("```") % 2 == 1:
+        return str(text) + "\n```"
+    return str(text)
+
+
 def _extract_code_block(content: str) -> str:
+    content = _close_unterminated_fence(content)
     match = re.search(r"```(?:python)?\s*(.*?)\s*```", content, flags=re.DOTALL)
     if match is not None:
         return match.group(1).strip()
@@ -624,6 +632,9 @@ def _extract_multi_file_blocks(content: str) -> dict[str, str]:
 
     Returns a dict mapping filename → code content.
     """
+    # P-178: truncated responses may omit the closing fence.
+    content = _close_unterminated_fence(content)
+
     # R13-2: Multiple patterns to handle LLM format variations
     patterns = [
         # Original: ```filename:xxx.py or ```python filename:xxx.py
