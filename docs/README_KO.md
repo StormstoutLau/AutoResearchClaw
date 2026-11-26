@@ -596,7 +596,7 @@ research:
 runtime:
   timezone: "America/New_York"     # 타임스탬프용
   max_parallel_tasks: 3            # 동시 실험 제한
-  approval_timeout_hours: 12       # 게이트 단계 타임아웃
+  approval_timeout_hours: 12       # 예약됨; 아직 연결되지 않음
   retry_limit: 2                   # 단계 실패 시 재시도 횟수
 
 # === LLM ===

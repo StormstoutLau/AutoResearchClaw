@@ -596,7 +596,7 @@ research:
 runtime:
   timezone: "America/New_York"     # 用于时间戳
   max_parallel_tasks: 3            # 并发实验限制
-  approval_timeout_hours: 12       # 门控阶段超时
+  approval_timeout_hours: 12       # 预留；尚未接线
   retry_limit: 2                   # 阶段失败重试次数
 
 # === LLM ===

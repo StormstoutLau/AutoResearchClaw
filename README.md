@@ -618,7 +618,7 @@ research:
 runtime:
   timezone: "America/New_York"     # For timestamps
   max_parallel_tasks: 3            # Concurrent experiment limit
-  approval_timeout_hours: 12       # Gate stage timeout
+  approval_timeout_hours: 12       # Reserved; not wired yet
   retry_limit: 2                   # Retry count on stage failure
 
 # === LLM ===

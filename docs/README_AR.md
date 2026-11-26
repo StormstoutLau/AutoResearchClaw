@@ -596,7 +596,7 @@ research:
 runtime:
   timezone: "America/New_York"     # للطوابع الزمنية
   max_parallel_tasks: 3            # حد التجارب المتزامنة
-  approval_timeout_hours: 12       # مهلة مرحلة البوابة
+  approval_timeout_hours: 12       # محجوز؛ غير موصول بعد
   retry_limit: 2                   # عدد إعادة المحاولة عند فشل المرحلة
 
 # === نموذج اللغة ===
