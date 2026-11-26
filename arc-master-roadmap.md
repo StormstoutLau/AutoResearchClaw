@@ -153,7 +153,7 @@ upstream: arb-v2-decisions
 | **R-04** | [arc-knowledge-paper-textbook-integration.md](arc-knowledge-paper-textbook-integration.md) | 设计稿；K0–K5 为设计。**K0–K4 并入 G5（14/14 已交付），K5 并入 G3（17/17 已交付）**；残余以 §3.2 为准 | **G5 主来源，K5 → G3（已吸收）** |
 | **R-05** | [clawsgo-cleanroom-arc-reinforcement.md](clawsgo-cleanroom-arc-reinforcement.md) | 设计稿；R0–R4 已并入 G-1/G1/G3/G4/G5/G6（**R1/R2/R4 有接线级残余**）；**R5–R9 登记为 §3.2 B-13..B-17** | **G-1 / G1 / G4 / G6 / G7 主来源；残余 → §3.2** |
 
-**结论（2026-11-26 修订）**：R-02..R-05 已作为**设计来源**并入 106 项，不再作为独立待办队列；当前进度 **104/106**，开放 2 项均在 G7（A7-1 72h、A7-5 独立盲测）。**未来工作统一从 §3.2（B-1..B-29）取**，按 [优先级与依赖分析](docs/arc-backlog-priority-dependency-20261126.md) 的 W0–W3 执行；不存在"G9"。
+**结论（2026-11-26 修订）**：R-02..R-05 已作为**设计来源**并入 106 项，不再作为独立待办队列；当前进度 **104/106**，开放 2 项均在 G7（A7-1 72h、A7-5 独立盲测）。**未来工作统一从 §3.2（B-1..B-33）取**，按 [优先级与依赖分析](docs/arc-backlog-priority-dependency-20261126.md) 的 W0–W3 执行；不存在"G9"。
 
 ### 0.1 优先级定义
 
@@ -308,6 +308,10 @@ flowchart LR
 | B-27 | **P-140 P2-8 算力编排**：本机/集群/GPU 适配、预算与排队 | 同上 §4 | open | P3：出现多主机/GPU 排队需求；与 R5 解耦 |
 | B-28 | **Stage 10 repair/review-fix 截断与部分覆盖**（P-190 已修）：合并而非替换、截断重试 32768、AST 过滤 | [spec/arc-stage10-repair-merge/](../spec/arc-stage10-repair-merge/) | in-progress | W0：本地 59 passed；B 站复跑显示该缺陷已消失，待 B-11 终验 |
 | B-29 | **Stage 10 入口契约与专用 main.py 生成**（P-191）：禁止把首个文件提升为 main.py；缺失/不合契约时专用生成（32768、2 次、截断重试）；repair 拒绝不合契约的 main.py | [spec/arc-stage10-entrypoint-contract/](../spec/arc-stage10-entrypoint-contract/) | in-progress | W0：本地 73 passed；B 站 Stage 10-12 复跑待验收 |
+| B-30 | **Stage 10 入口生成预算与兜底**（P-192）：截断预算 32768→65536；提示 ≤150 行且禁止重写；模型失败时按 `main/run/train` 生成薄驱动（取不到值打印 `nan`）；repair 连续 2 次不可用即止损 | [spec/arc-stage10-entrypoint-budget/](../spec/arc-stage10-entrypoint-budget/) | in-progress | W0：本地 35/80/3 passed；B 站 Stage 10-12 复跑待验收 |
+| B-31 | **长跑进度回传与停滞检测**：心跳 details + `STALLED` + 日志级别/缓冲（M1/P0）；phase 事件 + 合成视图（M2/P1）；phase 可恢复点 + stall 告警（M3/P2）。复审 D-1..D-4/O-1..O-4 已核实并修正，新增 N-1..N-3；建议拆 B-31a（日志可见性）/ B-31b（心跳+STALLED） | [调研](../docs/arc-longrun-progress-observability-20261126.md) §9 + [复审](../docs/arc-longrun-progress-review-20261126.md) §6 | open | W0/P0：与 B-11、B-28..B-30 并行；§6 M1 不动阶段实现；supervisor 默认 `max_wall_seconds=1800` 小于单阶段时长，M3 须先改上限 |
+| B-32 | **Stage 10 蓝图 YAML 失效与单发回退退化**（本调研）：预处理漏判「行尾冒号」→ 蓝图解析失败 → 顺序生成被跳过 → 单发只产出配置类 + 配置校验入口；无蓝图↔产物/指标/数据源结构门 | [调研](../docs/arc-stage10-blueprint-fallback-20261126.md) | open | **W0/P0**：B-11 的前置——不修则 A7-1 soak 跑的是退化产物；M1 只动预处理 + 回退显式化 |
+| B-33 | **Stage 10 内部断点（intra-stage checkpoint）**：L0 修 `--resume` 语义（`in_progress_stage`，含事件重建回填）；L1 步骤账本 `stage-10/steps.jsonl`（复合键 `(step_id, variant)` + 摘要）；L2 内容寻址复用；L3 LLM 响应缓存（默认关）。**M1 含 N-1**：蓝图 Phase 1 后立即落盘。**范围裁决**：`steps.jsonl` 先在 Stage 10 试点，不推广 Stage 12/14 | [调研](../docs/arc-stage10-intra-stage-checkpoint-20261126.md) §10 + [复审](../docs/arc-stage10-checkpoint-review-20261126.md) §6 + [spec](../spec/arc-stage10-intra-stage-checkpoint/) | in-progress | **W0/P0**：M1（L0 + N-1 + L1）由 P-193 落地并经复审修复（D-1..D-5 全闭合），本地 55/63/72 passed；L2/L3 留 M2/M3；B 站部署待验证 |
 
 > 已关闭（不重复登记）：U-177-1（现场图形态取证）、U-177-5（幂等键口径，P-177 实现为 `(type, 归一化 statement)` 复用 + 外部依赖保护）、U-178-2 的「围栏解析」「截断感知」「评审守卫」「出口门」四项（P-178 已实现）。
 
@@ -317,7 +321,7 @@ flowchart LR
 
 | 波次 | 触发 | 项目 | 依据（分析文档） | 为什么不能提前 / 延后 |
 |---|---|---|---|---|
-| **W0** | 现在 | B-8；B-11 验收；B-28/B-29（Stage 10 链路）；B-13..B-27 登记 | §5 第 1 步硬约束 + 最终优先级 P0；§6 W0 | B-8 不修，Stage 10 入口门失败会 5 连重启，污染 B-9 读数；B-11 是 B-9 的唯一前置；B-28/B-29 决定 Stage 10 能否产出可运行入口 |
+| **W0** | 现在 | B-8；B-11 验收；**B-32（B-11 前置）**；B-28..B-31、B-33（Stage 10 链路 + 长跑观测 + 内部断点）；B-13..B-27 登记 | §5 第 1 步硬约束 + 最终优先级 P0；§6 W0 | B-8 不修，Stage 10 入口门失败会 5 连重启，污染 B-9 读数；B-32 不修，Stage 10 会退化为「配置校验」产物，B-11/B-9 拿到的都不是实验；B-11 是 B-9 的唯一前置；B-28..B-30 决定 Stage 10 能否产出可运行入口；B-31 解决「误判为死」、B-33 解决「每次都从头重跑」，二者不阻塞 Stage 10、可并行 |
 | **W1** | W0 完成、A7-1 未启动 | B-1+B-2；B-14（R6）；B-15（R7）；B-10 | §5 P1 + §6 W1；X-1（B-3 后置） | 低风险、可逆；A7-1 启动后窗口变窄，但仍可与 soak 并行（不触碰 Stage 10–12） |
 | **W2** | B-11 通过 + B-8 修复 | B-9 启动；B-17（R9）默认关；B-6/B-7；B-4/B-18（若触发）；B-22 | §5 P1/P2 + §6 W2；X-3/X-5 | A7-1 是战略验证；R9 默认拒绝会误暂停；B-6/B-7 依赖现场读数 |
 | **W3** | A7-1 完成 | B-16（R8）；B-13（R5）；B-25；B-26/B-27（触发） | §5 P2/P3 + §6 W3；X-4 | B-16/B-13 会改 run 格式与 Stage 12 执行路径，必须在 A7-1 之后 |

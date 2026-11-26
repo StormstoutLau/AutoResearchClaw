@@ -221,6 +221,37 @@ def _write_checkpoint(
         raise
 
 
+def _write_stage_start(run_dir: Path, stage: Stage, run_id: str) -> None:
+    """Mark *stage* as in progress so ``--resume`` re-enters it (B-33 L0).
+
+    ``checkpoint.json`` only advanced on stage completion, so a run killed
+    mid-stage resumed at the *next* stage and silently skipped the unfinished
+    one.  ``in_progress_stage`` closes that hole; ``_write_checkpoint`` clears
+    it implicitly by rewriting the file on completion.
+    """
+    target = run_dir / "checkpoint.json"
+    payload: dict[str, object] = {}
+    try:
+        existing = json.loads(target.read_text(encoding="utf-8"))
+        if isinstance(existing, dict):
+            payload = existing
+    except (OSError, json.JSONDecodeError):
+        payload = {}
+    payload.setdefault("run_id", run_id)
+    payload["in_progress_stage"] = int(stage)
+    payload["in_progress_name"] = stage.name
+    payload["in_progress_at"] = _utcnow_iso()
+    fd, tmp_path = tempfile.mkstemp(dir=run_dir, suffix=".tmp", prefix="checkpoint_")
+    os.close(fd)
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, indent=2))
+        _replace_with_retry(tmp_path, target)
+    except BaseException:
+        Path(tmp_path).unlink(missing_ok=True)
+        raise
+
+
 def _write_heartbeat(run_dir: Path, stage: Stage, run_id: str) -> None:
     """Write heartbeat file for sentinel watchdog monitoring (atomic, P-027)."""
     import os
@@ -365,6 +396,9 @@ def _emit(log, event_type: str, payload: dict | None = None,
 def read_checkpoint(run_dir: Path) -> Stage | None:
     """Read checkpoint and return the NEXT stage to execute, or None if no checkpoint.
 
+    B-33 L0: when ``in_progress_stage`` is present, that stage wins — an
+    interrupted stage must be re-entered rather than skipped.
+
     A1-5: when ``checkpoint.json`` is missing or corrupt, rebuild it from the
     event log and persist the recovered payload (``recovered: true``).
     """
@@ -381,6 +415,11 @@ def read_checkpoint(run_dir: Path) -> Stage | None:
         data = _recover_checkpoint_from_events(run_dir) or {}
         if not data:
             return None
+    in_progress = data.get("in_progress_stage")
+    if isinstance(in_progress, int) and not isinstance(in_progress, bool):
+        for stage in STAGE_SEQUENCE:
+            if int(stage) == in_progress:
+                return stage
     try:
         last_num = data.get("last_completed_stage")
         if last_num is None:
@@ -794,6 +833,12 @@ def execute_pipeline(
         prefix = f"[{run_id}] Stage {stage_num:02d}/{total_stages}"
         print(f"{prefix} {stage.name} — running...")
         _emit(_log, "stage.started", {"name": stage.name}, stage=stage_num)
+        # B-33 L0: record the in-progress stage so a kill mid-stage is resumed
+        # here instead of being skipped by the next-stage checkpoint semantics.
+        try:
+            _write_stage_start(run_dir, stage, run_id)
+        except Exception:  # noqa: BLE001 - observability must not break a run
+            logger.warning("could not mark stage %s in progress", stage.name)
 
         # ── Cost budget check ──
         if cost_budget > 0 and tracker is not None:

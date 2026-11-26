@@ -33,8 +33,10 @@ from researchclaw.pipeline._helpers import (
 )
 from researchclaw.pipeline.entrypoint_contract import (
     ENTRYPOINT_MAX_TOKENS,
+    ENTRYPOINT_RETRY_MAX_TOKENS,
     build_entrypoint_prompt,
     entrypoint_issues as _entrypoint_issues,
+    synthesize_entrypoint,
 )
 from researchclaw.pipeline.stages import Stage, StageStatus
 from researchclaw.prompts import PromptManager
@@ -132,6 +134,10 @@ def _generate_entrypoint(
     system = pm.system("code_generation")
     issues: list[str] | None = None
     for attempt in range(1, max_attempts + 1):
+        budget = (
+            ENTRYPOINT_MAX_TOKENS if attempt == 1
+            else ENTRYPOINT_RETRY_MAX_TOKENS
+        )
         user = build_entrypoint_prompt(
             topic=topic,
             metric=metric,
@@ -139,18 +145,17 @@ def _generate_entrypoint(
             exp_plan=exp_plan,
             previous_issues=issues,
         )
-        resp = _chat_with_prompt(
-            llm, system, user, max_tokens=ENTRYPOINT_MAX_TOKENS,
-        )
+        resp = _chat_with_prompt(llm, system, user, max_tokens=budget)
         truncated = bool(getattr(resp, "truncated", False)) or (
             getattr(resp, "finish_reason", "") == "length"
         )
-        if truncated:
+        if truncated and budget < ENTRYPOINT_RETRY_MAX_TOKENS:
             logger.warning(
-                "Stage 10: entrypoint attempt %d truncated — retrying", attempt,
+                "Stage 10: entrypoint attempt %d truncated — escalating to %d",
+                attempt, ENTRYPOINT_RETRY_MAX_TOKENS,
             )
             resp = _chat_with_prompt(
-                llm, system, user, max_tokens=ENTRYPOINT_MAX_TOKENS,
+                llm, system, user, max_tokens=ENTRYPOINT_RETRY_MAX_TOKENS,
             )
         code = _extract_code_block(resp.content)
         issues = _entrypoint_issues(code)
@@ -197,19 +202,28 @@ def _ensure_entrypoint(
     code = _generate_entrypoint(
         llm, pm, topic=topic, metric=metric, files=files, exp_plan=exp_plan,
     )
-    if code:
-        files["main.py"] = code
-        try:
-            exp_dir.mkdir(parents=True, exist_ok=True)
-            (exp_dir / "main.py").write_text(code, encoding="utf-8")
-        except OSError as exc:
-            logger.warning("Stage 10: could not write generated main.py: %s", exc)
-        return files
+    if not code:
+        # B-30: last resort — a thin driver over an existing entry function.
+        code = synthesize_entrypoint(files, metric) or ""
+        if code:
+            logger.warning(
+                "Stage 10: using auto-generated entrypoint driver over "
+                "existing modules"
+            )
+        else:
+            logger.error(
+                "Stage 10: dedicated entrypoint generation failed and no "
+                "module exposes an entry function (%s)",
+                "; ".join(_entrypoint_issues(files.get("main.py", ""))),
+            )
+            return files
 
-    logger.error(
-        "Stage 10: dedicated entrypoint generation failed (%s)",
-        "; ".join(_entrypoint_issues(files.get("main.py", ""))),
-    )
+    files["main.py"] = code
+    try:
+        exp_dir.mkdir(parents=True, exist_ok=True)
+        (exp_dir / "main.py").write_text(code, encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Stage 10: could not write generated main.py: %s", exc)
     return files
 
 
@@ -1274,6 +1288,9 @@ def _execute_code_generation(
             continue
         validation = validate_code(code)
         repair_attempt = 0
+        # B-30: give up early when the model keeps returning unparseable code
+        # instead of burning every repair slot on the same failure.
+        invalid_returns = 0
         while not validation.ok and llm is not None and repair_attempt < max_repair:
             repair_attempt += 1
             attempt += 1
@@ -1306,13 +1323,26 @@ def _execute_code_generation(
             _repaired = _extract_code_block(resp.content)
             if _repaired.strip() and _is_parseable(_repaired):
                 files[fname] = _repaired
+                invalid_returns = 0
             elif _repaired.strip():
+                invalid_returns += 1
                 logger.warning(
                     "Repair attempt returned invalid Python for %s, keeping original",
                     fname,
                 )
             else:
+                invalid_returns += 1
                 logger.warning("Repair attempt returned empty code, keeping original")
+            if invalid_returns >= 2:
+                logger.error(
+                    "Repair aborted for %s after %d unusable response(s)",
+                    fname, invalid_returns,
+                )
+                validation_log.append(
+                    f"File {fname}: repair aborted after {invalid_returns} "
+                    "unusable responses"
+                )
+                break
             validation = validate_code(files[fname])
         if not validation.ok:
             all_valid = False

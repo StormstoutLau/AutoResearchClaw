@@ -34,6 +34,7 @@ from typing import Any, Protocol
 from researchclaw.config import CodeAgentConfig
 from researchclaw.pipeline.entrypoint_contract import (
     ENTRYPOINT_MAX_TOKENS,
+    ENTRYPOINT_RETRY_MAX_TOKENS,
     build_entrypoint_prompt,
     entrypoint_issues,
 )
@@ -44,6 +45,13 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
+
+
+def _blueprint_inputs_digest(topic: str, exp_plan: str, metric: str) -> str:
+    """Inputs that determine the blueprint (B-33 L2 minimal set)."""
+    from researchclaw.pipeline.step_journal import hash_text
+
+    return hash_text("\n---\n".join([str(topic), str(metric), str(exp_plan or "")]))
 
 
 @dataclass
@@ -277,14 +285,17 @@ class CodeAgent:
             sp = type(sp)(
                 system=sp.system,
                 user=sp.user + "\n\n" + domain_context,
+                version=getattr(sp, "version", ""),
             )
             self._log_event("  Injected domain context into blueprint prompt")
 
+        variant = "first"
         resp = self._chat(sp.system, sp.user, max_tokens=8192)
         if getattr(resp, "truncated", False):
             self._log_event(
                 "  Blueprint truncated (finish_reason=length) — retrying with 32768"
             )
+            variant = "retry"
             resp = self._chat(sp.system, sp.user, max_tokens=32768)
 
         # Extract YAML block from response (tolerate an unclosed fence)
@@ -295,6 +306,16 @@ class CodeAgent:
 
         self._log_event(f"  Blueprint spec: {len(arch_spec)} chars")
 
+        # B-33 N-1: persist the blueprint the moment it exists.  Waiting until
+        # generate() returns means a crash during Phase 2 leaves no blueprint
+        # on disk, so the step journal would have no output to validate.
+        self._persist_blueprint(
+            arch_spec,
+            variant=variant,
+            inputs_digest=_blueprint_inputs_digest(topic, exp_plan, metric),
+            prompt_version=getattr(sp, "version", ""),
+        )
+
         # Parse YAML into structured blueprint
         blueprint = self._parse_blueprint(arch_spec)
         if blueprint:
@@ -304,6 +325,44 @@ class CodeAgent:
             self._log_event("  WARNING: Could not parse blueprint YAML")
 
         return arch_spec, blueprint
+
+    def _persist_blueprint(
+        self,
+        arch_spec: str,
+        *,
+        variant: str,
+        inputs_digest: str,
+        prompt_version: str,
+    ) -> None:
+        """Atomically persist the blueprint and journal the step (B-33 N-1).
+
+        The raw spec is written even when YAML parsing fails, so a crash during
+        Phase 2 still leaves a recoverable artifact; the journal entry carries
+        digests only (never the spec body), per I-4.
+        """
+        from researchclaw.pipeline.step_journal import append_step, hash_text
+
+        path = self._stage_dir / "architecture_spec.yaml"
+        try:
+            self._stage_dir.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_text(arch_spec, encoding="utf-8")
+            tmp.replace(path)
+        except OSError as exc:  # noqa: BLE001 - persistence must not break codegen
+            self._log_event(f"  WARNING: could not persist blueprint: {exc}")
+            return
+        try:
+            append_step(
+                self._stage_dir,
+                step_id="blueprint",
+                variant=variant,
+                status="done",
+                inputs_digest=inputs_digest,
+                outputs={"architecture_spec.yaml": hash_text(arch_spec)},
+                prompt_version=prompt_version,
+            )
+        except Exception:  # noqa: BLE001 - journal is best-effort
+            self._log_event("  WARNING: could not append blueprint step record")
 
     def _build_domain_context(self) -> str:
         """Build domain-specific context for injection into prompts.
@@ -595,6 +654,10 @@ class CodeAgent:
         issues: list[str] | None = None
         system = self._pm.system("code_generation")
         for attempt in range(1, max_attempts + 1):
+            budget = (
+                ENTRYPOINT_MAX_TOKENS if attempt == 1
+                else ENTRYPOINT_RETRY_MAX_TOKENS
+            )
             user = build_entrypoint_prompt(
                 topic=topic,
                 metric=metric,
@@ -602,12 +665,17 @@ class CodeAgent:
                 exp_plan=exp_plan,
                 previous_issues=issues,
             )
-            resp = self._chat(system, user, max_tokens=ENTRYPOINT_MAX_TOKENS)
-            if getattr(resp, "truncated", False):
+            resp = self._chat(system, user, max_tokens=budget)
+            if (
+                getattr(resp, "truncated", False)
+                and budget < ENTRYPOINT_RETRY_MAX_TOKENS
+            ):
                 self._log_event(
-                    f"  entrypoint attempt {attempt}: truncated — retrying"
+                    f"  entrypoint attempt {attempt}: truncated — escalating"
                 )
-                resp = self._chat(system, user, max_tokens=ENTRYPOINT_MAX_TOKENS)
+                resp = self._chat(
+                    system, user, max_tokens=ENTRYPOINT_RETRY_MAX_TOKENS,
+                )
             code = self._extract_single_file_code(resp.content, "main.py")
             issues = entrypoint_issues(code)
             if code.strip() and not issues:

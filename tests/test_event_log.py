@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from researchclaw.pipeline.stages import Stage
 from researchclaw.runtime.event_log import (
     EventDurabilityError,
     EventLog,
@@ -177,6 +178,50 @@ def test_rebuild_checkpoint_none_without_completed_stage(tmp_path):
     log = _log(tmp_path)
     log.append("run.started", {})
     assert rebuild_checkpoint(log.read_all()) is None
+
+
+def test_rebuild_checkpoint_marks_unfinished_stage(tmp_path):
+    """B-33 L0: recovery must keep the interrupted stage re-entrant."""
+    log = _log(tmp_path)
+    log.append("run.started", {})
+    log.append("stage.started", {"name": "RESOURCE_PLANNING"}, stage=11)
+    log.append("stage.completed", {"name": "RESOURCE_PLANNING"}, stage=11)
+    log.append("stage.started", {"name": "CODE_GENERATION"}, stage=10)
+    cp = rebuild_checkpoint(log.read_all())
+    assert cp["last_completed_stage"] == 11
+    assert cp["in_progress_stage"] == 10
+    assert cp["in_progress_name"] == "CODE_GENERATION"
+
+
+def test_rebuild_checkpoint_no_in_progress_after_completion(tmp_path):
+    log = _log(tmp_path)
+    log.append("run.started", {})
+    log.append("stage.started", {"name": "CODE_GENERATION"}, stage=10)
+    log.append("stage.completed", {"name": "CODE_GENERATION"}, stage=10)
+    cp = rebuild_checkpoint(log.read_all())
+    assert "in_progress_stage" not in cp
+
+
+def test_rebuild_checkpoint_retry_uses_last_start(tmp_path):
+    log = _log(tmp_path)
+    log.append("run.started", {})
+    log.append("stage.started", {"name": "CODE_GENERATION"}, stage=10)
+    log.append("stage.started", {"name": "CODE_GENERATION"}, stage=10)
+    log.append("stage.completed", {"name": "CODE_GENERATION"}, stage=10)
+    cp = rebuild_checkpoint(log.read_all())
+    assert "in_progress_stage" not in cp
+
+
+def test_recover_from_events_resumes_interrupted_stage(tmp_path):
+    """End-to-end: corrupt checkpoint + unfinished stage -> that stage."""
+    from researchclaw.pipeline.runner import read_checkpoint
+
+    log = _log(tmp_path)
+    log.append("run.started", {})
+    log.append("stage.completed", {"name": "RESOURCE_PLANNING"}, stage=11)
+    log.append("stage.started", {"name": "CODE_GENERATION"}, stage=10)
+    (tmp_path / "checkpoint.json").write_text("{broken", encoding="utf-8")
+    assert read_checkpoint(tmp_path) == Stage.CODE_GENERATION
 
 
 def test_fsync_failure_raises_durability_error(tmp_path, monkeypatch):

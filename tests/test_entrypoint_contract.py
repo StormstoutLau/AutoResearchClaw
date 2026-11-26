@@ -8,9 +8,14 @@ from types import SimpleNamespace
 from researchclaw.config import CodeAgentConfig
 from researchclaw.pipeline.code_agent import CodeAgent
 from researchclaw.pipeline.entrypoint_contract import (
+    ENTRYPOINT_MAX_TOKENS,
+    ENTRYPOINT_RETRY_MAX_TOKENS,
+    build_entrypoint_prompt,
     entrypoint_issues,
     summarize_modules,
+    synthesize_entrypoint,
 )
+from researchclaw.pipeline.stage_impls import _code_generation
 from researchclaw.pipeline.stage_impls._code_generation import (
     _ensure_entrypoint,
     _extract_valid_repair_files,
@@ -149,6 +154,98 @@ class TestEnsureEntrypoint:
         assert out["main.py"] == NO_GUARD_MAIN
         assert out["config.py"] == "X = 1\n"
         assert len(llm.calls) == 2
+
+    def test_falls_back_to_synthesized_driver(self, tmp_path: Path) -> None:
+        llm = _FakeLLM([_fenced("not python at all ("), _fenced("still bad (")])
+        files = {
+            "main.py": "X = 1\n",
+            "models.py": "def run():\n    return 0.5\n",
+        }
+        out = _ensure_entrypoint(
+            files,
+            llm=llm,
+            pm=PromptManager(),
+            topic="t",
+            metric="accuracy",
+            exp_dir=tmp_path,
+        )
+        assert entrypoint_issues(out["main.py"]) == []
+        assert "_impl" in out["main.py"]
+        assert "models" in out["main.py"]
+        assert (tmp_path / "main.py").is_file()
+
+
+class TestSynthesizeEntrypoint:
+    def test_builds_driver_over_entry_function(self) -> None:
+        code = synthesize_entrypoint(
+            {"models.py": "def train():\n    return {'accuracy': 1.0}\n"},
+            "accuracy",
+        )
+        assert code is not None
+        assert entrypoint_issues(code) == []
+        assert "import models as _impl" in code
+        assert "'train'" in code
+
+    def test_prefers_main_over_train(self) -> None:
+        code = synthesize_entrypoint(
+            {
+                "a.py": "def train():\n    return 1.0\n",
+                "b.py": "def main():\n    return 2.0\n",
+            },
+            "score",
+        )
+        assert code is not None
+        assert "import b as _impl" in code
+
+    def test_returns_none_without_entry_function(self) -> None:
+        assert synthesize_entrypoint(
+            {"config.py": "X = 1\n", "data.py": "def load():\n    pass\n"},
+            "score",
+        ) is None
+
+    def test_skips_main_and_syntax_errors(self) -> None:
+        assert synthesize_entrypoint(
+            {"main.py": "def run():\n    pass\n", "bad.py": "def run(:\n"},
+            "score",
+        ) is None
+
+
+class TestEntrypointBudgetEscalation:
+    def test_truncation_escalates_to_65536(self, monkeypatch) -> None:
+        calls: list[int] = []
+
+        def fake_chat(llm, system, user, **kwargs):  # noqa: ANN001, ANN002, ANN003
+            calls.append(int(kwargs["max_tokens"]))
+            if len(calls) == 1:
+                return SimpleNamespace(
+                    content=_fenced(RUNNABLE_MAIN),
+                    truncated=True,
+                    finish_reason="length",
+                    total_tokens=0,
+                )
+            return SimpleNamespace(
+                content=_fenced(RUNNABLE_MAIN),
+                truncated=False,
+                finish_reason="stop",
+                total_tokens=0,
+            )
+
+        monkeypatch.setattr(
+            _code_generation, "_chat_with_prompt", fake_chat,
+        )
+        code = _code_generation._generate_entrypoint(
+            object(), PromptManager(), topic="t", metric="accuracy",
+            files={"config.py": "X = 1\n"},
+        )
+        assert entrypoint_issues(code) == []
+        assert calls == [ENTRYPOINT_MAX_TOKENS, ENTRYPOINT_RETRY_MAX_TOKENS]
+
+    def test_prompt_caps_file_length(self) -> None:
+        prompt = build_entrypoint_prompt(
+            topic="t", metric="accuracy", files={"config.py": "X = 1\n"},
+        )
+        assert "at most 150 lines" in prompt
+        assert "Do NOT re-implement" in prompt
 
 
 class TestRepairRejectsBadEntrypoint:
