@@ -18,12 +18,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Any, Mapping
 
 from researchclaw.runtime.filelock import exclusive_lock
 from researchclaw.utils.paths import safe_join
+
+logger = logging.getLogger(__name__)
 
 STEP_JOURNAL_NAME = "steps.jsonl"
 STEP_LOCK_NAME = ".steps.lock"
@@ -78,7 +81,13 @@ def code_version() -> str:
     """
     try:
         from researchclaw import __version__
-    except Exception:  # noqa: BLE001 - version is informational only
+    except Exception as exc:  # noqa: BLE001 - version is informational only
+        # B-34 (F-6): the fallback used to be silent, so a packaged install
+        # without a version looked identical to a real one.  DEBUG keeps the
+        # default log level quiet while leaving the reason recoverable.
+        logger.debug(
+            "code_version: package version unavailable (%s) — using '0'", exc,
+        )
         __version__ = "0"
     digest = hashlib.sha256()
     for rel in _VERSION_FILES:

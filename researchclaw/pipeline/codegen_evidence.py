@@ -14,8 +14,10 @@ a failing gate means the stage must fail, not that we should guess.
 from __future__ import annotations
 
 import ast
+import io
 import json
 import re
+import tokenize
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,10 +29,10 @@ EVIDENCE_NAME = "codegen_evidence.json"
 BLUEPRINT_NAME = "architecture_spec.yaml"
 
 _METRIC_DEF_MARK = "METRIC_DEF:"
-# P-202 (F-1): capture the whole token instead of a narrow character class, so
-# names containing ``%`` or ``:`` survive; trailing punctuation from prose is
-# stripped afterwards.
-_METRIC_DEF_RE = re.compile(r"METRIC_DEF:\s*([^\s|,;)\]]+)")
+# B-34 (F-3): stop only at the format separators (whitespace, ``|``, ``;``).
+# The previous class also excluded ``)`` and ``]``, so names such as
+# ``auroc(delta)`` and ``hit@k[5]`` were cut in half and failed the gate.
+_METRIC_DEF_RE = re.compile(r"METRIC_DEF:\s*([^\s|;]+)")
 _METRIC_KEYS = ("primary_metric", "metric", "metric_name")
 _DATA_SOURCE_KEYS = ("data_source", "dataset_source")
 _SOURCE_KEYS = ("source", "sources", "provider")
@@ -295,6 +297,41 @@ def check_metric_consistency(
     return []
 
 
+def _strip_comments(text: str) -> str:
+    """Drop ``#`` comments while leaving code and string literals intact.
+
+    B-34 (F-1/F-5): comments are a lexical category, so a source name that
+    only appears in a comment must not satisfy the data-source gate, and
+    ``np.random`` mentioned in a comment must not mark the delivery as
+    synthetic.  The text is returned unchanged whenever it cannot be
+    tokenised — a gate must not change behaviour just because a file does
+    not parse (the entrypoint would already fail elsewhere).
+    """
+    source = str(text or "")
+    if not source.strip():
+        return source
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return source
+    columns: dict[int, int] = {}
+    for token in tokens:
+        if token.type == tokenize.COMMENT:
+            row, col = token.start
+            columns[row] = min(col, columns.get(row, col))
+    if not columns:
+        return source
+    lines = source.splitlines(keepends=True)
+    out: list[str] = []
+    for index, line in enumerate(lines, start=1):
+        col = columns.get(index)
+        if col is None:
+            out.append(line)
+            continue
+        out.append(line[:col].rstrip() + ("\n" if line.endswith("\n") else ""))
+    return "".join(out)
+
+
 def check_data_source(
     blueprint: Mapping[str, Any], files: Mapping[str, str],
 ) -> tuple[list[str], bool]:
@@ -302,7 +339,7 @@ def check_data_source(
     sources = _find_data_sources(blueprint)
     if not sources:
         return [], False
-    blob = "\n".join(files.values()).lower()
+    blob = "\n".join(_strip_comments(code) for code in files.values()).lower()
     warnings = [
         f"declared data source {source!r} not found in generated code"
         for source in sources if source.lower() not in blob
@@ -322,6 +359,25 @@ def _is_non_compute_name(name: str) -> bool:
     return name in _NON_COMPUTE_NAMES or name.startswith(_NON_COMPUTE_PREFIXES)
 
 
+def _class_has_behavior(node: ast.ClassDef) -> bool:
+    """True when a class defines a method with a non-trivial body.
+
+    B-34 (F-2): a suffix alone does not make a class configuration.  A
+    ``KernelConfig`` that implements ``compute`` is real compute, while a
+    declarative class only carries fields, docstrings and ``pass`` bodies.
+    """
+    for item in node.body:
+        if not isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for stmt in item.body:
+            if isinstance(stmt, ast.Pass):
+                continue
+            if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant):
+                continue  # docstring
+            return True
+    return False
+
+
 def count_compute_units(files: Mapping[str, str]) -> int:
     """Count top-level classes/functions that are not configuration wrappers."""
     total = 0
@@ -334,8 +390,9 @@ def count_compute_units(files: Mapping[str, str]) -> int:
             continue
         for node in tree.body:
             if isinstance(node, ast.ClassDef):
-                if not _is_config_name(node.name):
-                    total += 1
+                if _is_config_name(node.name) and not _class_has_behavior(node):
+                    continue
+                total += 1
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 if not _is_non_compute_name(node.name) and not _is_config_name(node.name):
                     total += 1
