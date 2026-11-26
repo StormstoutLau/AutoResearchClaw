@@ -32,6 +32,11 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from researchclaw.config import CodeAgentConfig
+from researchclaw.pipeline.entrypoint_contract import (
+    ENTRYPOINT_MAX_TOKENS,
+    build_entrypoint_prompt,
+    entrypoint_issues,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -552,16 +557,66 @@ class CodeAgent:
             )
 
         # Verify we have main.py
+        # B-29: never promote another file to main.py — renaming config.py
+        # removed the module other files import, and left Stage 12 with a
+        # config-only entrypoint. Request a real entrypoint instead.
         if "main.py" not in generated_files:
-            self._log_event("  WARNING: No main.py generated, promoting first file")
-            if generated_files:
-                first_key = next(iter(generated_files))
-                generated_files["main.py"] = generated_files.pop(first_key)
+            self._log_event(
+                "  WARNING: No main.py generated — requesting dedicated entrypoint"
+            )
+            entry = self._generate_entrypoint_file(
+                topic, exp_plan, metric, generated_files,
+            )
+            if entry:
+                generated_files["main.py"] = entry
+                self._log_event(
+                    f"  Dedicated entrypoint generated: "
+                    f"{len(entry.split(chr(10)))} lines"
+                )
+            else:
+                self._log_event(
+                    "  WARNING: dedicated entrypoint generation failed"
+                )
 
         self._log_event(
             f"  Sequential generation complete: {len(generated_files)} files"
         )
         return generated_files
+
+    def _generate_entrypoint_file(
+        self,
+        topic: str,
+        exp_plan: str,
+        metric: str,
+        files: dict[str, str],
+        max_attempts: int = 2,
+    ) -> str:
+        """B-29: generate ``main.py`` when sequential generation skipped it."""
+        issues: list[str] | None = None
+        system = self._pm.system("code_generation")
+        for attempt in range(1, max_attempts + 1):
+            user = build_entrypoint_prompt(
+                topic=topic,
+                metric=metric,
+                files=files,
+                exp_plan=exp_plan,
+                previous_issues=issues,
+            )
+            resp = self._chat(system, user, max_tokens=ENTRYPOINT_MAX_TOKENS)
+            if getattr(resp, "truncated", False):
+                self._log_event(
+                    f"  entrypoint attempt {attempt}: truncated — retrying"
+                )
+                resp = self._chat(system, user, max_tokens=ENTRYPOINT_MAX_TOKENS)
+            code = self._extract_single_file_code(resp.content, "main.py")
+            issues = entrypoint_issues(code)
+            if code.strip() and not issues:
+                return code
+            self._log_event(
+                f"  entrypoint attempt {attempt} rejected: "
+                + ("; ".join(issues) or "empty output")
+            )
+        return ""
 
     @staticmethod
     def _extract_single_file_code(content: str, expected_name: str) -> str:

@@ -153,7 +153,7 @@ upstream: arb-v2-decisions
 | **R-04** | [arc-knowledge-paper-textbook-integration.md](arc-knowledge-paper-textbook-integration.md) | 设计稿；K0–K5 为设计。**K0–K4 并入 G5（14/14 已交付），K5 并入 G3（17/17 已交付）**；残余以 §3.2 为准 | **G5 主来源，K5 → G3（已吸收）** |
 | **R-05** | [clawsgo-cleanroom-arc-reinforcement.md](clawsgo-cleanroom-arc-reinforcement.md) | 设计稿；R0–R4 已并入 G-1/G1/G3/G4/G5/G6（**R1/R2/R4 有接线级残余**）；**R5–R9 登记为 §3.2 B-13..B-17** | **G-1 / G1 / G4 / G6 / G7 主来源；残余 → §3.2** |
 
-**结论（2026-11-26 修订）**：R-02..R-05 已作为**设计来源**并入 106 项，不再作为独立待办队列；当前进度 **104/106**，开放 2 项均在 G7（A7-1 72h、A7-5 独立盲测）。**未来工作统一从 §3.2（B-1..B-27）取**，按 [优先级与依赖分析](docs/arc-backlog-priority-dependency-20261126.md) 的 W0–W3 执行；不存在"G9"。
+**结论（2026-11-26 修订）**：R-02..R-05 已作为**设计来源**并入 106 项，不再作为独立待办队列；当前进度 **104/106**，开放 2 项均在 G7（A7-1 72h、A7-5 独立盲测）。**未来工作统一从 §3.2（B-1..B-29）取**，按 [优先级与依赖分析](docs/arc-backlog-priority-dependency-20261126.md) 的 W0–W3 执行；不存在"G9"。
 
 ### 0.1 优先级定义
 
@@ -306,6 +306,8 @@ flowchart LR
 | B-25 | **P-140 P1-5 科学连接器**：UniProt/PDB/ChEMBL/PubMed/arXiv；逐个补 schema/scope/risk/approval | [P-140 RESEARCH](spec/arc-science-workbench-reuse/RESEARCH.md) §4 | open | P2：按需逐个接；只扩展 `tools/registry.yaml` |
 | B-26 | **P-140 P1-6 产物时间线**：dashboard 只读时间线，按 artifact 版本回链代码/数据/引用/审批 | 同上 §4 | open | P3：G3 artifact node 已交付；与 B-16 共享数据，不复制哈希 |
 | B-27 | **P-140 P2-8 算力编排**：本机/集群/GPU 适配、预算与排队 | 同上 §4 | open | P3：出现多主机/GPU 排队需求；与 R5 解耦 |
+| B-28 | **Stage 10 repair/review-fix 截断与部分覆盖**（P-190 已修）：合并而非替换、截断重试 32768、AST 过滤 | [spec/arc-stage10-repair-merge/](../spec/arc-stage10-repair-merge/) | in-progress | W0：本地 59 passed；B 站复跑显示该缺陷已消失，待 B-11 终验 |
+| B-29 | **Stage 10 入口契约与专用 main.py 生成**（P-191）：禁止把首个文件提升为 main.py；缺失/不合契约时专用生成（32768、2 次、截断重试）；repair 拒绝不合契约的 main.py | [spec/arc-stage10-entrypoint-contract/](../spec/arc-stage10-entrypoint-contract/) | in-progress | W0：本地 73 passed；B 站 Stage 10-12 复跑待验收 |
 
 > 已关闭（不重复登记）：U-177-1（现场图形态取证）、U-177-5（幂等键口径，P-177 实现为 `(type, 归一化 statement)` 复用 + 外部依赖保护）、U-178-2 的「围栏解析」「截断感知」「评审守卫」「出口门」四项（P-178 已实现）。
 
@@ -315,7 +317,7 @@ flowchart LR
 
 | 波次 | 触发 | 项目 | 依据（分析文档） | 为什么不能提前 / 延后 |
 |---|---|---|---|---|
-| **W0** | 现在 | B-8；B-11 验收；B-13..B-27 登记 | §5 第 1 步硬约束 + 最终优先级 P0；§6 W0 | B-8 不修，Stage 10 入口门失败会 5 连重启，污染 B-9 读数；B-11 是 B-9 的唯一前置 |
+| **W0** | 现在 | B-8；B-11 验收；B-28/B-29（Stage 10 链路）；B-13..B-27 登记 | §5 第 1 步硬约束 + 最终优先级 P0；§6 W0 | B-8 不修，Stage 10 入口门失败会 5 连重启，污染 B-9 读数；B-11 是 B-9 的唯一前置；B-28/B-29 决定 Stage 10 能否产出可运行入口 |
 | **W1** | W0 完成、A7-1 未启动 | B-1+B-2；B-14（R6）；B-15（R7）；B-10 | §5 P1 + §6 W1；X-1（B-3 后置） | 低风险、可逆；A7-1 启动后窗口变窄，但仍可与 soak 并行（不触碰 Stage 10–12） |
 | **W2** | B-11 通过 + B-8 修复 | B-9 启动；B-17（R9）默认关；B-6/B-7；B-4/B-18（若触发）；B-22 | §5 P1/P2 + §6 W2；X-3/X-5 | A7-1 是战略验证；R9 默认拒绝会误暂停；B-6/B-7 依赖现场读数 |
 | **W3** | A7-1 完成 | B-16（R8）；B-13（R5）；B-25；B-26/B-27（触发） | §5 P2/P3 + §6 W3；X-4 | B-16/B-13 会改 run 格式与 Stage 12 执行路径，必须在 A7-1 之后 |
