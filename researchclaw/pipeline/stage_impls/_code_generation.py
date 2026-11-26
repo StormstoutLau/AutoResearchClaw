@@ -2069,8 +2069,13 @@ Multi-file experiment project with {len(files)} file(s): {file_list}
 
     # B-32 M2: a runnable entrypoint is not enough — the delivery must also
     # match what the blueprint promised.  Failures are recorded, never repaired.
+    # P-202 (N-1): judge what is actually on disk under experiment/, since that
+    # is what Stage 12 runs; the in-memory mapping is only a fallback.
     _evidence = evaluate_stage10_evidence(
-        stage_dir=stage_dir, files=files, metric=metric,
+        stage_dir=stage_dir,
+        files=files,
+        metric=metric,
+        delivered_dir=exp_dir,
     )
     write_evidence_report(stage_dir, _evidence)
     if _evidence.failures:

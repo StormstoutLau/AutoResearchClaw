@@ -1,18 +1,20 @@
 ---
 id: arc-stage10-blueprint-yaml-robust-DESIGN
 type: design
-version: 1.2
+version: 2.0
 status: verified
 date: 2026-11-26
 depends: [arc-stage10-blueprint-yaml-robust-RESEARCH]
 upstream: arc-stage10-blueprint-yaml-robust-RESEARCH
 ---
 
-# 设计：Stage 10 蓝图 YAML 稳健化（B-32 M1 + M2）
+# 设计：Stage 10 蓝图 YAML 稳健化（B-32 M1 + M2 + M3）
 
 > v1.1（2026-11-26，P-197）：新增 D-9..D-14（M2 四项门 + 折叠保护）；D-1..D-8 不变。
 > v1.2（2026-11-26，P-199）：补 D-15（证据文件落点）、D-16（「成功必须有证据」五项落点），
 > 并把「`<metric>: <float>` 可解析」与「真实模型产出未验」写进 §4 / §5。
+> v1.3（2026-11-26，P-201）：按 P-200 复审把 F-1..F-4 与 N-1 登记为 **§5.1 已知边界**（不修代码）。
+> v2.0（2026-11-26，P-202）：按 §5.1 立项硬化——新增 D-17..D-21 关闭全部五项边界，§5.1 转为**已关闭**表。
 
 ## 1. 决策
 
@@ -34,6 +36,11 @@ upstream: arc-stage10-blueprint-yaml-robust-RESEARCH
 | D-14 | 折叠只对**含空白**的列表项文本生效；单 token（`- interface:`）视为 mapping key，原样保留 | 只靠「续行是否以 `- ` 开头」判断 | 单 token 几乎必然是 key；散文必然含空格。这条补上 M1 遗留的 mapping 误折风险 |
 | D-15 | Stage 10 的全部证据统一写 **`stage-10/codegen_evidence.json`**；`synthetic_data` 只在该文件留痕，不写 `decision.json` | 写 `decision.json`（调研 §5.2 第 6 项原措辞） | 与 D-4 同因：`_write_stage_meta` 在阶段末重写 `decision.json`，写入即被覆盖 |
 | D-16 | 「成功必须有证据」五项**分别落到不同层**：`METRIC_DEF` 存在（B-29 既有）、文件集合（本批）、指标一致（本批）、非配置计算（本批）、`<metric>: <float>` 可解析（**不在本批**，归 B-29 的 Stage 12 侧） | 五项全部在本批重写一遍 | 单一真值源：Stage 12 已有指标解析，重复造门会产生两套口径；本批只补 Stage 10 出口缺的三项 + 复用 B-29 契约 |
+| D-17 | 指标名**优先取自 `print(...)` 的字面实参**（AST 遍历 `Call.args` 的 `Constant`），无 `print` 时回落「逐行扫描且跳过 `#` 注释行」；捕获类改为「到空白或 `\|`、`,`、`)`、`]` 为止」，再 `rstrip` 标点与引号 | 继续用文件级正则首匹配（现状）；或只用 `tokenize` 过滤注释 | 注释与 docstring 在 AST 里**不进入** `Call.args`（调研 A-1/A-2），是结构性排除而非启发式；纯 `tokenize` 方案需自己重建语句边界，代价更高。宽捕获类解决 `50%-winrate`/`auroc:delta` 被截断 |
+| D-18 | 数据源声明**递归取叶子字符串**（dict/list 逐层下钻，深度上限 4），**禁止 `str(容器)`** | 保留 `str(v)` 取 repr；或用 `json.dumps` 后整串匹配 | `str({...})` 产出 `"{'provider': 'x'}"`，与产物里的 `x` 永不相等 → 每条都报虚假 WARN（调研 A-6/A-7：容器应递归到叶子） |
+| D-19 | 折叠守卫改两条：① 列表项文本已含 `": "` → 视为 `key: value`，不折叠；② 续行形如 `k: v` / `k:` → 视为 mapping，整项不折叠 | 保留「文本是否含空白」单判据；或对 mapping 强行加引号 | YAML 里 `- some key:` + 缩进 `nested: value` 解析为 **mapping**（调研 A-3），折叠会把结构压成字符串；`- name: foo bar:` 是值以冒号结尾的键值对（A-4），应交给既有 sanitizer |
+| D-20 | 修复重试**无围栏时对齐到第一个顶层 `files:` 行**再解析 | 保留 `text.strip()` 全文解析；或要求模型必须围栏后直接放弃 | 无尾冒号的散文会在根层形成裸标量，`safe_load` 抛 `ScannerError`（P-200 §3.3）；LangChain 的标准做法是「剥围栏后解析并容忍非围栏输入」（调研 A-5） |
+| D-21 | 证据门以 **`experiment/` 磁盘产物为准**（`delivered_dir`），内存映射仅作缺省回落 | 继续只读内存 `files`；或两者取交集 | Stage 12 实际执行的是磁盘文件（调研 A-8）；`llm is None` + `--from-stage` 重跑时二者可背离，读 dict 会误判 |
 
 ## 2. 接口
 
@@ -48,6 +55,15 @@ CodeAgent._repair_blueprint_yaml(
 CodeAgent._record_codegen_decision(
     *, fallback: str, reason: str, blueprint_chars: int,
 ) -> None                                   # 写 codegen_decision.json
+```
+
+```python
+# researchclaw/pipeline/codegen_evidence.py（M3 变更点）
+entrypoint_metric_name(code: str) -> str          # 签名不变；内部改为 AST 优先（D-17）
+collect_delivered(files, delivered_dir=None) -> dict[str, str]    # 新增（D-21）
+evaluate_stage10_evidence(
+    *, stage_dir, files, metric, delivered_dir=None,              # 新增关键字（D-21）
+) -> EvidenceReport
 ```
 
 `_phase1_blueprint` 的新流程：
@@ -129,3 +145,18 @@ check_compute_presence(files) -> list[EvidenceFailure]
 - 数据源门用子串匹配，`yfinance` 出现在注释里也算命中（只做留痕，不做语义判断）。
 - **四项门只在单测级验证**：未在真实模型产出上跑过（C-27 待验）；门失败后的下游行为（Stage 12/15 如何读取 `codegen_evidence.json`）未在本批接线。
 - `codegen_evidence.json` 是只读证据面：`write_evidence_report` 未包 `try/except`，写盘失败会让 Stage 10 抛错——有意为之，无证据即不可验收（与 M1 决策落盘的 best-effort 不同）。
+
+### 5.1 已知边界（P-200 登记 → P-202 全部关闭）
+
+> 依据 [P-194..P-199 合入内容复审与复核](../../docs/arc-p194-p199-heterogeneous-review-20261126.md) §4。五项均经探针确认；P-202 按本节立项修复，**当前状态：全部关闭**（对应决策与验收项见末两列）。
+
+| ID | 边界 | 现象（P-200 探针读数） | 关闭方式 | 决策 / 验收 |
+|---|---|---|---|---|
+| F-1 | 指标名取**全文首个** `METRIC_DEF:` 匹配，且字符类在 `:`/`%` 处截断 | 注释行 `# METRIC_DEF: old_metric` → `'old_metric'`；docstring → `'auroc_delta.'`；`50%-winrate` → `'50'` | 改走 `print(...)` 字面实参（AST），回落时跳过注释行；捕获类放宽后 `rstrip` | D-17 / C-29..C-34 |
+| F-2 | 数据源 dict 值被 `str()` 成 repr；二重嵌套漏采 | `data.sources: [{provider: x}]` → `"{'provider': 'x'}"`（虚假 WARN）；`data.sources.primary.provider` → `[]` | 递归取叶子字符串（深度上限 4），禁止 `str(容器)` | D-18 / C-35..C-38 |
+| F-3 | 折叠守卫只判「是否含空白」，多词 key + 嵌套 mapping 被误折 | `- some key:` + `nested: value` → `- "some key: nested: value"` | 双守卫：文本含 `": "` 不折；续行形如 `k: v` 视为 mapping | D-19 / C-39..C-42 |
+| F-4 | 无围栏修复文本若含**无尾冒号**散文，击穿 `safe_load` | `Sure, I fixed the indentation.\nfiles:` → `ScannerError`；带尾冒号的散文无害 | 无围栏时对齐到首个顶层 `files:` 行 | D-20 / C-43..C-44 |
+| N-1 | 证据门读 `files` dict，而非磁盘 `experiment/` 实际产物 | `files` 无 main.py + `exp_dir` 残留旧 main.py → 误判 `metric_not_printed` | 门改以 `delivered_dir` 磁盘产物为准，映射仅缺省回落 | D-21 / C-45..C-47 |
+
+**影响评估（关闭前）**：F-1/F-3 会让门在「应通过时误判失败」或反之；F-2 只产生噪声 WARN；F-4/N-1 需窄组合才可达。四类失败都是**显式失败或显式 WARN**，不会静默放过退化产物——这是「宁可误杀、不放过」选择的代价。
+**再评估触发**：① B 站 Stage 10 重跑出现 `metric_mismatch`/`blueprint_files_missing` 而人工核对产物实为一致；② `codegen_decision.json` 出现 `yaml_repair_attempted=true` 但 `reason=blueprint_unparsable`；③ A7-1 soak 期间出现证据门误判。关闭后这三条仍保留，用于检出**新**误判形态。

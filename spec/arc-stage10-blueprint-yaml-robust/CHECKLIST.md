@@ -1,14 +1,16 @@
 ---
 id: arc-stage10-blueprint-yaml-robust-CHECKLIST
 type: design
-version: 1.1
+version: 2.0
 status: accepted
 date: 2026-11-26
 depends: [arc-stage10-blueprint-yaml-robust-IMPLEMENTATION]
 upstream: arc-stage10-blueprint-yaml-robust-IMPLEMENTATION
 ---
 
-# 验收清单：B-32 M1 + M2
+# 验收清单：B-32 M1 + M2 + M3
+
+> v2.0（2026-11-26，P-202）：新增 M3 段 C-29..C-49，关闭 DESIGN §5.1 五项边界。
 
 | ID | 断言 | 结果 |
 |---|---|---|
@@ -41,13 +43,47 @@ upstream: arc-stage10-blueprint-yaml-robust-IMPLEMENTATION
 | C-27 | Stage 10 出口在真实 LLM 产出上按门失败 | ⏳ 单测级已验证，未跑真实模型 |
 | C-28 | M2 相关回归无退化 | ✅ 121 passed（codegen 七文件）+ 302 passed（executor/stages/e2e） |
 
+## M3（P-202，关闭 §5.1）
+
+| ID | 断言 | 结果 |
+|---|---|---|
+| C-29 | 注释里的 `METRIC_DEF` 不劫持指标名（F-1/D-17） | ✅ `test_comment_is_not_mistaken_for_the_metric` |
+| C-30 | docstring 里的 `METRIC_DEF` 不劫持指标名（F-1/D-17） | ✅ `test_docstring_is_not_mistaken_for_the_metric` |
+| C-31 | 指标名含 `%`/`:` 时完整保留（`50%-winrate`）（F-1/D-17） | ✅ `test_name_with_percent_and_colon_is_kept_whole` |
+| C-32 | 无 `print` 字面量时回落扫描跳过注释行（F-1/D-17） | ✅ `test_fallback_skips_comment_lines` |
+| C-33 | 完全无 `METRIC_DEF` 时仍返回空串（不回退到猜测） | ✅ `test_missing_metric_still_returns_empty` |
+| C-34 | 注释无法让一致性门误报 mismatch（F-1 端到端） | ✅ `test_comment_cannot_hijack_consistency_gate` |
+| C-35 | `data.sources` 为 dict 列表时取叶子值、不产生虚假 WARN（F-2/D-18） | ✅ `test_sources_from_list_of_dicts` |
+| C-36 | `data.sources` 为二重嵌套 dict 时仍能取到叶子（F-2/D-18） | ✅ `test_sources_from_nested_dict` |
+| C-37 | 数据源确实缺失时仍 WARN 且标 `synthetic_data` | ✅ `test_missing_source_still_warns` |
+| C-38 | 警告文本不含 `str(dict)` 的 repr 字节（F-2/D-18） | ✅ `test_no_repr_artefact_in_warning_text` |
+| C-39 | 多词 key + 嵌套 mapping 不被折叠（F-3/D-19） | ✅ `test_multiword_key_with_mapping_is_not_folded` |
+| C-40 | 值以冒号结尾的键值对不被折叠（F-3/D-19） | ✅ `test_mapping_value_ending_with_colon_is_not_folded` |
+| C-41 | 真实现场形态（散文 + 缩进续行）仍折叠（F-3 负向面） | ✅ `test_prose_still_folds` |
+| C-42 | 折叠结果被 YAML 解析为字符串而非 mapping（F-3 正例） | ✅ `test_folded_prose_parses_as_string` |
+| C-43 | 无围栏修复文本对齐到 `files:` 后解析成功并记 `variant=yaml_repair`（F-4/D-20） | ✅ `test_unfenced_repair_is_realigned_to_files_key` |
+| C-44 | 有围栏的修复路径不受影响（F-4 负向面） | ✅ `test_fenced_repair_is_unchanged` |
+| C-45 | `main.py` 只在磁盘、不在映射时门不误判（N-1/D-21） | ✅ `test_disk_main_py_is_used_when_absent_from_the_mapping` |
+| C-46 | 无 `delivered_dir` 时回落内存映射，原有行为不变（N-1 负向面） | ✅ `test_mapping_still_used_without_delivered_dir` |
+| C-47 | 磁盘产物优先于陈旧映射（N-1/D-21） | ✅ `test_disk_wins_over_stale_mapping` |
+| C-48 | M3 相关回归无退化 | ✅ 121 passed（codegen 七文件）+ 317 passed（executor/stages/simulated_guard） |
+| C-49 | M3 有真实红→绿记录 | ✅ 红 12 failed / 绿 19 passed，逐条读数见 IMPLEMENTATION §9 |
+
 ## 算术
 
-M1 12 项 + M2 13 项本地断言 = 25 项通过（C-1..C-12、C-14..C-26、C-28）；待现场 2 项（C-13、C-27）。
+| 段 | 通过 | 待现场 |
+|---|---|---|
+| M1 | 12（C-1..C-12） | 1（C-13） |
+| M2 | 13（C-14..C-26、C-28） | 1（C-27） |
+| M3 | 20（C-29..C-49，其中 C-49 为过程项） | 0 |
+| **合计** | **45 项本地断言** | **2 项现场待验** |
 
 ## 边界
 
 - 门只判失败、不补齐产物（D-9）；「`<metric>: <float>` 可解析」由 B-29 的 Stage 12 侧负责，本批未新增。
-- C-27 只证明代码路径可达（单测），未在真实模型输出上跑过。
+- C-13 / C-27 只证明代码路径可达（单测），未在真实模型输出与 B 站上跑过。
 - 折叠单 token 规则是为保护 mapping 付出的代价：无空格散文不会修复。
 - 文件门只比对 basename，不校验目录层级。
+- **合成入口的指标名不可静态提取**（`print("METRIC_DEF: " + METRIC ...)`）：门会判 `metric_not_printed`；M2 起既有行为，本批未改，见 IMPLEMENTATION §8.2。
+- **散文续行若形如 `k: v`** 会被 F-3 新守卫判为 mapping 而放弃折叠 → 解析失败走回落；与 D-14 同类的保护代价。
+- 数据源门仍用子串匹配（注释里出现也算命中），F-2 只修「容器被字符串化」，不改变匹配语义。

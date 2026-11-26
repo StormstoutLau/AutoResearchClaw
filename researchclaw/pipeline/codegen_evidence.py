@@ -26,7 +26,11 @@ from researchclaw.utils.paths import safe_join
 EVIDENCE_NAME = "codegen_evidence.json"
 BLUEPRINT_NAME = "architecture_spec.yaml"
 
-_METRIC_DEF_RE = re.compile(r"METRIC_DEF:\s*([A-Za-z0-9_.\-]+)")
+_METRIC_DEF_MARK = "METRIC_DEF:"
+# P-202 (F-1): capture the whole token instead of a narrow character class, so
+# names containing ``%`` or ``:`` survive; trailing punctuation from prose is
+# stripped afterwards.
+_METRIC_DEF_RE = re.compile(r"METRIC_DEF:\s*([^\s|,;)\]]+)")
 _METRIC_KEYS = ("primary_metric", "metric", "metric_name")
 _DATA_SOURCE_KEYS = ("data_source", "dataset_source")
 _SOURCE_KEYS = ("source", "sources", "provider")
@@ -34,6 +38,10 @@ _FILE_NAME_KEYS = ("name", "path", "filename", "file")
 _CONFIG_SUFFIXES = ("Config", "Settings", "Params")
 _NON_COMPUTE_NAMES = {"main", "cli", "parse_args", "get_config", "load_config"}
 _NON_COMPUTE_PREFIXES = ("check_", "validate_", "test_", "assert_")
+# A continuation line such as ``nested: value`` (or ``key:``) means the item
+# is a mapping, not prose (P-202 F-3).
+_MAPPING_LINE_RE = re.compile(r"^[^\s:#][^:]*:(?:\s|$)")
+_MAX_SOURCE_DEPTH = 4
 
 
 @dataclass(frozen=True)
@@ -106,34 +114,57 @@ def _find_metric(node: Any, depth: int = 0) -> str:
     return ""
 
 
-def _collect_sources(node: Mapping[str, Any], keys: tuple[str, ...]) -> list[str]:
+def _collect_sources(
+    node: Mapping[str, Any], keys: tuple[str, ...], depth: int = 0,
+) -> list[str]:
+    """Collect leaf strings under ``keys``.
+
+    P-202 (F-2): containers are walked down to their leaves instead of being
+    stringified, so a ``sources: [{provider: x}]`` declaration yields ``"x"``
+    rather than ``"{'provider': 'x'}"``.
+    """
     found: list[str] = []
     for key in keys:
-        value = node.get(key)
-        if isinstance(value, str) and value.strip():
-            found.append(value.strip())
-        elif isinstance(value, list):
-            found.extend(str(v).strip() for v in value if str(v).strip())
-        elif isinstance(value, dict):
-            found.extend(str(v).strip() for v in value.values()
-                         if isinstance(v, str) and v.strip())
+        found.extend(_leaf_strings(node.get(key), depth))
     return found
+
+
+def _leaf_strings(value: Any, depth: int = 0) -> list[str]:
+    """Leaf strings of a nested YAML/JSON value (depth-capped)."""
+    if depth > _MAX_SOURCE_DEPTH:
+        return []
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return [str(value)]
+    if isinstance(value, dict):
+        out: list[str] = []
+        for item in value.values():
+            out.extend(_leaf_strings(item, depth + 1))
+        return out
+    if isinstance(value, (list, tuple)):
+        out = []
+        for item in value:
+            out.extend(_leaf_strings(item, depth + 1))
+        return out
+    return []
 
 
 def _find_data_sources(node: Any, depth: int = 0) -> list[str]:
     """Collect declared data sources (``data.source`` / ``data_source``)."""
     if depth > 3 or not isinstance(node, dict):
         return []
-    found = _collect_sources(node, _DATA_SOURCE_KEYS)
+    found = _collect_sources(node, _DATA_SOURCE_KEYS, depth)
     for container in ("data", "dataset", "input"):
         child = node.get(container)
         if isinstance(child, dict):
-            found.extend(_collect_sources(child, _SOURCE_KEYS))
+            found.extend(_collect_sources(child, _SOURCE_KEYS, depth + 1))
             found.extend(_find_data_sources(child, depth + 1))
         elif isinstance(child, list):
             for item in child:
                 if isinstance(item, dict):
-                    found.extend(_collect_sources(item, _SOURCE_KEYS))
+                    found.extend(_collect_sources(item, _SOURCE_KEYS, depth + 1))
                     found.extend(_find_data_sources(item, depth + 1))
     return found
 
@@ -195,9 +226,48 @@ def check_declared_files(
     )]
 
 
+def _metric_from_text(text: str) -> str:
+    match = _METRIC_DEF_RE.search(str(text or ""))
+    return match.group(1).rstrip(".,;:'\"") if match else ""
+
+
 def entrypoint_metric_name(code: str) -> str:
-    match = _METRIC_DEF_RE.search(str(code or ""))
-    return match.group(1) if match else ""
+    """Metric name printed by ``main.py``.
+
+    P-202 (F-1): the previous version regex-scanned the whole file, so a
+    commented-out or docstring mention could hijack the gate.  Prefer the
+    literal actually passed to ``print(...)`` (AST drops comments and keeps
+    docstrings out of ``Call.args``), then fall back to a line scan that
+    skips comment lines.
+    """
+    text = str(code or "")
+    if not text.strip():
+        return ""
+    tree: ast.Module | None
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        tree = None
+    if tree is not None:
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "print"
+            ):
+                continue
+            for arg in node.args:
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                    found = _metric_from_text(arg.value)
+                    if found:
+                        return found
+    for line in text.splitlines():
+        if line.strip().startswith("#"):
+            continue
+        found = _metric_from_text(line)
+        if found:
+            return found
+    return ""
 
 
 def normalize_metric(name: str) -> str:
@@ -288,14 +358,39 @@ def check_compute_presence(files: Mapping[str, str]) -> list[EvidenceFailure]:
 # ---------------------------------------------------------------------------
 
 
+def collect_delivered(
+    files: Mapping[str, str], delivered_dir: Path | None = None,
+) -> dict[str, str]:
+    """Files the stage is about to ship.
+
+    P-202 (N-1): the gate used to read only the in-memory mapping, so a stale
+    ``experiment/main.py`` left over from an earlier run could be judged while
+    the mapping said otherwise.  Disk wins whenever the file exists.
+    """
+    merged = dict(files)
+    if delivered_dir is None:
+        return merged
+    base = Path(delivered_dir)
+    if not base.is_dir():
+        return merged
+    for path in sorted(base.glob("*.py")):
+        try:
+            merged[path.name] = path.read_text(encoding="utf-8")
+        except OSError:  # noqa: PERF203 - one unreadable file must not abort
+            continue
+    return merged
+
+
 def evaluate_stage10_evidence(
     *,
     stage_dir: Path,
     files: Mapping[str, str],
     metric: str,
+    delivered_dir: Path | None = None,
 ) -> EvidenceReport:
     """Run all M2 gates and return the aggregate report."""
     report = EvidenceReport()
+    delivered = collect_delivered(files, delivered_dir)
     blueprint = load_blueprint(stage_dir)
     if blueprint is None:
         report.warnings.append(
@@ -303,13 +398,13 @@ def evaluate_stage10_evidence(
             "codegen_decision.json)"
         )
     else:
-        report.failures.extend(check_declared_files(blueprint, files))
+        report.failures.extend(check_declared_files(blueprint, delivered))
         declared_metric = _find_metric(blueprint) or str(metric or "")
-        report.failures.extend(check_metric_consistency(declared_metric, files))
-        warnings, synthetic = check_data_source(blueprint, files)
+        report.failures.extend(check_metric_consistency(declared_metric, delivered))
+        warnings, synthetic = check_data_source(blueprint, delivered)
         report.warnings.extend(warnings)
         report.synthetic_data = synthetic
-    report.failures.extend(check_compute_presence(files))
+    report.failures.extend(check_compute_presence(delivered))
     return report
 
 
