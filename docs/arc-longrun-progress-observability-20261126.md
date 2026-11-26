@@ -234,8 +234,16 @@
 3. dashboard 的 60s 常量改为从 `heartbeat.interval_sec` 推导（[collector.py L16-19](../researchclaw/dashboard/collector.py#L16-L19)）；同时把 `collect_all` 的 `rc-*` 过滤放开或改为「有 `checkpoint.json` 即视为 run」，否则 `--output` 自定义 run 永远不可见。
 4. `run` 增加 `--log-level`（默认 `INFO` 到 stderr）与 `--log-file`（可选）；启动时 `logging.basicConfig`，并对 stdout 做行缓冲（[cli.py L1764-1825](../researchclaw/cli.py#L1764-L1825)）。
 5. 阶段开始改走 `logger.info`，与 `print` 并存，避免重定向后丢失（[runner.py L794-795](../researchclaw/pipeline/runner.py#L794-L795)）。
+6. **语义化进度行协议 `__ARC_PROGRESS__`（裁决 1，借鉴 DeepScientist）**：工作负载主动声明进度，而不是只靠「按时间写心跳」。
+   - 协议：一行 `__ARC_PROGRESS__ {"step_id":"gen:config.py","done":7,"total":12,"phase":"generate"}`，由 Stage 10 各 phase 打印；runner 侧解析后**原子写** `stage-10/progress.json`。
+   - **必须走文件，不依赖 stdout 行缓冲**（复审 D-1）：Windows 下子进程 stdout 在重定向时是块缓冲，`__ARC_PROGRESS__` 行会被延迟或吞掉。落点三选一，按优先级：
+     1. 各 phase 直接 `append_step` 写 `stage-10/progress.json`（推荐，零缓冲风险）；
+     2. 若坚持 stdout 协议，启动子进程时强制 `PYTHONUNBUFFERED=1` 且 runner 侧 `reconfigure(line_buffering=True)`；
+     3. 命名管道/临时文件回退。
+   - 载荷字段与 `steps.jsonl` 的 `step_id` 共用同一命名空间，避免两套 ID。
+   - 写入必须持 `filelock`（见 §6.2 第 5 项）。
 
-> **可独立成批（复审 O-2）**：第 4、5 项是 CLI / 日志的通用缺陷，与「长跑进度」耦合度低但收益最大——修复日志级别会立刻激活已存在的 ACP 30s 进度心跳（§2.3 第 4 条）与全部 `logger.info` 打点。建议拆为 B-31a（日志可见性，1 个文件 + 1 个测试）先行，B-31b 承载心跳 details 与 `STALLED`。
+> **可独立成批（复审 O-2）**：第 4、5 项是 CLI / 日志的通用缺陷，与「长跑进度」耦合度低但收益最大——修复日志级别会立刻激活已存在的 ACP 30s 进度心跳（§2.3 第 4 条）与全部 `logger.info` 打点。建议拆为 B-31a（日志可见性，1 个文件 + 1 个测试）先行，B-31b 承载心跳 details、`__ARC_PROGRESS__` 与 `STALLED`。
 
 **验收口径（可机检）**
 
@@ -260,8 +268,13 @@
    **默认取 `stage.progress`**；`llm.*` 仅在显式调试开关（如 `--trace-llm`）下启用，且必须带独立配额，不进入默认事件流。
 
 2. Stage 10 显式 phase：`blueprint → generate → repair → validate → sandbox → entrypoint`，每次 phase 变更发一条事件并原子写 `stage-10/progress.json`（字段与 heartbeat details 同构）。
-3. `ops` / dashboard 合成 `last_update = max(heartbeat.updated_at, lease.expires_at - ttl, 最新 artifact mtime, events 尾事件 ts)`，输出 `stage / phase / attempt / elapsed / silence_sec`。`ops` 现在只读 `checkpoint.json`（[ops.py L144-155](../researchclaw/runtime/ops.py#L144-L155)），需增读 `heartbeat.json`。
+3. `ops` / dashboard 合成 `last_update = max(heartbeat.updated_at, lease.expires_at - ttl, 最新 artifact mtime, events 尾事件 ts)`，输出 `stage / phase / attempt / elapsed / silence_sec`。`ops` 现在只读 `checkpoint.json`（[ops.py L144-155](../researchclaw/runtime/ops.py#L144-L155)），需增读 `heartbeat.json` 与 `stage-10/progress.json`。
+   - **派生视图只读，不评价（复审 D-6）**：`ops` 只做多源合成与展示，**不引入** DeepScientist `stage_views.py` 里的 `progress_eval` / `delta_vs_baseline` / `breakthrough_level` 等评价逻辑；真值永远是产物 + 事件链。
 4. `agent_runs` **只作审计留存，不进入观测口径**（复审 D-3）：Stage 10 的 `agent_runs/attempt_NNN`（[code_agent.py L1477](../researchclaw/pipeline/code_agent.py#L1477)）与 `agent_sandbox/_project_N`（[L1457](../researchclaw/pipeline/code_agent.py#L1457)）由 `CodeAgent` 私有计数器 `self._runs` 驱动，每次 Stage 10 重入都从 001 重新计数，跨 PIVOT 不可比。单一事实源定为第 2 项的 `progress.json`；需要保留执行痕迹时，由 `progress.json` 写 `{attempt, artifact_dir}` 指向目录，而不是反过来由目录推断进度。
+5. **阶段会话日志 `stage-10/session.log.jsonl`（裁决 4，借鉴 DeepScientist 受管会话）**：每行 `{seq, ts, stream, line}`，只记一行摘要（不记 prompt / 代码正文，符合 I-4 类比）；供 `ops` 与人工 `tail` 使用。
+   - 写入持 stage 级 `filelock`（与 `steps.jsonl` 的 `.steps.lock` 分文件，避免与循环守卫争锁）。
+   - 与 `steps.jsonl` 的分工：`steps.jsonl` 是**断点真值**（带摘要与版本，供 `should_skip`）；`session.log.jsonl` 是**人读时间线**（只 append，不参与任何判定）。
+   - 不引入 `handoff.md`：DeepScientist 的 `handoffs/` 思路在本仓由 `steps.jsonl` 覆盖；若需人工可读摘要，从 `steps.jsonl` 生成只读视图，不新增第二份可写记录（复审 D-5 / 裁决 5）。
 
 ### 6.3 M3 / P2：恢复与告警
 
@@ -278,6 +291,21 @@
 - **不把「慢」当「死」自动重启**：K8s 对批任务的明确经验。
 - **不伪造进度**：与 B-30「取不到数值打印 `nan`、绝不填 0.0」同一纪律——宁可显示 `STALLED`，不显示假 `RUNNING`。
 - **不在 `max_wall_seconds=1800` 的 supervisor 默认值下跑长阶段**：这是「把慢当死」的现成实例，M3 必须先改上限再谈启用。
+- **不合并 DeepScientist 的 11 态状态机（复审 D-4）**：它的 `planned/ready/queued/running/success/failed/blocked/warning/passed/active/superseded` 是**产物节点级**语义，与 ARC 的 run 级 `RunStatus` 粒度不同。本批只在 `RunStatus` 增 `STALLED`，产物级状态另行定义，不污染 run 状态机。
+- **不引入 `progress_eval` 类评价字段（复审 D-6）**：`ops` 只派生、不评价。
+
+### 6.5 对标裁决落点（DeepScientist 基准，2026-11-26）
+
+> 依据 [对标分析](arc-deepscientist-benchmark-20261126.md) + [异构复审](arc-deepscientist-benchmark-review-20261126.md)。
+
+| 裁决 | 结论 | 本文落点 |
+|---|---|---|
+| 1. M1 是否包含 `__ARC_PROGRESS__` 行协议 | **采纳** | §6.1 第 6 项；必须走文件落盘，不依赖 stdout 缓冲（复审 D-1） |
+| 2. M1 是否合并 DeepScientist 状态机 | **否决** | §6.4 末条；只增 `STALLED`（复审 D-4） |
+| 3. M2 是否加 `session.log.jsonl` | **采纳** | §6.2 第 5 项；人读时间线，不参与判定 |
+| 4. M2 的 `ops` 是否引入 `progress_eval` | **否决** | §6.2 第 3 项子条 + §6.4 末条（复审 D-6） |
+| 5. 是否引入 `handoff.md` | **否决** | §6.2 第 5 项末条；由 `steps.jsonl` 覆盖，需人读摘要则从账本派生（复审 D-5） |
+| 6. B-31 是否拆为 B-31a / B-31b | **采纳（建议）** | §6.1 「可独立成批」注记 |
 
 ---
 

@@ -831,6 +831,9 @@ def execute_pipeline(
 
         stage_num = int(stage)
         prefix = f"[{run_id}] Stage {stage_num:02d}/{total_stages}"
+        # B-31a: mirror the stage banner into the logging channel so a
+        # configured logger (INFO and below) shows progress on disk.
+        logger.info("%s %s — running...", prefix, stage.name)
         print(f"{prefix} {stage.name} — running...")
         _emit(_log, "stage.started", {"name": stage.name}, stage=stage_num)
         # B-33 L0: record the in-progress stage so a kill mid-stage is resumed
@@ -966,14 +969,26 @@ def execute_pipeline(
         if result.status == StageStatus.DONE:
             arts = ", ".join(result.artifacts) if result.artifacts else "none"
             if result.decision == "degraded":
+                logger.info(
+                    "%s %s — DEGRADED (%.1fs) → %s",
+                    prefix, stage.name, elapsed, arts,
+                )
                 print(
                     f"{prefix} {stage.name} — DEGRADED ({elapsed:.1f}s) "
                     f"— continuing with sanitization → {arts}"
                 )
             else:
+                logger.info(
+                    "%s %s — done (%.1fs) → %s",
+                    prefix, stage.name, elapsed, arts,
+                )
                 print(f"{prefix} {stage.name} — done ({elapsed:.1f}s) → {arts}")
         elif result.status == StageStatus.FAILED:
             err = result.error or "unknown error"
+            logger.error(
+                "%s %s — FAILED (%.1fs) — %s",
+                prefix, stage.name, elapsed, err,
+            )
             print(f"{prefix} {stage.name} — FAILED ({elapsed:.1f}s) — {err}")
         elif result.status == StageStatus.BLOCKED_APPROVAL:
             print(f"{prefix} {stage.name} — blocked (awaiting approval)")

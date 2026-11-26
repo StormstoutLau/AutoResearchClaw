@@ -1,7 +1,7 @@
 ---
 id: arc-stage10-intra-stage-checkpoint-DESIGN
 type: design
-version: 1.0
+version: 1.1
 status: verified
 date: 2026-11-26
 depends: [arc-stage10-intra-stage-checkpoint-RESEARCH]
@@ -9,6 +9,10 @@ upstream: arc-stage10-intra-stage-checkpoint-RESEARCH
 ---
 
 # 设计：Stage 10 内部断点（B-33 M1）
+
+> v1.1（2026-11-26）：按 DeepScientist 对标裁决补 D-10（`continuation_anchor` 存 `step_id`）、
+> D-11（`abandoned_attempt` 摘要）、D-12（不引入 `handoff.md`）。依据
+> [对标分析](../../docs/arc-deepscientist-benchmark-20261126.md) + [异构复审](../../docs/arc-deepscientist-benchmark-review-20261126.md) D-2/D-5。
 
 ## 1. 决策
 
@@ -23,6 +27,9 @@ upstream: arc-stage10-intra-stage-checkpoint-RESEARCH
 | D-7 | 文件缺失/被改判 cache miss | 只比对摘要 | 手工修改产物后仍命中会引入未记录变更 |
 | D-8 | `code_version` 单一算法（包版本 + 双文件 sha256 前 8 位），且**经 `importlib.resources` 读取**（zipimport 安全，`Path(__file__)` 兜底） | 并列「包版本或文件哈希」；只走 `Path(__file__)` | 两种口径会让跨阶段判定不一致；打包/安装后相对路径可能失效 |
 | D-9 | 事件重建（`rebuild_checkpoint`）时**回填 `in_progress_stage`** | 只从 `stage.completed` 重建 | 否则 checkpoint 损坏会把 `--resume` 静默降级为「下一阶段」，跳过在飞阶段 |
+| D-10 | `continuation_anchor` 存 **`step_id`（复合键）**，不存阶段名 | 存阶段名（DeepScientist 做法） | ARC 的阶段重入粒度是「步骤」；存阶段名无法表达 `blueprint:retry` 与 `gen:config.py` 的差别（复审 D-2） |
+| D-11 | 阶段重试入口写 **`abandoned_attempt` 摘要**（放弃的 attempt、时间、产物清单、最后完成的 step_id） | 静默重建 attempt 目录 | 现场 09:45 重试时 `agent_runs/attempt_001` 被重建、旧日志被覆盖，**没有任何地方记录 80 分钟被丢弃**（复审 M2） |
+| D-12 | **不引入 `handoff.md`** | 另写 Markdown 交接文档 | 与 `steps.jsonl` 职责重叠；人读摘要可由账本派生，不新增第二份可写记录（复审 D-5） |
 
 ## 2. 接口
 
@@ -38,10 +45,23 @@ load_steps(stage_dir) -> list[dict]              # 末尾坏行容忍，中间�
 append_step(stage_dir, *, step_id, variant="", status="done",
             inputs_digest="", outputs=None, model="", elapsed_sec=0.0,
             truncated=False, code_version_value=None, prompt_version="",
-            ts=None) -> dict
+            ts=None, abandoned_attempt=None) -> dict   # D-11
 last_done(steps, step_id, variant="") -> dict | None
 should_skip(last, *, inputs_digest, files_on_disk,
             code_version_value=None, prompt_version="") -> bool
+```
+
+```json
+// checkpoint.json 追加字段（D-10 / D-11）
+{
+  "in_progress_stage": 10,
+  "continuation_anchor": "gen:main.py",          // step_id 复合键，非阶段名
+  "abandoned_attempt": {
+    "attempt": 1, "ended_at": "2026-11-26T09:45:00+00:00",
+    "last_step_id": "gen:main.py",
+    "artifacts": ["config.py", "utils.py", "main.py"]
+  }
+}
 ```
 
 ```python
@@ -78,6 +98,8 @@ _blueprint_inputs_digest(topic, exp_plan, metric) -> str
 - 不做 LLM 响应缓存（L3 留 M3）。
 - 不改 `--from-stage` 的归档行为。
 - 不推广到 Stage 12/14。
+- **不写 `handoff.md`**（D-12）：断点真值只有 `steps.jsonl`，人读摘要从账本派生。
+- **不接 DeepScientist 的 11 态状态机**：`RunStatus` 状态扩展归 B-31，本批只动 `in_progress_stage`。
 
 ## 5. 边界
 

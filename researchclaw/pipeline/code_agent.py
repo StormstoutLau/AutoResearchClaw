@@ -28,6 +28,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -52,6 +53,79 @@ def _blueprint_inputs_digest(topic: str, exp_plan: str, metric: str) -> str:
     from researchclaw.pipeline.step_journal import hash_text
 
     return hash_text("\n---\n".join([str(topic), str(metric), str(exp_plan or "")]))
+
+
+# B-32 M1: a block-sequence item whose natural-language value ends with a
+# colon is read by YAML as a mapping key with an empty value, so the
+# following more-indented continuation lines fail with "could not find
+# expected ':'".  Folding them into one quoted scalar keeps the text and
+# makes the document parseable.
+_TRAILING_COLON_ITEM = re.compile(r"^(?P<indent> *)-[ \t]+(?P<text>.*\S):[ \t]*$")
+
+_YAML_REPAIR_SUFFIX = (
+    "\n\n---\n"
+    "Your previous answer could not be parsed as YAML. Re-emit the SAME "
+    "blueprint as valid YAML only.\n"
+    "Rules:\n"
+    "- Output exactly one ```yaml fenced block and nothing else.\n"
+    "- Quote every list-item value that ends with ':' or contains ': '.\n"
+    "- Keep the same keys, file names and generation_order values.\n"
+)
+
+
+def _fold_trailing_colon_items(lines: list[str]) -> list[str]:
+    """Fold list items whose natural-language value ends with a colon."""
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        match = _TRAILING_COLON_ITEM.match(line)
+        if match is None:
+            out.append(line)
+            i += 1
+            continue
+        indent = match.group("indent")
+        text = match.group("text").strip()
+        if text.startswith(('"', "'")):
+            out.append(line)
+            i += 1
+            continue
+        if " " not in text:
+            # A single token like ``- interface:`` is a mapping key, not prose;
+            # folding it would swallow the nested mapping into a string.
+            out.append(line)
+            i += 1
+            continue
+
+        # Collect continuation lines that belong to this item.  ``text``
+        # excludes the trailing colon (the regex consumes it), so re-add it.
+        j = i + 1
+        folded: list[str] = [text + ":"]
+        nested_sequence = False
+        while j < len(lines):
+            nxt = lines[j]
+            if not nxt.strip():
+                j += 1
+                continue
+            nxt_indent = len(nxt) - len(nxt.lstrip(" "))
+            if nxt_indent <= len(indent):
+                break
+            if nxt.lstrip().startswith("- "):
+                # A nested list is a legitimate mapping value, not prose.
+                nested_sequence = True
+                break
+            folded.append(nxt.strip())
+            j += 1
+
+        if nested_sequence:
+            out.append(line)
+            i += 1
+            continue
+
+        escaped = " ".join(part for part in folded if part).replace('"', '\\"')
+        out.append(f'{indent}- "{escaped}"')
+        i = j
+    return out
 
 
 @dataclass
@@ -159,6 +233,8 @@ class CodeAgent:
         self._runs = 0
         self._log: list[str] = []
         self._sandbox: _SandboxLike | None = None
+        # B-32 M1: diagnostics for the single-shot fallback record.
+        self._codegen_diag: dict[str, Any] = {}
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -209,10 +285,28 @@ class CodeAgent:
             )
         else:
             # Fallback: single-shot generation
-            if self._cfg.sequential_generation and blueprint is None:
+            if self._cfg.sequential_generation and self._cfg.architecture_planning:
+                # B-32 M1 D-7: distinguish "unparsable" from "parsed but too
+                # thin".  Both used to be a single INFO line that the default
+                # WARNING root level swallowed.
+                reason = (
+                    "blueprint_unparsable"
+                    if blueprint is None
+                    else "blueprint_structure_invalid"
+                )
+                logger.warning(
+                    "Sequential generation requested but blueprint unusable "
+                    "(%s) — falling back to single-shot",
+                    reason,
+                )
                 self._log_event(
                     "  Sequential generation requested but blueprint "
-                    "invalid — falling back to single-shot"
+                    f"unusable ({reason}) — falling back to single-shot"
+                )
+                self._record_codegen_decision(
+                    fallback="single_shot",
+                    reason=reason,
+                    blueprint_chars=len(arch_spec),
                 )
             files = self._phase2_generate_and_fix(
                 topic, exp_plan, metric, pkg_hint, arch_spec, max_tokens,
@@ -318,6 +412,19 @@ class CodeAgent:
 
         # Parse YAML into structured blueprint
         blueprint = self._parse_blueprint(arch_spec)
+        if blueprint is None:
+            # B-32 M1 D-5: one narrow "YAML only" retry before giving up on
+            # the sequential path (LangChain OutputFixingParser uses
+            # max_retries=1 for the same reason).
+            repaired, blueprint = self._repair_blueprint_yaml(
+                sp.system,
+                sp.user,
+                variant="yaml_repair",
+                inputs_digest=_blueprint_inputs_digest(topic, exp_plan, metric),
+                prompt_version=getattr(sp, "version", ""),
+            )
+            if blueprint is not None:
+                arch_spec = repaired
         if blueprint:
             n_files = len(blueprint.get("files", []))
             self._log_event(f"  Parsed blueprint: {n_files} files")
@@ -325,6 +432,80 @@ class CodeAgent:
             self._log_event("  WARNING: Could not parse blueprint YAML")
 
         return arch_spec, blueprint
+
+    def _repair_blueprint_yaml(
+        self,
+        system: str,
+        user: str,
+        *,
+        variant: str,
+        inputs_digest: str,
+        prompt_version: str,
+    ) -> tuple[str, dict[str, Any] | None]:
+        """Ask the model to re-emit the blueprint as valid YAML (B-32 M1).
+
+        Returns ``("", None)`` when the repair call fails or still does not
+        parse, so the caller can fall back to single-shot with evidence.
+        """
+        self._codegen_diag["yaml_repair_attempted"] = True
+        self._log_event("  Blueprint YAML invalid — requesting a YAML-only repair")
+        try:
+            resp = self._chat(system, user + _YAML_REPAIR_SUFFIX, max_tokens=32768)
+        except Exception as exc:  # noqa: BLE001 - repair is best-effort
+            logger.warning("Blueprint YAML repair call failed: %s", exc)
+            return "", None
+
+        text = str(getattr(resp, "content", "") or "")
+        match = re.search(r"```ya?ml\s*\n(.*?)(?:```|\Z)", text, re.DOTALL)
+        repaired = (match.group(1) if match else text).strip()
+        if not repaired:
+            return "", None
+        blueprint = self._parse_blueprint(repaired)
+        if blueprint is None:
+            self._log_event("  YAML repair still did not parse")
+            return "", None
+
+        self._persist_blueprint(
+            repaired,
+            variant=variant,
+            inputs_digest=inputs_digest,
+            prompt_version=prompt_version,
+        )
+        self._log_event("  YAML repair parsed successfully")
+        return repaired, blueprint
+
+    def _record_codegen_decision(
+        self,
+        *,
+        fallback: str,
+        reason: str,
+        blueprint_chars: int,
+    ) -> None:
+        """Persist the fallback decision next to the blueprint (B-32 M1 D-4).
+
+        Deliberately not ``decision.json``: ``_write_stage_meta`` rewrites that
+        file when the stage ends, which would erase this evidence.
+        """
+        payload = {
+            "fallback": fallback,
+            "reason": reason,
+            "blueprint_chars": blueprint_chars,
+            "yaml_repair_attempted": bool(
+                self._codegen_diag.get("yaml_repair_attempted")
+            ),
+            "at": datetime.now(timezone.utc).isoformat(),
+        }
+        try:
+            self._stage_dir.mkdir(parents=True, exist_ok=True)
+            path = self._stage_dir / "codegen_decision.json"
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_text(
+                json.dumps(payload, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            tmp.replace(path)
+        except OSError as exc:  # noqa: BLE001 - observability must not break codegen
+            logger.warning("could not record codegen decision: %s", exc)
 
     def _persist_blueprint(
         self,
@@ -419,6 +600,9 @@ class CodeAgent:
         if cleaned.rstrip().endswith("```"):
             cleaned = cleaned.rstrip()[:-3].rstrip()
         yaml_text = cleaned
+
+        # B-32 M1: fold list items whose prose value ends with a colon.
+        yaml_text = "\n".join(_fold_trailing_colon_items(yaml_text.split("\n")))
 
         # Pre-process: sanitize values that contain Python type annotations,
         # unclosed quotes, or other patterns that break YAML parsing.

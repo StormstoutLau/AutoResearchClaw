@@ -18,6 +18,10 @@ from researchclaw.experiment.validator import (
 )
 from researchclaw.llm.client import LLMClient
 from researchclaw.pipeline._domain import _detect_domain
+from researchclaw.pipeline.codegen_evidence import (
+    evaluate_stage10_evidence,
+    write_evidence_report,
+)
 from researchclaw.pipeline._helpers import (
     StageResult,
     _chat_with_prompt,
@@ -2063,10 +2067,32 @@ Multi-file experiment project with {len(files)} file(s): {file_list}
             + "; ".join(_entry_issues[:5]),
         )
 
+    # B-32 M2: a runnable entrypoint is not enough — the delivery must also
+    # match what the blueprint promised.  Failures are recorded, never repaired.
+    _evidence = evaluate_stage10_evidence(
+        stage_dir=stage_dir, files=files, metric=metric,
+    )
+    write_evidence_report(stage_dir, _evidence)
+    if _evidence.failures:
+        logger.error(
+            "Stage 10: evidence gate failed: %s",
+            "; ".join(f"{f.code}: {f.detail}" for f in _evidence.failures),
+        )
+        return StageResult(
+            stage=Stage.CODE_GENERATION,
+            status=StageStatus.FAILED,
+            artifacts=tuple(artifacts) + ("codegen_evidence.json",),
+            evidence_refs=tuple(f"stage-10/{a}" for a in artifacts),
+            error="codegen evidence gate failed: "
+            + "; ".join(f.code for f in _evidence.failures),
+        )
+    for _warning in _evidence.warnings:
+        logger.warning("Stage 10 evidence warning: %s", _warning)
+
     return StageResult(
         stage=Stage.CODE_GENERATION,
         status=StageStatus.DONE,
-        artifacts=tuple(artifacts),
+        artifacts=tuple(artifacts) + ("codegen_evidence.json",),
         evidence_refs=tuple(f"stage-10/{a}" for a in artifacts),
     )
 

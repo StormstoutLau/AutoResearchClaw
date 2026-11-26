@@ -37,10 +37,13 @@ upstream: arc-stage10-intra-stage-checkpoint-IMPLEMENTATION
 | C-23 | 新测试全绿 | ✅ 55 passed（journal 22 + in-progress 9 + blueprint 6 + event_log 18） |
 | C-24 | 相关回归无退化 | ✅ 63 passed（code_agent/entrypoint/truncation）+ 72 passed（runner/checkpoint） |
 | C-25 | B 站部署后 `--resume` 落在 Stage 10 | ⏳ 待现场（未部署） |
+| C-26 | `checkpoint.json` 写 `continuation_anchor`（`step_id` 复合键，非阶段名） | ⏳ 未实施（DESIGN v1.1 D-10） |
+| C-27 | 阶段重试入口写 `abandoned_attempt` 摘要（attempt/时间/产物/最后 step_id） | ⏳ 未实施（DESIGN v1.1 D-11） |
+| C-28 | 全仓不新增 `handoff.md`，断点真值仅 `steps.jsonl` | ✅ 设计层确认（DESIGN v1.1 D-12，实现未引入） |
 
 ## 算术
 
-24 项本地断言 + 1 项现场待验。通过 24（C-1..C-24），待验证 1（C-25）。
+24 项本地断言 + 1 项现场待验 + 2 项设计已裁决待实施。通过 24（C-1..C-24）+ C-28 设计确认，待验证 1（C-25），待实施 2（C-26、C-27）。
 
 ## 边界
 

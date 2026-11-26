@@ -156,6 +156,19 @@ def _generate_run_id(topic: str) -> str:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
+    # B-31a: configure logging before anything else so config/preflight
+    # failures are visible too, and make redirected output flush per line.
+    from researchclaw.runtime.logging_setup import (
+        configure_logging,
+        force_line_buffering,
+    )
+
+    configure_logging(
+        getattr(args, "log_level", "INFO"),
+        getattr(args, "log_file", None),
+    )
+    force_line_buffering()
+
     resolved = _resolve_config_or_exit(args)
     if resolved is None:
         return 1
@@ -1823,6 +1836,18 @@ def build_parser() -> argparse.ArgumentParser:
             "pip_packages, ...) and forces the domain adapter. Run `researchclaw "
             "profile list` to see available profiles. Overrides project.profile."
         ),
+    )
+    _ = run_p.add_argument(
+        "--log-level", default="INFO", type=str.upper,
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help=(
+            "Console log level (default: INFO). Before B-31a no root logger "
+            "was configured, so INFO progress lines were dropped."
+        ),
+    )
+    _ = run_p.add_argument(
+        "--log-file", default=None,
+        help="Also append logs to this file (UTF-8) for long unattended runs",
     )
     val_p = sub.add_parser("validate", help="Validate config file")
     _ = val_p.add_argument(

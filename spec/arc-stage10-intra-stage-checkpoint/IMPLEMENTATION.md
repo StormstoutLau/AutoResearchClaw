@@ -57,6 +57,7 @@ python -m pytest tests/test_rc_runner.py tests/test_runner_events.py \
 
 ## 4. 边界
 
+- **D-10 / D-11 / D-12 未实施**（DESIGN v1.1 新增，DeepScientist 对标裁决）：`continuation_anchor`（存 `step_id`）、`abandoned_attempt` 摘要、明确不引入 `handoff.md`。本批只交付 L0 + N-1 + L1 的三件套，上述三项为设计裁决，留 M1 后续补丁。
 - **L2 未接入**：`should_skip` 已就绪并有 8 条单测，但生成路径尚未调用它（M2）。- **L3 未做**：无 LLM 响应缓存。
 - checkpoint 损坏且**事件链中无任何 `stage.completed`**（首个阶段即中断）时，`rebuild_checkpoint` 返回 `None`，需人工 `--from-stage` 指定；这是 D-9 之后仅剩的恢复盲区。
 - `--from-stage` 手动重跑仍不归档旧产物（沿用既有行为）。
