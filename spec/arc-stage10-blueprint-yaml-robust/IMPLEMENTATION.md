@@ -1,16 +1,17 @@
 ---
 id: arc-stage10-blueprint-yaml-robust-IMPLEMENTATION
 type: design
-version: 1.1
+version: 2.0
 status: verified
 date: 2026-11-26
 depends: [arc-stage10-blueprint-yaml-robust-DESIGN]
 upstream: arc-stage10-blueprint-yaml-robust-DESIGN
 ---
 
-# 实施记录：B-32 M1 + M2
+# 实施记录：B-32 M1 + M2 + M3
 
 > v1.1（2026-11-26，P-197）：补 §6 M2 四项门与折叠保护、§7 验证；§5 边界同步删去「M2 未做」。
+> v2.0（2026-11-26，P-202）：补 §8 M3 硬化（F-1..F-4 + N-1）、§9 红→绿记录与回归读数。
 
 ## 1. 改动
 
@@ -126,3 +127,63 @@ python -m pytest tests/test_rc_executor.py tests/test_rc_stages.py \
 ```
 
 红→绿记录（M2）：`test_source_missing_with_synthetic_data` 首跑失败——`_find_data_sources` 只认 `data_source`，不认 `data.source`，返回空列表；补 `_SOURCE_KEYS`（`source/sources/provider`）后转绿。`test_sibling_item_stops_folding` 因 D-14 新规则（单 token 不折叠）失败，改用散文用例后转绿；同时新增 mapping 保护用例。
+
+## 8. M3 硬化（P-202，关闭 §5.1 五项边界）
+
+| 文件 | 改动 |
+|---|---|
+| [`researchclaw/pipeline/codegen_evidence.py`](../../researchclaw/pipeline/codegen_evidence.py#L29-L44) | `_METRIC_DEF_RE` 放宽为「到空白或 `\|`、`,`、`)`、`]` 为止」+ `_metric_from_text` 统一 `rstrip(".,;:'\"")`；`entrypoint_metric_name` 改为 **AST 优先**（遍历 `print` 的 `Constant` 实参），回落逐行扫描并无条件跳过 `#` 注释行（D-17）；新增 `_leaf_strings` 递归取叶子（深度上限 `_MAX_SOURCE_DEPTH=4`），`_collect_sources` / `_find_data_sources` 改走叶子、不再 `str(容器)`（D-18）；新增 `collect_delivered(files, delivered_dir)`，磁盘 `*.py` 覆盖内存映射（D-21）；`evaluate_stage10_evidence` 增 `delivered_dir` 关键字并对合并后的交付集跑四项门 |
+| [`researchclaw/pipeline/code_agent.py`](../../researchclaw/pipeline/code_agent.py#L63-L137) | 新增 `_MAPPING_CONTINUATION_RE`；`_fold_trailing_colon_items` 增两条守卫——文本已含 `": "` 不折叠、续行形如 `k: v` 视为 mapping 且整项不折叠（D-19）；`_repair_blueprint_yaml` 无围栏时对齐到首个顶层 `files:` 行（D-20） |
+| [`researchclaw/pipeline/stage_impls/_code_generation.py`](../../researchclaw/pipeline/stage_impls/_code_generation.py#L2070-L2079) | 证据门调用改传 `delivered_dir=exp_dir`，以磁盘产物为准（D-21） |
+| `tests/test_evidence_gate_hardening.py`（新增） | 19 例：F-1 六例（注释、docstring、`50%-winrate`、注释行回落、无指标、一致性门不被注释劫持）、F-2 四例（列表 dict、嵌套 dict、真缺失仍 WARN、警告文本不含 repr）、F-3 四例（多词 key、值以冒号结尾、散文仍折、折叠后解析为字符串）、F-4 两例（无围栏对齐、围栏路径不变）、N-1 三例（磁盘优先、无 `delivered_dir` 回落映射、磁盘覆盖陈旧映射） |
+
+### 8.1 与 §5.1 的对应
+
+| 边界 | 关闭点 | 用例 |
+|---|---|---|
+| F-1 | `entrypoint_metric_name` 的 AST 主路径 + 注释行回落 | `TestF1MetricExtraction`（6） |
+| F-2 | `_leaf_strings` + `_collect_sources` | `TestF2DataSourceLeaves`（4） |
+| F-3 | `": "` 守卫 + `_MAPPING_CONTINUATION_RE` | `TestF3FoldingGuards`（4） |
+| F-4 | `_repair_blueprint_yaml` 的 `^files:` 对齐 | `TestF4UnfencedRepair`（2） |
+| N-1 | `collect_delivered` + `delivered_dir` | `TestN1DeliveredFromDisk`（3） |
+
+### 8.2 未关闭的相邻风险（诚实登记）
+
+- **合成入口的指标名不可静态提取**：`synthesize_entrypoint` 产出的 `print("METRIC_DEF: " + METRIC + ...)` 是拼接表达式，AST 取不到 `Constant`、回落扫描也取不到名字，因此证据门会判 `metric_not_printed`。这是 M2 起就存在的行为，P-202 未改变；因 B-30 兜底只在专用生成两次失败后触发，现场优先级低，登记不修。
+- **散文里带 `k: v` 形态的续行**会被 F-3 的新守卫判为 mapping 而不折叠 → 解析失败 → 走回落。这是保护结构的代价，与 D-14 同类。
+
+## 9. M3 验证
+
+```bash
+# 红（实现前，19 例中 12 失败）
+python -m pytest tests/test_evidence_gate_hardening.py -q
+# 12 failed, 7 passed
+#   test_comment_is_not_mistaken_for_the_metric      assert 'old_metric' == 'auroc_delta'
+#   test_docstring_is_not_mistaken_for_the_metric    assert 'stale_name' == 'auroc_delta'
+#   test_name_with_percent_and_colon_is_kept_whole   assert '50' == '50%-winrate'
+#   test_fallback_skips_comment_lines                assert 'old_metric' == 'window_f1'
+#   test_comment_cannot_hijack_consistency_gate      [EvidenceFailure('metric_mismatch', ...)]
+#   test_sources_from_list_of_dicts                  ['declared da...nerated code'] != []
+#   test_no_repr_artefact_in_warning_text            "'provider'" 出现在告警里
+#   test_multiword_key_with_mapping_is_not_folded    ['  - "some k...ue order: 1"'] != 原文
+#   test_mapping_value_ending_with_colon_is_not_folded ['  - "name: foo bar:"'] != 原文
+#   test_unfenced_repair_is_realigned_to_files_key   assert None is not None
+#   test_disk_main_py_is_used_when_absent_from_the_mapping  TypeError: delivered_dir
+#   test_disk_wins_over_stale_mapping                TypeError: delivered_dir
+
+# 绿（实现后）
+python -m pytest tests/test_evidence_gate_hardening.py -q
+# 19 passed
+
+python -m pytest tests/test_codegen_evidence.py tests/test_blueprint_yaml_repair.py \
+  tests/test_code_agent.py tests/test_blueprint_persistence.py \
+  tests/test_entrypoint_contract.py tests/test_codegen_truncation.py \
+  tests/test_simulated_guard.py -q
+# 121 passed
+
+python -m pytest tests/test_rc_executor.py tests/test_rc_stages.py \
+  tests/test_simulated_guard.py -q
+# 317 passed
+```
+
+**过程记录**：首轮实现后仍有 1 例失败（`test_fallback_skips_comment_lines` 期望 `window_f1`，实得 `window_f1"`）——回落扫描捕获了字符串的收尾引号；把 `_metric_from_text` 的 `rstrip` 扩到引号后转绿。这是第二批红→绿，已计入 §9 的最终读数。

@@ -1,7 +1,7 @@
 ---
 id: arc-stage10-blueprint-yaml-robust-RESEARCH
 type: design
-version: 1.1
+version: 1.2
 status: verified
 date: 2026-11-26
 depends: [arc-stage10-blueprint-fallback]
@@ -9,8 +9,9 @@ upstream: arc-master-roadmap
 ---
 
 > v1.1（2026-11-26）：补 §4.1 M2 四项结构/语义门与折叠保护（P-197）；M1 结论不变。
+> v1.2（2026-11-26）：补 §6 M3 硬化（F-1..F-4 + N-1）的社区源码级锚点（P-202）。
 
-# 调研：Stage 10 蓝图 YAML 稳健化（B-32 M1）
+# 调研：Stage 10 蓝图 YAML 稳健化（B-32）
 
 > **背景**：B 站 Stage 10 的蓝图 57 948 字符解析失败 → `blueprint=None` → 顺序生成被跳过 → 单发只产出 `config.py` + 配置校验入口。全程只留下一条 `logger.info`，默认日志级别下不可见。现场全史见 [B 站 Stage 10 排查、修复与故障分析](../../docs/arc-b-site-stage10-postmortem-20261126.md)，方案分层见 [蓝图 YAML 失效与单发回退退化调研](../../docs/arc-stage10-blueprint-fallback-20261126.md)。
 > **本批范围**：只做该调研 §5.1 的 M1 三项（预处理、结构修复重试、回退显式化）。M2 的结构/语义门不在本批。
@@ -111,5 +112,26 @@ M1 只保证「合法蓝图能进顺序生成」，不能保证「产物实现�
 
 | 判据 | 触发条件 | 当前倾向 | 证据等级 |
 |---|---|---|---|
-| 蓝图↔产物/指标/数据源的结构门是否补齐 | M2 立项时 | 补齐（文件集合 ⊆、指标名相等、非 Config 计算类 ≥1） | 待核（调研 §5.2 已列判据） |
+| 蓝图↔产物/指标/数据源的结构门是否补齐 | M2 立项时 | 已补齐（P-197 交付四项门） | E1（`test_codegen_evidence.py` 17 例） |
 | 窄提示重试的实际成功率 | 首次 B 站重跑 Stage 10 后读 `codegen_decision.json` | 未知；即使失败也比静默降级好 | 待核 |
+| §5.1 五项已知边界是否修复 | 用户裁决（P-201 → P-202 立项） | 已修（P-202 交付 F-1..F-4 + N-1） | E1（`test_evidence_gate_hardening.py` 19 例） |
+
+## 6. M3 硬化：社区源码级锚点（P-202）
+
+§5.1 登记的五项边界各自需要「怎么修」的外部依据。以下锚点均为**本机可复核的 T1 一手源**（stdlib / 已安装依赖）或官方文档（T2），没有使用二手博客。
+
+| ID | 来源（层） | 原文 / 实测要点 | 支撑的修复 |
+|---|---|---|---|
+| A-1 | CPython `tokenize`（T1，本机 3.11.15 实测） | `tokenize.generate_tokens` 把注释切成独立的 `COMMENT` token、字符串切成 `STRING` token：`[('COMMENT', '# METRIC_DEF: old_metric'), ('STRING', '"METRIC_DEF: auroc_delta"')]` | F-1：注释在词法层就与字符串分离，因此「跳过注释」是结构性事实而非正则猜测 |
+| A-2 | CPython `ast`（T1，本机实测） | 对 `'# METRIC_DEF: old_metric\nprint("METRIC_DEF: auroc_delta")'` 取 `print` 的 `Call.args`，只得到 `'METRIC_DEF: auroc_delta'`——注释与 docstring 都不进入实参 | F-1 主路径：**优先读 `print(...)` 的字面实参** |
+| A-3 | PyYAML（T1，本机实测） | `safe_load('- some key:\n    nested: value\n')` → `[{'some key': {'nested': 'value'}}]`；而 `safe_load('- "All classes differ: A uses tau-KL;"')` → `['All classes differ: …']` | F-3：多词 key + 更深缩进 `k: v` 是 **mapping**（折叠即破坏结构）；带引号散文才是字符串。判据应为「续行是否形如 `k: v`」，而非「text 是否含空白」 |
+| A-4 | PyYAML（T1，本机实测） | `safe_load('- name: foo bar\n')` → `[{'name': 'foo bar'}]`；`- name: foo bar:` 属 `key: value` 值以冒号结尾 | F-3：`": "` 已出现的项是 `key: value`，不应折叠，交给既有 sanitizer 加引号 |
+| A-5 | LangChain 官方文档 `parse_json_markdown`（T2） | "Parse a JSON string from a Markdown string."；同项目 troubleshooting 页："our JSON parser stripped out the markdown fence and newlines and then ran `json.loads`" | F-4：社区标准做法是「先剥围栏再解析」，且**必须容忍非围栏输入**；我们补「无围栏时对齐到 `files:`」 |
+| A-6 | `flatten-dict`（T3，PyPI） | `flatten(d, reducer='tuple')` 递归到叶子并支持自定义 reducer | F-2：容器应递归取叶子，而不是 `str(dict)`——`str()` 会产出 `"{'provider': 'x'}"` |
+| A-7 | `json_repair` README（T1，已在 §3 S-2 记录） | `repair_json(..., return_objects=True)` 返回对象而非字符串 | F-2 同向：解析结果按结构消费，不按文本消费 |
+| A-8 | 本仓 `_write_stage_meta` / `_ensure_entrypoint`（T1，E3） | 前者在阶段末重写 `decision.json`；后者 `files["main.py"] = code` 后写 `exp_dir/main.py`——**磁盘才是 Stage 12 实际执行的东西** | N-1：门应判「要发的产物」，以磁盘为准 |
+
+**提炼的三条纪律**：
+1. **结构优于正则**（A-1/A-2）：能从 AST / token 流拿到的信息，不要用正则重构；
+2. **形态判定要问「解析器怎么读」**（A-3/A-4）：`key:` + 缩进 `k: v` 在 YAML 里是 mapping，不是散文；
+3. **以产物为准**（A-8）：内存映射是缓存，磁盘是事实。

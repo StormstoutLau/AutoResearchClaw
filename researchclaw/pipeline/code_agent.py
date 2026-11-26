@@ -61,6 +61,9 @@ def _blueprint_inputs_digest(topic: str, exp_plan: str, metric: str) -> str:
 # expected ':'".  Folding them into one quoted scalar keeps the text and
 # makes the document parseable.
 _TRAILING_COLON_ITEM = re.compile(r"^(?P<indent> *)-[ \t]+(?P<text>.*\S):[ \t]*$")
+# A continuation line shaped like ``key: value`` / ``key:`` means the list item
+# is a mapping, not prose (P-202 F-3).
+_MAPPING_CONTINUATION_RE = re.compile(r"^[^\s:#][^:]*:(?:\s|$)")
 
 _YAML_REPAIR_SUFFIX = (
     "\n\n---\n"
@@ -96,12 +99,20 @@ def _fold_trailing_colon_items(lines: list[str]) -> list[str]:
             out.append(line)
             i += 1
             continue
+        if ": " in text:
+            # ``- name: foo bar:`` is already a ``key: value`` pair whose value
+            # ends with a colon (P-202 F-3); folding would turn it into a
+            # string and lose the mapping.
+            out.append(line)
+            i += 1
+            continue
 
         # Collect continuation lines that belong to this item.  ``text``
         # excludes the trailing colon (the regex consumes it), so re-add it.
         j = i + 1
         folded: list[str] = [text + ":"]
         nested_sequence = False
+        nested_mapping = False
         while j < len(lines):
             nxt = lines[j]
             if not nxt.strip():
@@ -110,14 +121,20 @@ def _fold_trailing_colon_items(lines: list[str]) -> list[str]:
             nxt_indent = len(nxt) - len(nxt.lstrip(" "))
             if nxt_indent <= len(indent):
                 break
-            if nxt.lstrip().startswith("- "):
+            body = nxt.strip()
+            if body.startswith("- "):
                 # A nested list is a legitimate mapping value, not prose.
                 nested_sequence = True
                 break
-            folded.append(nxt.strip())
+            if _MAPPING_CONTINUATION_RE.match(body):
+                # ``- some key:`` followed by ``nested: value`` is a mapping
+                # (P-202 F-3); folding it would destroy the structure.
+                nested_mapping = True
+                break
+            folded.append(body)
             j += 1
 
-        if nested_sequence:
+        if nested_sequence or nested_mapping:
             out.append(line)
             i += 1
             continue
@@ -457,7 +474,16 @@ class CodeAgent:
 
         text = str(getattr(resp, "content", "") or "")
         match = re.search(r"```ya?ml\s*\n(.*?)(?:```|\Z)", text, re.DOTALL)
-        repaired = (match.group(1) if match else text).strip()
+        if match:
+            repaired = match.group(1).strip()
+        else:
+            # P-202 (F-4): without a fence the model often prefixes prose
+            # ("Sure, I fixed it."), which YAML reads as a root-level scalar
+            # and rejects.  Start at the first top-level ``files:`` key.
+            repaired = text.strip()
+            anchor = re.search(r"^files:[ \t]*$", repaired, re.MULTILINE)
+            if anchor:
+                repaired = repaired[anchor.start():].strip()
         if not repaired:
             return "", None
         blueprint = self._parse_blueprint(repaired)
