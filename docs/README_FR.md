@@ -596,7 +596,7 @@ research:
 runtime:
   timezone: "America/New_York"     # Pour les horodatages
   max_parallel_tasks: 3            # Limite d'experiences concurrentes
-  approval_timeout_hours: 12       # Timeout des etapes de validation
+  approval_timeout_hours: 12       # Réservé ; pas encore connecté
   retry_limit: 2                   # Nombre de tentatives en cas d'echec d'etape
 
 # === LLM ===

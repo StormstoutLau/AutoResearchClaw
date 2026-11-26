@@ -18,6 +18,10 @@ from researchclaw.experiment.validator import (
 )
 from researchclaw.llm.client import LLMClient
 from researchclaw.pipeline._domain import _detect_domain
+from researchclaw.pipeline.codegen_evidence import (
+    evaluate_stage10_evidence,
+    write_evidence_report,
+)
 from researchclaw.pipeline._helpers import (
     StageResult,
     _chat_with_prompt,
@@ -31,6 +35,13 @@ from researchclaw.pipeline._helpers import (
     _safe_json_loads,
     _utcnow_iso,
 )
+from researchclaw.pipeline.entrypoint_contract import (
+    ENTRYPOINT_MAX_TOKENS,
+    ENTRYPOINT_RETRY_MAX_TOKENS,
+    build_entrypoint_prompt,
+    entrypoint_issues as _entrypoint_issues,
+    synthesize_entrypoint,
+)
 from researchclaw.pipeline.stages import Stage, StageStatus
 from researchclaw.prompts import PromptManager
 from researchclaw.utils.paths import safe_join
@@ -38,42 +49,187 @@ from researchclaw.utils.paths import safe_join
 logger = logging.getLogger(__name__)
 
 
-def _entrypoint_issues(main_code: str) -> list[str]:
-    """Reasons why ``main.py`` cannot run as an experiment entrypoint (P-178).
-
-    Stage 12 expects a script that executes and prints ``METRIC_DEF``; a
-    config-only module returns rc=0 with no metrics and is misread as a crash.
-    """
-    code = str(main_code or "")
-    if not code.strip():
-        return ["main.py is empty or missing"]
+def _is_parseable(code: str) -> bool:
+    """B-29: reject syntax-broken repair output before it overwrites a file."""
     try:
-        tree = ast.parse(code)
-    except SyntaxError as exc:
-        return [f"main.py has a syntax error: {exc.msg} (line {exc.lineno})"]
+        ast.parse(str(code or ""))
+    except SyntaxError:
+        return False
+    return True
 
-    has_guard = False
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.If):
+
+def _extract_valid_repair_files(
+    content: str, known_files: set[str],
+) -> dict[str, str]:
+    """B-28: accept only complete, syntactically valid files from a repair reply.
+
+    A truncated repair response often ends mid-string. ``ast.parse`` rejects
+    that fragment, so the caller keeps the last known-good file instead of
+    overwriting it. Unknown filenames are ignored to avoid surprise files.
+    """
+    raw = _extract_multi_file_blocks(content)
+    allowed = set(known_files) | {"main.py"}
+    accepted: dict[str, str] = {}
+    for name, code in raw.items():
+        if name not in allowed:
+            logger.warning("Stage 10 repair: ignoring unknown file %s", name)
             continue
-        test = node.test
-        if (
-            isinstance(test, ast.Compare)
-            and isinstance(test.left, ast.Name)
-            and test.left.id == "__name__"
-            and len(test.comparators) == 1
-            and isinstance(test.comparators[0], ast.Constant)
-            and test.comparators[0].value == "__main__"
-        ):
-            has_guard = True
-            break
+        if not isinstance(code, str) or not code.strip():
+            continue
+        try:
+            ast.parse(code)
+        except SyntaxError as exc:
+            logger.warning(
+                "Stage 10 repair: ignoring syntax-invalid %s (%s)", name, exc,
+            )
+            continue
+        if name == "main.py":
+            issues = _entrypoint_issues(code)
+            if issues:
+                logger.warning(
+                    "Stage 10 repair: ignoring main.py that breaks the entrypoint "
+                    "contract (%s)", "; ".join(issues),
+                )
+                continue
+        accepted[name] = code
+    return accepted
 
-    issues: list[str] = []
-    if not has_guard:
-        issues.append('main.py missing `if __name__ == "__main__":` block')
-    if "METRIC_DEF" not in code:
-        issues.append("main.py never prints METRIC_DEF")
-    return issues
+
+def _merge_repair_files(
+    original: dict[str, str], repaired: dict[str, str],
+) -> dict[str, str]:
+    """B-28: merge repaired files; never drop files the model did not return."""
+    merged = dict(original)
+    merged.update(repaired)
+    return merged
+
+
+def _request_repair_response(
+    llm: LLMClient, system: str, user: str, *, max_tokens: int,
+):
+    """B-28: repair/fix calls retry once when the model output is truncated."""
+    resp = _chat_with_prompt(llm, system, user, max_tokens=max_tokens)
+    truncated = bool(getattr(resp, "truncated", False)) or (
+        getattr(resp, "finish_reason", "") == "length"
+    )
+    if truncated:
+        logger.warning("Stage 10 repair: response truncated — retrying with 32768")
+        resp = _chat_with_prompt(
+            llm, system, user, max_tokens=max(32768, int(max_tokens)),
+        )
+    return resp
+
+
+def _generate_entrypoint(
+    llm: LLMClient,
+    pm: PromptManager,
+    *,
+    topic: str,
+    metric: str,
+    files: dict[str, str],
+    exp_plan: str = "",
+    max_attempts: int = 2,
+) -> str:
+    """B-29: ask for one complete ``main.py`` that satisfies the contract.
+
+    Returns "" when every attempt fails.  The prompt lists the other modules so
+    the entrypoint imports them instead of re-implementing their logic.
+    """
+    system = pm.system("code_generation")
+    issues: list[str] | None = None
+    for attempt in range(1, max_attempts + 1):
+        budget = (
+            ENTRYPOINT_MAX_TOKENS if attempt == 1
+            else ENTRYPOINT_RETRY_MAX_TOKENS
+        )
+        user = build_entrypoint_prompt(
+            topic=topic,
+            metric=metric,
+            files=files,
+            exp_plan=exp_plan,
+            previous_issues=issues,
+        )
+        resp = _chat_with_prompt(llm, system, user, max_tokens=budget)
+        truncated = bool(getattr(resp, "truncated", False)) or (
+            getattr(resp, "finish_reason", "") == "length"
+        )
+        if truncated and budget < ENTRYPOINT_RETRY_MAX_TOKENS:
+            logger.warning(
+                "Stage 10: entrypoint attempt %d truncated — escalating to %d",
+                attempt, ENTRYPOINT_RETRY_MAX_TOKENS,
+            )
+            resp = _chat_with_prompt(
+                llm, system, user, max_tokens=ENTRYPOINT_RETRY_MAX_TOKENS,
+            )
+        code = _extract_code_block(resp.content)
+        issues = _entrypoint_issues(code)
+        if code.strip() and not issues:
+            logger.info(
+                "Stage 10: entrypoint generated on attempt %d (%d chars)",
+                attempt, len(code),
+            )
+            return code
+        logger.warning(
+            "Stage 10: entrypoint attempt %d rejected: %s",
+            attempt, "; ".join(issues) or "empty output",
+        )
+    return ""
+
+
+def _ensure_entrypoint(
+    files: dict[str, str],
+    *,
+    llm: LLMClient | None,
+    pm: PromptManager,
+    topic: str,
+    metric: str,
+    exp_dir: Path,
+    exp_plan: str = "",
+) -> dict[str, str]:
+    """B-29: regenerate ``main.py`` when it cannot run as the entrypoint.
+
+    A truncated-but-parseable ``main.py`` (no ``__main__`` guard, no
+    ``METRIC_DEF``) would otherwise only be caught by the exit gate, after the
+    whole stage has already spent hours.  Fixing it here keeps the failure
+    cheap and gives Stage 12 a runnable file.
+    """
+    if llm is None:
+        return files
+    issues = _entrypoint_issues(files.get("main.py", ""))
+    if not issues:
+        return files
+
+    logger.warning(
+        "Stage 10: entrypoint contract unmet (%s); generating main.py",
+        "; ".join(issues),
+    )
+    code = _generate_entrypoint(
+        llm, pm, topic=topic, metric=metric, files=files, exp_plan=exp_plan,
+    )
+    if not code:
+        # B-30: last resort — a thin driver over an existing entry function.
+        code = synthesize_entrypoint(files, metric) or ""
+        if code:
+            logger.warning(
+                "Stage 10: using auto-generated entrypoint driver over "
+                "existing modules"
+            )
+        else:
+            logger.error(
+                "Stage 10: dedicated entrypoint generation failed and no "
+                "module exposes an entry function (%s)",
+                "; ".join(_entrypoint_issues(files.get("main.py", ""))),
+            )
+            return files
+
+    files["main.py"] = code
+    try:
+        exp_dir.mkdir(parents=True, exist_ok=True)
+        (exp_dir / "main.py").write_text(code, encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Stage 10: could not write generated main.py: %s", exc)
+    return files
+
 
 # Improvement G: Continuous-action environments that are incompatible with DQN
 _CONTINUOUS_ENVS = {
@@ -1116,6 +1272,17 @@ def _execute_code_generation(
             )
         }
 
+    # --- B-29: guarantee a runnable entrypoint before validating files ---
+    files = _ensure_entrypoint(
+        files,
+        llm=llm,
+        pm=_pm,
+        topic=config.research.topic,
+        metric=metric,
+        exp_dir=stage_dir / "experiment",
+        exp_plan=exp_plan,
+    )
+
     # --- Validate each file + auto-repair loop ---
     all_valid = True
     attempt = 0
@@ -1125,6 +1292,9 @@ def _execute_code_generation(
             continue
         validation = validate_code(code)
         repair_attempt = 0
+        # B-30: give up early when the model keeps returning unparseable code
+        # instead of burning every repair slot on the same failure.
+        invalid_returns = 0
         while not validation.ok and llm is not None and repair_attempt < max_repair:
             repair_attempt += 1
             attempt += 1
@@ -1155,10 +1325,28 @@ def _execute_code_generation(
             )
             resp = _chat_with_prompt(llm, rp.system, rp.user)
             _repaired = _extract_code_block(resp.content)
-            if _repaired.strip():
+            if _repaired.strip() and _is_parseable(_repaired):
                 files[fname] = _repaired
+                invalid_returns = 0
+            elif _repaired.strip():
+                invalid_returns += 1
+                logger.warning(
+                    "Repair attempt returned invalid Python for %s, keeping original",
+                    fname,
+                )
             else:
+                invalid_returns += 1
                 logger.warning("Repair attempt returned empty code, keeping original")
+            if invalid_returns >= 2:
+                logger.error(
+                    "Repair aborted for %s after %d unusable response(s)",
+                    fname, invalid_returns,
+                )
+                validation_log.append(
+                    f"File {fname}: repair aborted after {invalid_returns} "
+                    "unusable responses"
+                )
+                break
             validation = validate_code(files[fname])
         if not validation.ok:
             all_valid = False
@@ -1350,17 +1538,21 @@ def _execute_code_generation(
             f"Current code:\n{all_code_ctx}\n"
         )
         try:
-            repair_resp = _chat_with_prompt(
+            repair_resp = _request_repair_response(
                 llm,
                 _pm.system("code_generation"),
                 repair_prompt,
                 max_tokens=_code_max_tokens,
             )
-            repaired = _extract_multi_file_blocks(repair_resp.content)
-            if repaired and "main.py" in repaired:
-                files = repaired
+            repaired = _extract_valid_repair_files(repair_resp.content, set(files))
+            if repaired:
+                files = _merge_repair_files(files, repaired)
                 for fname, code in files.items():
                     safe_join(exp_dir, fname).write_text(code, encoding="utf-8")
+                logger.info(
+                    "Stage 10 repair: merged %d file(s), preserved %d",
+                    len(repaired), len(files) - len(repaired),
+                )
                 # Re-check after repair
                 deep_warnings_after = deep_validate_files(files)
                 fixed = len(critical_deep) - len([
@@ -1486,17 +1678,23 @@ def _execute_code_generation(
                         )
                     )
                     try:
-                        fix_resp = _chat_with_prompt(
+                        fix_resp = _request_repair_response(
                             llm,
                             _pm.system("code_generation"),
                             fix_prompt,
                             max_tokens=_code_max_tokens,
                         )
-                        fixed_files = _extract_multi_file_blocks(fix_resp.content)
-                        if fixed_files and "main.py" in fixed_files:
-                            files = fixed_files
+                        fixed_files = _extract_valid_repair_files(
+                            fix_resp.content, set(files),
+                        )
+                        if fixed_files:
+                            files = _merge_repair_files(files, fixed_files)
                             for fname, code in files.items():
                                 safe_join(exp_dir, fname).write_text(code, encoding="utf-8")
+                            logger.info(
+                                "Stage 10 fix: merged %d file(s), preserved %d",
+                                len(fixed_files), len(files) - len(fixed_files),
+                            )
                             logger.info(
                                 "Stage 10: Code fixed after review "
                                 "(was %d/10, %d critical issues)",
@@ -1835,6 +2033,17 @@ Multi-file experiment project with {len(files)} file(s): {file_list}
             error=f"Topic-experiment misalignment: {alignment_note}",
         )
 
+    # B-29: repair loops can still degrade main.py; regenerate before the gate.
+    files = _ensure_entrypoint(
+        files,
+        llm=llm,
+        pm=_pm,
+        topic=config.research.topic,
+        metric=metric,
+        exp_dir=exp_dir,
+        exp_plan=exp_plan,
+    )
+
     # P-178: refuse to ship a non-runnable entrypoint (config-only main.py etc.)
     _main_code = files.get("main.py", "") if isinstance(files, dict) else ""
     if not _main_code:
@@ -1858,10 +2067,32 @@ Multi-file experiment project with {len(files)} file(s): {file_list}
             + "; ".join(_entry_issues[:5]),
         )
 
+    # B-32 M2: a runnable entrypoint is not enough — the delivery must also
+    # match what the blueprint promised.  Failures are recorded, never repaired.
+    _evidence = evaluate_stage10_evidence(
+        stage_dir=stage_dir, files=files, metric=metric,
+    )
+    write_evidence_report(stage_dir, _evidence)
+    if _evidence.failures:
+        logger.error(
+            "Stage 10: evidence gate failed: %s",
+            "; ".join(f"{f.code}: {f.detail}" for f in _evidence.failures),
+        )
+        return StageResult(
+            stage=Stage.CODE_GENERATION,
+            status=StageStatus.FAILED,
+            artifacts=tuple(artifacts) + ("codegen_evidence.json",),
+            evidence_refs=tuple(f"stage-10/{a}" for a in artifacts),
+            error="codegen evidence gate failed: "
+            + "; ".join(f.code for f in _evidence.failures),
+        )
+    for _warning in _evidence.warnings:
+        logger.warning("Stage 10 evidence warning: %s", _warning)
+
     return StageResult(
         stage=Stage.CODE_GENERATION,
         status=StageStatus.DONE,
-        artifacts=tuple(artifacts),
+        artifacts=tuple(artifacts) + ("codegen_evidence.json",),
         evidence_refs=tuple(f"stage-10/{a}" for a in artifacts),
     )
 

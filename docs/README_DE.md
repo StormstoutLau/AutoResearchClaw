@@ -596,7 +596,7 @@ research:
 runtime:
   timezone: "America/New_York"     # Fuer Zeitstempel
   max_parallel_tasks: 3            # Limit gleichzeitiger Experimente
-  approval_timeout_hours: 12       # Gate-Stufen-Timeout
+  approval_timeout_hours: 12       # Reserviert; noch nicht angebunden
   retry_limit: 2                   # Wiederholungsanzahl bei Stufenfehler
 
 # === LLM ===

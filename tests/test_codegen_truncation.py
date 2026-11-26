@@ -11,7 +11,13 @@ from researchclaw.pipeline._helpers import (
     _extract_multi_file_blocks,
 )
 from researchclaw.pipeline.code_agent import CodeAgent
-from researchclaw.pipeline.stage_impls._code_generation import _entrypoint_issues
+from researchclaw.pipeline.stage_impls import _code_generation
+from researchclaw.pipeline.stage_impls._code_generation import (
+    _entrypoint_issues,
+    _extract_valid_repair_files,
+    _merge_repair_files,
+    _request_repair_response,
+)
 
 CONFIG_ONLY_MAIN = '''"""Configuration for the experiment."""
 
@@ -188,3 +194,65 @@ class TestReviewGuard:
         agent._exec_fix_loop = lambda files: files  # type: ignore[assignment]
         agent.generate(topic="t", exp_plan="p", metric="m", pkg_hint="")
         assert seen[-1] == "new"
+
+
+class TestRepairMerge:
+    """B-28: repair/review-fix must not drop untouched files or truncated code."""
+
+    def test_partial_repair_preserves_untouched_files(self) -> None:
+        original = {
+            "main.py": "print('old')\n",
+            "data.py": "X = 1\n",
+            "config.py": "Y = 2\n",
+        }
+        merged = _merge_repair_files(original, {"main.py": "print('new')\n"})
+        assert merged["main.py"] == "print('new')\n"
+        assert merged["data.py"] == "X = 1\n"
+        assert merged["config.py"] == "Y = 2\n"
+        assert original["main.py"] == "print('old')\n"
+
+    def test_truncated_or_invalid_files_are_rejected(self) -> None:
+        content = (
+            "```filename:main.py\n"
+            "def run():\n"
+            "    print('METRIC_DEF: acc | direction=higher | desc=ok')\n"
+            "    print('acc: 1.0')\n"
+            "\n"
+            "if __name__ == '__main__':\n"
+            "    run()\n"
+            "```\n"
+            "```filename:data.py\n"
+            "def broken(:\n"
+            "```\n"
+            "```filename:unknown.py\n"
+            "Z = 3\n"
+            "```\n"
+        )
+        accepted = _extract_valid_repair_files(
+            content, {"main.py", "data.py"},
+        )
+        assert set(accepted) == {"main.py"}
+
+    def test_unterminated_fragment_is_rejected(self) -> None:
+        accepted = _extract_valid_repair_files(
+            "```filename:main.py\nx = \"cor", {"main.py"},
+        )
+        assert accepted == {}
+
+    def test_truncated_repair_retries_with_32768(self, monkeypatch) -> None:
+        calls: list[int] = []
+
+        def fake_chat(llm, system, user, **kwargs):  # noqa: ANN001, ANN002, ANN003
+            calls.append(int(kwargs["max_tokens"]))
+            if len(calls) == 1:
+                return _resp(
+                    "```filename:main.py\nprint(1)\n", truncated=True,
+                )
+            return _resp("```filename:main.py\nprint(1)\n```\n")
+
+        monkeypatch.setattr(_code_generation, "_chat_with_prompt", fake_chat)
+        resp = _request_repair_response(
+            object(), "", "", max_tokens=8192,
+        )
+        assert calls == [8192, 32768]
+        assert not resp.truncated

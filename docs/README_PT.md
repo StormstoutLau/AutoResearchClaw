@@ -596,7 +596,7 @@ research:
 runtime:
   timezone: "America/New_York"     # Para timestamps
   max_parallel_tasks: 3            # Limite de experimentos concorrentes
-  approval_timeout_hours: 12       # Timeout de estágios gate
+  approval_timeout_hours: 12       # Reservado; ainda não conectado
   retry_limit: 2                   # Contagem de retentativas em falha de estágio
 
 # === LLM ===

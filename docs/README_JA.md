@@ -596,7 +596,7 @@ research:
 runtime:
   timezone: "America/New_York"     # タイムスタンプ用
   max_parallel_tasks: 3            # 同時実験数の上限
-  approval_timeout_hours: 12       # ゲートステージのタイムアウト
+  approval_timeout_hours: 12       # 予約済み；未接続
   retry_limit: 2                   # ステージ失敗時のリトライ回数
 
 # === LLM ===

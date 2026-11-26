@@ -8,7 +8,7 @@ depends: [academic-reasoning-base-fusion, arb-v2-decisions, arc-knowledge-paper-
 upstream: arb-v2-decisions
 ---
 
-# ARC 统一学术推理基座：调研总纲与实施路线（v1.4x）
+# ARC 统一学术推理基座：调研总纲与实施路线（v1.4y）
 
 > **用途**：把当前**已调研、未执行**的四份报告合并成一条可执行路线；每阶段给出目标、交付物、**可失败（能变红）的验收目标**、前置依赖与外部锚点。
 >
@@ -137,19 +137,23 @@ upstream: arb-v2-decisions
 >
 > **修订**：v1.4w（2026-11-25，P-159）**总纲回填：G6 收口**：P-158 交付 G6（`model_policy.yaml` + `llm/model_policy.py` + `ModelPolicyConfig` + `LLMClient` 前置预算/本地检查 + `CostRecord.policy_version` + `budget_exhausted`），Q12 裁决 = 接受 P2 + 默认单层，A6-1..A6-5 全过，CHECKLIST **34/34**，17 passed、回归 431 passed。**G6 记为 5/5**；进度 **91 / 106，开放 15**（仅 G7）。默认 `model_policy.enabled=false`，默认单层，模型链与旧版一致；学习式 router 与跨 provider 比价未做。**106 计数不变**。依据：[P-158 实施](spec/arc-model-policy/IMPLEMENTATION.md)、[本回填](spec/arc-roadmap-g6/RESEARCH.md)。
 
+> **修订**：v1.4y（2026-11-26，P-179）**总纲进度回填 + 已调研未实现登记**：G7 由 8/15 更新为 **13/15**（P-172 交付 A7-2/3/6/7，P-173 交付 A7-4；A7-5 机制演练通过、独立盲测 U-172-1 待做），进度 **104 / 106，开放 2**（仅 G7 的 A7-1、A7-5）；新增 §3.2 backlog（B-1..B-12），登记上下文治理 U-1/U-2、统一 LLM 入口、plan rebuild 边界、exp_plan schema、Stage 10 输出上限/重试拆分/失败分类、A7-1/A7-5、Stage 10-12 现场验收与 O-165-3/O-165-6。明确 P-175/P-177/P-178 为现场阻塞修复、**不计入 106 项**。**106 计数不变**。依据：[stage9 调研](spec/arc-stage9-fanout/RESEARCH.md)、[stage10 调研](spec/arc-stage10-codegen-truncation/RESEARCH.md)、[上下文治理调研](docs/research/context-governance-u1u2-20261125.md)。
+
 ---
 
 ## 0. 报告盘点
 
+> **读法（2026-11-26 修订）**：本表是**来源盘点**，不是待办队列。R-02..R-05 的主内容已并入下方 106 条验收；当前状态看 §3.1，未来工作看 §3.2。报告本身不再单独"执行"。
+
 | 编号 | 报告 | 状态 | 在总纲中的去向 |
 |---|---|---|---|
 | **R-01** | `code_wiki/11-gap-remediation-research.md`、`12-remediation-acceptance-checklist.md`、`13-remediation-engineering-spec.md`、`14-decision-record.md` | **已执行**（PR-1..PR-6，2026-10-29，CI 通过） | **基线**，G1 起跑线；不重复排期 |
-| **R-02** | [academic-reasoning-base-fusion.md](academic-reasoning-base-fusion.md) | 未执行；§8 M0–M5、§11 已被 R-03 部分取代 | 背景与三仓证据 → **G2 输入** |
-| **R-03** | [arb-v2-decisions-research-design.md](arb-v2-decisions-research-design.md) | 未执行（D1–D5 为裁定，M0–M5 未落地） | **G0a/G0b / G2 / G3 / G6** 主来源 |
-| **R-04** | [arc-knowledge-paper-textbook-integration.md](arc-knowledge-paper-textbook-integration.md) | 未执行（K0–K5 为设计） | **G5** 主来源，K5 并入 **G3** |
-| **R-05** | [clawsgo-cleanroom-arc-reinforcement.md](clawsgo-cleanroom-arc-reinforcement.md) | 未执行（R0–R4、S0–S7 为设计） | **G-1 / G1 / G4 / G6 / G7** 主来源 |
+| **R-02** | [academic-reasoning-base-fusion.md](academic-reasoning-base-fusion.md) | 设计稿；§8 M0–M5、§11 已被 R-03 部分取代。**A/B/C、E1–E5、T1–T4 词表已并入 G2（7/7 已交付）**；无独立残余 | 背景与三仓证据 → **G2 输入（已吸收）** |
+| **R-03** | [arb-v2-decisions-research-design.md](arb-v2-decisions-research-design.md) | 设计稿；D1–D5 为裁定。**主内容已并入 G0a/G0b/G2/G3/G6（均已交付）**，M0–M5 由 G2 交付 | **G0a/G0b / G2 / G3 / G6 主来源（已吸收）** |
+| **R-04** | [arc-knowledge-paper-textbook-integration.md](arc-knowledge-paper-textbook-integration.md) | 设计稿；K0–K5 为设计。**K0–K4 并入 G5（14/14 已交付），K5 并入 G3（17/17 已交付）**；残余以 §3.2 为准 | **G5 主来源，K5 → G3（已吸收）** |
+| **R-05** | [clawsgo-cleanroom-arc-reinforcement.md](clawsgo-cleanroom-arc-reinforcement.md) | 设计稿；R0–R4 已并入 G-1/G1/G3/G4/G5/G6（**R1/R2/R4 有接线级残余**）；**R5–R9 登记为 §3.2 B-13..B-17** | **G-1 / G1 / G4 / G6 / G7 主来源；残余 → §3.2** |
 
-**结论**：真正待执行的是 R-02（残余）→ R-03 → R-04 → R-05；经 2026-11-06 重评估（见 §0.3），合并为 **12 个阶段**，共 **106 条验收目标**。
+**结论（2026-11-26 修订）**：R-02..R-05 已作为**设计来源**并入 106 项，不再作为独立待办队列；当前进度 **104/106**，开放 2 项均在 G7（A7-1 72h、A7-5 独立盲测）。**未来工作统一从 §3.2（B-1..B-33）取**，按 [优先级与依赖分析](docs/arc-backlog-priority-dependency-20261126.md) 的 W0–W3 执行；不存在"G9"。
 
 ### 0.1 优先级定义
 
@@ -245,7 +249,7 @@ flowchart LR
 
 ---
 
-### 3.1 当前进度（2026-11-25，v1.4x）
+### 3.1 当前进度（2026-11-26，v1.4y）
 
 | 阶段 | 优先级 | 验收 | 已完成 | 状态 |
 |---|---|---|---|---|
@@ -258,13 +262,89 @@ flowchart LR
 | G4 | P1 | 10 | 10 | 已完成（P-106；1 项 Linux CI 待确认） |
 | G5 | P1 | 14 | 14 | 已完成（P-155） |
 | G6 | P2 | 5 | 5 | 已完成（P-158） |
-| G7 | P2 | 15 | 8 | 进行中（P-160/162/167 三段交付；A7-1/A7-4 工具链就绪待 field run；A7-2/3/5/6/7 未实施） |
+| G7 | P2 | 15 | 13 | 进行中（P-160/162/167 八项 + P-172/173 交付 A7-2/3/4/6/7；A7-5 机制演练通过、独立盲测待做；A7-1 72h 待现场） |
 | G8a | P1 | 4 | 4 | 已完成（P-152） |
 | G8b | P2 | 4 | 4 | 已完成（P-156） |
-| **合计** | | **106** | **99** | **开放 7** |
+| **合计** | | **106** | **104** | **开放 2** |
 
-- 口径：只统计 G0a..G8b 的 106 项；P-107..P-151 的 CI/CD 治理、heavy 退场、动作账本、pipeline 复用与等价性不计入；P-152 计入 G8a，P-155 计入 G5，P-156 计入 G8b，P-158 计入 G6；P-160（soak 工具链）/P-162（编排评测 dry-run）/P-167（漂移护栏）计入 G7 的 FA-1..3 + OB-1..5 共 8 项。
-- P0 阶段（G0a/G-1/G0b/G1/G2/G3）与 G4、G5、G6、G8a、G8b 已收口；剩余 7 项仅在 G7（P2）：A7-2/3/5/6/7 未实施 + A7-1/A7-4 工具链就绪待 field run。
+- 口径：只统计 G0a..G8b 的 106 项；P-107..P-151 的 CI/CD 治理、heavy 退场、动作账本、pipeline 复用与等价性不计入；P-152 计入 G8a，P-155 计入 G5，P-156 计入 G8b，P-158 计入 G6；P-160（soak 工具链）/P-162（编排评测 dry-run）/P-167（漂移护栏）计入 G7 的 FA-1..3 + OB-1..5 共 8 项；P-172（并发/双平面/准入/ops）计入 A7-2/3/6/7，P-173（registry 双副本 + A7-4 轮转回放）计入 A7-4。
+- P0 阶段（G0a/G-1/G0b/G1/G2/G3）与 G4、G5、G6、G8a、G8b 已收口；剩余 2 项均在 G7（P2）：A7-1（72h field run，B 站基线已过 Stage 9）、A7-5（Runbook 机制演练已过，独立新人盲测未做，U-172-1）。
+- **非 G7 的现场阻塞修复**：P-175（HITL 上下文压缩）、P-177（Stage 9 fanout/抽取/幂等）、P-178（Stage 10 截断容错与出口门）不计入 106 项，但为 A7-1 现场 run 的前置；Stage 10-12 复跑结果待验收（见 §3.2 B-11）。
+
+### 3.2 已调研未实现事项（backlog，2026-11-26）
+
+> 只登记「已有调研/设计结论、但尚未落地」的条目；承接时另开 P 批次并回填状态。G7 复审观察项仍以 [docs/observations-registry.md](docs/observations-registry.md) 为单一真值。
+>
+> **优先级与依赖分析（2026-11-26）**：全量清点与波次见 [arc-backlog-priority-dependency-20261126.md](docs/arc-backlog-priority-dependency-20261126.md)。R5–R9 登记为 **B-13..B-17**，P-014/P-015/P-140/P-171 的残余登记为 **B-18..B-27**（已回填行；触发与依赖设计见该文档，状态以本表为准）。
+
+| ID | 事项 | 证据 | 状态 | 触发条件 / 下一步 |
+|---|---|---|---|---|
+| B-1 | token 级上下文预算（U-1）：字符预算改为「provider 计数 → 本地 tokenizer → 校准估算」降级链 | [context-governance-u1u2-20261125.md](docs/research/context-governance-u1u2-20261125.md) §2.1 | open | 出现 ≥1 次输入超窗 4xx，或需要精确成本预估 |
+| B-2 | 管线 23 stage 的 prompt 压缩（U-2）：`_build_context_preamble` 仍按字段硬截断 | 同上 §2.2 | open | 出现截断导致的质量事故 |
+| B-3 | 统一 LLM 入口：全仓约 30 处 `llm.chat()` 直连；HITL workshops（paper/baseline）不受 ContextManager 约束。P-175 的 P3-2「web dialog 绕过压缩」已证伪（该路径无 LLM 调用） | 同上 §1 F-9/F-10/F-11 | open | 需要跨入口一致预算时 |
+| B-4 | `plan rebuild` 与人工编辑边界（U-177-3）：重建会丢弃非派生的人工节点 | [arc-stage9-fanout/RESEARCH.md §7](spec/arc-stage9-fanout/RESEARCH.md) | open | 首次出现人工改图后需重建 |
+| B-5 | `exp_plan` 最小 schema（U-177-4）：当前为「缺键→一次重生成 + 回退」，未在生成侧强制非空 | 同上 | open | 出现第二次契约漂移 |
+| B-6 | 服务端实际输出上限（U-178-1）：B 站模型 `max_output_tokens` 未取证；P-178 仅按 `finish_reason` 重试 | [arc-stage10-codegen-truncation/RESEARCH.md §6](spec/arc-stage10-codegen-truncation/RESEARCH.md) | open | 下次连 B 站时查询 `/v1/models` 或服务文档 |
+| B-7 | 重试 vs 拆分（U-178-2）：未做「逐文件 vs single-shot」的 token 峰值 A/B；P-178 只恢复逐文件路径 | 同上 | open | 需要优化 Stage 10 时长/成本时 |
+| B-8 | **Stage 10 出口门失败仍会被 supervisor 重试**：`generated entrypoint is not runnable` 不在 `CONFIG_HINTS`，会归为 75 而非 65 | [exit_codes.py](researchclaw/runtime/exit_codes.py)、[P-178 实施](spec/arc-stage10-codegen-truncation/IMPLEMENTATION.md) | open | 下一次 Stage 10 失败时观察是否 5 连重启 |
+| B-9 | A7-1：72h field run（wall≥259200、restarts≥3、verify 收敛） | §4 G7 / [field decision](docs/arc-g7-field-run-decision-20261125.md) | open | B 站基线跑通 Stage 10-12 后启动 soak |
+| B-10 | A7-5 独立新人盲测（U-172-1）与裸 `run` 准入（U-172-2） | [arc-g7-concurrency-dual-plane/CHECKLIST.md](spec/arc-g7-concurrency-dual-plane/CHECKLIST.md) | open | 有第二位操作者时 |
+| B-11 | Stage 10-12 现场复跑验收：P-178 已部署，blueprint 8192→32768 重试成功，Stage 10 仍在生成/校验中 | 站上 `cost_log.jsonl`、`/tmp/p178_stage12.log` | in-progress | 运行结束后拉取 `code_agent_log.json`、`experiment/`、`stage-12/runs/run-1.json` |
+| B-12 | O-165-3（wall/depth 未固化回归）与 O-165-6（`validate_target` 边界） | [docs/observations-registry.md](docs/observations-registry.md) | open | 下次 G7 观测批 |
+| B-13 | **Kernel 执行面（R5）**：Stage 12 单 Python kernel 试点；对象句柄、generation/seed/inputs_digest；kernel 状态不入 checkpoint | `clawsgo-cleanroom-arc-reinforcement.md`（本地草稿）§12.1；[分析](docs/arc-backlog-priority-dependency-20261126.md) §2 | open | W3/P2：A7-1 完成后；前置 R1-R（I-3/parts）与 R2-R（profile 绑定） |
+| B-14 | **Skill 契约（R6）**：信任分层（bundled/user）、`ATTRIBUTION` 归属账本、按需加载验证；`formal` 契约方向先裁决 | 同上 §12.1；[skills/schema.py](researchclaw/skills/schema.py) | open | W1/P1：先裁决 `formal`（激活校验 or 删常量）；P-171 可先行落目录 |
+| B-15 | **只读 transcript reviewer（R7）**：读事件流+claims+plan，输出 unsupported/fabrication/deviation；只读、默认关 | 同上 §12.1 | open | W1/P1：R0 已交付；`review.transcript.enabled=false`；单 run 成本上限显式 |
+| B-16 | **`.arcrun` 外层研究包（R8）**：manifest+分支/文件版本+哈希+验证记录+只读打开/fork；引用三套既有 manifest，不复制字段 | 同上 §12.1 | open | W3/P2：A7-1 完成后；前置 R1-R 稳定 |
+| B-17 | **unattended 审批 + fail-closed 可见（R9）**：默认拒绝、TTL、沙箱不可用显式失败；复用 85/PAUSED | 同上 §12.1 | open | W2–W3/P2：默认关；B-8 先修；A7-1 后开启 |
+| B-18 | **P-014 R-1 回退留痕最小修复**：checkpoint 回滚、`to_stage` 透传、`revision_log.json`、触发→目标映射 | [P-014 IMPLEMENTATION](spec/arc-belief-revision-propagation/IMPLEMENTATION.md) §4 | open | P2：首次真实 PIVOT / Stage 20 拒绝；复用 G8b replan 版本语义 |
+| B-19 | **P-014 R-2 标准回退**：评审响应表、Stage 20 拒绝回退、影响集声明 | 同上 §4 | open | P3：B-18 落地且有真实案例；不引入引擎 |
+| B-20 | **P-015 R-3a 依赖闭包**：`dependencies.yaml` + `artifact_manifest.json` + `impact_plan.json`（保守过近似+人工确认） | [P-015 IMPLEMENTATION](spec/arc-r3-engine-impact/IMPLEMENTATION.md) §4 | open | P3：B-4 不足以覆盖真实重跑影响时；不引入引擎 |
+| B-21 | **P-015 R-3b 补偿注册表**：`compensation_registry` + pivot 标记；仅本地，外部副作用人工补偿 | 同上 §4 | open | P3：出现外部副作用补偿需求；R-3c 不占号 |
+| B-22 | **P-171 S1 形式化技能骨架**：`lean4-formal-verification/SKILL.md`；状态映射/预算/停止/失败分类；不装 Lean | [auto-prover 决策](docs/auto-prover-phased-integration-decision-20261125.md) §4 | open | P2：B-14 契约方向确定后；无运行时依赖 |
+| B-23 | **P-171 S2 Lean LSP 桥（仅契约）**：`lean-lsp-mcp` 可选接入契约，不打包、不默认注册 | 同上 §4 | open | P3：Lean 环境 + Q10 MCP 版本裁决 |
+| B-24 | **P-171 S3 自动证明回路**：预算/停止/失败分类；与 Stage 20/23 双平面联动；复用 `StageStatus` | 同上 §4 | open | P3：B-22+B-23 完成；超预算必须显式停止 |
+| B-25 | **P-140 P1-5 科学连接器**：UniProt/PDB/ChEMBL/PubMed/arXiv；逐个补 schema/scope/risk/approval | [P-140 RESEARCH](spec/arc-science-workbench-reuse/RESEARCH.md) §4 | open | P2：按需逐个接；只扩展 `tools/registry.yaml` |
+| B-26 | **P-140 P1-6 产物时间线**：dashboard 只读时间线，按 artifact 版本回链代码/数据/引用/审批 | 同上 §4 | open | P3：G3 artifact node 已交付；与 B-16 共享数据，不复制哈希 |
+| B-27 | **P-140 P2-8 算力编排**：本机/集群/GPU 适配、预算与排队 | 同上 §4 | open | P3：出现多主机/GPU 排队需求；与 R5 解耦 |
+| B-28 | **Stage 10 repair/review-fix 截断与部分覆盖**（P-190 已修）：合并而非替换、截断重试 32768、AST 过滤 | [spec/arc-stage10-repair-merge/](../spec/arc-stage10-repair-merge/) | in-progress | W0：本地 59 passed；B 站复跑显示该缺陷已消失，待 B-11 终验 |
+| B-29 | **Stage 10 入口契约与专用 main.py 生成**（P-191）：禁止把首个文件提升为 main.py；缺失/不合契约时专用生成（32768、2 次、截断重试）；repair 拒绝不合契约的 main.py | [spec/arc-stage10-entrypoint-contract/](../spec/arc-stage10-entrypoint-contract/) | in-progress | W0：本地 73 passed；B 站 Stage 10-12 复跑待验收 |
+| B-30 | **Stage 10 入口生成预算与兜底**（P-192）：截断预算 32768→65536；提示 ≤150 行且禁止重写；模型失败时按 `main/run/train` 生成薄驱动（取不到值打印 `nan`）；repair 连续 2 次不可用即止损 | [spec/arc-stage10-entrypoint-budget/](../spec/arc-stage10-entrypoint-budget/) | in-progress | W0：本地 35/80/3 passed；B 站 Stage 10-12 复跑待验收 |
+| B-31 | **长跑进度回传与停滞检测**：心跳 details + `STALLED` + 日志级别/缓冲（M1/P0）；phase 事件 + 合成视图（M2/P1）；phase 可恢复点 + stall 告警（M3/P2）。复审 D-1..D-4/O-1..O-4 已核实并修正，新增 N-1..N-3；拆 **B-31a（日志可见性）/ B-31b（心跳+STALLED）** | [调研](../docs/arc-longrun-progress-observability-20261126.md) §9 + [复审](../docs/arc-longrun-progress-review-20261126.md) §6 + [B-31a spec](../spec/arc-runtime-log-visibility/) | in-progress | W0/P0：**B-31a 由 P-195 落地**（`run --log-level/--log-file`、`basicConfig(force=True)`、行缓冲、阶段横幅入日志；本地 13 + 88 passed）；B-31b（心跳 + `STALLED`）待起；§6 M1 不动阶段实现；supervisor 默认 `max_wall_seconds=1800` 小于单阶段时长，M3 须先改上限 |
+| B-32 | **Stage 10 蓝图 YAML 失效与单发回退退化**（本调研）：预处理漏判「行尾冒号」→ 蓝图解析失败 → 顺序生成被跳过 → 单发只产出配置类 + 配置校验入口；无蓝图↔产物/指标/数据源结构门。**M1 由 P-194、M2 由 P-197 落地**：M1 折叠行尾冒号列表项 / 一次窄提示 YAML 重试 / 回退写 `codegen_decision.json`；M2 四项门（文件集合、指标一致、数据源 WARN、非 Config 计算）在 Stage 10 出口判失败并写 `codegen_evidence.json` | [调研](../docs/arc-stage10-blueprint-fallback-20261126.md) + [spec](../spec/arc-stage10-blueprint-yaml-robust/) | in-progress | **W0/P0**：B-11 的前置——不修则 A7-1 soak 跑的是退化产物；M1+M2 已落地（本地 17/12/121/302 passed），B 站重跑待验 |
+| B-33 | **Stage 10 内部断点（intra-stage checkpoint）**：L0 修 `--resume` 语义（`in_progress_stage`，含事件重建回填）；L1 步骤账本 `stage-10/steps.jsonl`（复合键 `(step_id, variant)` + 摘要）；L2 内容寻址复用；L3 LLM 响应缓存（默认关）。**M1 含 N-1**：蓝图 Phase 1 后立即落盘。**范围裁决**：`steps.jsonl` 先在 Stage 10 试点，不推广 Stage 12/14 | [调研](../docs/arc-stage10-intra-stage-checkpoint-20261126.md) §10 + [复审](../docs/arc-stage10-checkpoint-review-20261126.md) §6 + [spec](../spec/arc-stage10-intra-stage-checkpoint/) | in-progress | **W0/P0**：M1（L0 + N-1 + L1）由 P-193 落地并经复审修复（D-1..D-5 全闭合），本地 55/63/72 passed；L2/L3 留 M2/M3；B 站部署待验证 |
+
+> **Stage 10 现场全史**：[B 站 Stage 10 排查、修复与故障分析](docs/arc-b-site-stage10-postmortem-20261126.md)——5 次运行 / 4 次失败（25 min、3 h 37 m、4 h 3 m、2 h 36 m 被杀、当前进行中），F-1..F-9 故障分层、P-178/P-190/P-191/P-192 修复回溯与 B-31/B-32/B-33 立项依据。
+>
+> 已关闭（不重复登记）：U-177-1（现场图形态取证）、U-177-5（幂等键口径，P-177 实现为 `(type, 归一化 statement)` 复用 + 外部依赖保护）、U-178-2 的「围栏解析」「截断感知」「评审守卫」「出口门」四项（P-178 已实现）。
+
+### 3.3 波次与优先级依据（W0–W3）
+
+> **依据文档**：[arc-backlog-priority-dependency-20261126.md](docs/arc-backlog-priority-dependency-20261126.md) §3（依赖 DAG）、§4（X-1..X-12 冲突裁决）、§5（非补偿五步）、§6（波次）。本节是**派生视图**：波次解释为什么这样排；状态与触发仍以 §3.2 为准。W0–W3 不是新 G 阶段，不占 106 计数。
+
+| 波次 | 触发 | 项目 | 依据（分析文档） | 为什么不能提前 / 延后 |
+|---|---|---|---|---|
+| **W0** | 现在 | B-8；B-11 验收；**B-32（B-11 前置）**；B-28..B-31、B-33（Stage 10 链路 + 长跑观测 + 内部断点）；B-13..B-27 登记 | §5 第 1 步硬约束 + 最终优先级 P0；§6 W0 | B-8 不修，Stage 10 入口门失败会 5 连重启，污染 B-9 读数；B-32 不修，Stage 10 会退化为「配置校验」产物，B-11/B-9 拿到的都不是实验；B-11 是 B-9 的唯一前置；B-28..B-30 决定 Stage 10 能否产出可运行入口；B-31 解决「误判为死」、B-33 解决「每次都从头重跑」，二者不阻塞 Stage 10、可并行 |
+| **W1** | W0 完成、A7-1 未启动 | B-1+B-2；B-14（R6）；B-15（R7）；B-10 | §5 P1 + §6 W1；X-1（B-3 后置） | 低风险、可逆；A7-1 启动后窗口变窄，但仍可与 soak 并行（不触碰 Stage 10–12） |
+| **W2** | B-11 通过 + B-8 修复 | B-9 启动；B-17（R9）默认关；B-6/B-7；B-4/B-18（若触发）；B-22 | §5 P1/P2 + §6 W2；X-3/X-5 | A7-1 是战略验证；R9 默认拒绝会误暂停；B-6/B-7 依赖现场读数 |
+| **W3** | A7-1 完成 | B-16（R8）；B-13（R5）；B-25；B-26/B-27（触发） | §5 P2/P3 + §6 W3；X-4 | B-16/B-13 会改 run 格式与 Stage 12 执行路径，必须在 A7-1 之后 |
+
+**原始依据链（波次 → 分析 → 原始报告）**
+
+| B 组 | 原始报告 / 报告锚点 | 分析文档锚点 |
+|---|---|---|
+| B-1..B-12 | [上下文治理](docs/research/context-governance-u1u2-20261125.md)、[Stage 9 调研](spec/arc-stage9-fanout/RESEARCH.md) §7、[Stage 10 调研](spec/arc-stage10-codegen-truncation/RESEARCH.md) §6、[observations](docs/observations-registry.md)、[field decision](docs/arc-g7-field-run-decision-20261125.md) | 分析 §1（清点）、§4（X-1..X-12）、§5（优先级） |
+| B-13..B-17 | `clawsgo-cleanroom-arc-reinforcement.md`（本地草稿）§12；R5–R9 | 分析 §2（登记）、§3（DAG）、§6（W2–W3） |
+| B-18..B-19 | [P-014 IMPLEMENTATION](spec/arc-belief-revision-propagation/IMPLEMENTATION.md) §4（R-1/R-2 未执行） | 分析 §2、§5（P2/P3） |
+| B-20..B-21 | [P-015 IMPLEMENTATION](spec/arc-r3-engine-impact/IMPLEMENTATION.md) §4（R-3a/b 未实现） | 分析 §2、§5（P3，触发式） |
+| B-22..B-24 | [auto-prover 决策](docs/auto-prover-phased-integration-decision-20261125.md) §4（S1–S3） | 分析 §2、§5（P2/P3） |
+| B-25..B-27 | [P-140 RESEARCH](spec/arc-science-workbench-reuse/RESEARCH.md) §4（P1-5/6、P2-8） | 分析 §2、§5（P2/P3） |
+
+**四条硬约束（决定波次边界）**
+
+1. **关键路径**：`B-11 → B-8 → B-9 → B-16/B-13`；B-11 未通过前不启动 B-9，B-9 未完成前不改 Stage 10–12 与 run 格式。
+2. **A7-1 冻结**：B-9 运行期间只做只读取证；B-13/B-16 一律后置。
+3. **默认关**：B-17（R9）实现即默认关，A7-1 结束后再开启，避免无人值守误暂停。
+4. **契约先行**：B-14 先于 B-22；B-4 优先于 B-20；B-3 在 B-1+B-2 之后再评估。
 
 ## 4. 逐阶段详述
 
@@ -609,9 +689,9 @@ flowchart LR
 
 ---
 
-### G7｜长时程、多并发与双平面（P2，前置：G1、G3、G4、G5）——**进行中（三段交付 + 复审/修复/审计）**
+### G7｜长时程、多并发与双平面（P2，前置：G1、G3、G4、G5）——**进行中（13/15；A7-1 与 A7-5 待收口）**
 
-> **实施记录（2026-11-25）**：三段交付——soak 工具链（P-160）、编排评测 dry-run（P-162，OB-1..OB-5；OB-2 走 baseline-compatible 入口，字面路径转 U-162-6）、漂移护栏（P-167，FA-1..FA-3）；异构复审四轮（P-161/163/165/168，合计 0 个未决缺陷 + 24 项观察项入册）；修复批 P-164 关闭 P-161 D-1..D-3 + P-163 D-1；登记审计 P-169（补登自审 P3、未决项索引 U-162-6/U-162-7/U-167-5、D 表关闭记录）。已过验收 8 项：FA-1..3、OB-1..5；工具链就绪待 field run 2 项：A7-1（72h 实跑）、A7-4（正式回放验收）；未实施 5 项：A7-2/3/5/6/7（并发/双平面段）。
+> **实施记录（2026-11-26）**：三段交付——soak 工具链（P-160）、编排评测 dry-run（P-162，OB-1..OB-5）、漂移护栏（P-167，FA-1..FA-3）；异构复审四轮（P-161/163/165/168）与登记审计（P-169）。并发/双平面段：P-172 交付 A7-2/3/6/7（准入槽、预算前置拒绝、inflight 限流、ops 视图、Runbook 机制演练），P-173 交付 A7-4（registry 主备双副本 + 轮转回放验收），P-174 修复 `run_id` 稳定性并完成 B 站部署与两阶段启动。已过 **13/15**：FA-1..3、OB-1..5、A7-2/3/4/6/7；**开放 2**：A7-1（72h field run，基线已过 Stage 9，Stage 10-12 待验收）、A7-5（机制演练 0.34s 通过，独立新人盲测 U-172-1 未做）。现场阻塞修复（不计入 106 项）：P-177 Stage 9 fanout/抽取/幂等、P-178 Stage 10 截断容错与出口门。
 
 **目标**：从"单机单任务"走到"可长时间无人值守、多任务隔离、双平面一致"；并让编排能力可测。
 

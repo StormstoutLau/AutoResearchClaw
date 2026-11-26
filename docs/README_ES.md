@@ -596,7 +596,7 @@ research:
 runtime:
   timezone: "America/New_York"     # Para marcas de tiempo
   max_parallel_tasks: 3            # Limite de experimentos concurrentes
-  approval_timeout_hours: 12       # Timeout de etapas con compuerta
+  approval_timeout_hours: 12       # Reservado; aún no conectado
   retry_limit: 2                   # Numero de reintentos por fallo de etapa
 
 # === LLM ===

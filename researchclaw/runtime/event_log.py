@@ -535,11 +535,38 @@ class EventLog:
         return data
 
 
+def _last_unfinished_stage(events: list[dict]) -> dict | None:
+    """Latest ``stage.started`` that has no later ``stage.completed`` for it.
+
+    B-33 L0: recovery must preserve "interrupted" semantics, otherwise a
+    corrupt checkpoint silently downgrades ``--resume`` to the next stage and
+    skips the stage that was in flight.
+    """
+    last_start = None
+    for event in events:
+        if event.get("type") == "stage.started":
+            last_start = event
+    if last_start is None:
+        return None
+    stage_no = last_start.get("stage")
+    start_seq = int(last_start.get("seq") or 0)
+    for event in events:
+        if event.get("type") != "stage.completed":
+            continue
+        if int(event.get("seq") or 0) <= start_seq:
+            continue
+        if event.get("stage") == stage_no:
+            return None
+    return last_start
+
+
 def rebuild_checkpoint(events: list[dict]) -> dict | None:
-    """Rebuild a checkpoint payload from ``stage.completed`` events (A1-5).
+    """Rebuild a checkpoint payload from the event log (A1-5 / B-33 L0).
 
     Returns ``None`` when the log has no completed stage. The result mirrors
-    ``_write_checkpoint``'s shape so callers can persist it verbatim.
+    ``_write_checkpoint``'s shape so callers can persist it verbatim; when the
+    newest ``stage.started`` has no matching completion, ``in_progress_*`` is
+    set so ``read_checkpoint`` re-enters that stage instead of skipping it.
     """
     last = None
     for e in events:
@@ -548,7 +575,7 @@ def rebuild_checkpoint(events: list[dict]) -> dict | None:
     if last is None:
         return None
     payload = last.get("payload") or {}
-    return {
+    result = {
         "last_completed_stage": int(payload.get("stage", last.get("stage") or 0)),
         "last_completed_name": payload.get("name", ""),
         "run_id": last.get("run_id", ""),
@@ -556,6 +583,13 @@ def rebuild_checkpoint(events: list[dict]) -> dict | None:
         "recovered": True,
         "recovered_from_seq": int(last.get("seq", 0)),
     }
+    unfinished = _last_unfinished_stage(events)
+    if unfinished is not None:
+        started_payload = unfinished.get("payload") or {}
+        result["in_progress_stage"] = int(unfinished.get("stage") or 0)
+        result["in_progress_name"] = str(started_payload.get("name") or "")
+        result["in_progress_at"] = str(unfinished.get("ts") or "")
+    return result
 
 
 def replay_digest(log: EventLog) -> str:

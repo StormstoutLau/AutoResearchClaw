@@ -912,3 +912,12 @@ write_sites:
     reason: "tournament output markdown"
     owner: P-106
     expires: null
+
+  - id: W-032
+    relpath: researchclaw/pipeline/step_journal.py
+    qualname: append_step
+    ordinal: 1
+    policy: safe_join
+    reason: "append-only step journal kept inside the stage directory; filename is a module constant"
+    owner: P-193
+    expires: null

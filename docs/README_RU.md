@@ -592,7 +592,7 @@ research:
 runtime:
   timezone: "Europe/Moscow"        # Для таймстемпов
   max_parallel_tasks: 3            # Лимит параллельных экспериментов
-  approval_timeout_hours: 12       # Таймаут ожидания на гейтах
+  approval_timeout_hours: 12       # Зарезервировано; ещё не подключено
   retry_limit: 2                   # Количество ретраев при падении этапа
 
 # === LLM ===
