@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from researchclaw.runtime.filelock import exclusive_lock
+from researchclaw.utils.paths import safe_join
 
 STEP_JOURNAL_NAME = "steps.jsonl"
 STEP_LOCK_NAME = ".steps.lock"
@@ -162,7 +163,7 @@ def append_step(
     with exclusive_lock(stage_dir / STEP_LOCK_NAME):
         existing = load_steps(stage_dir)
         payload["seq"] = (int(existing[-1].get("seq") or 0) + 1) if existing else 1
-        with (stage_dir / STEP_JOURNAL_NAME).open("a", encoding="utf-8") as fh:
+        with safe_join(stage_dir, STEP_JOURNAL_NAME).open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(payload, ensure_ascii=False) + "\n")
             fh.flush()
             os.fsync(fh.fileno())

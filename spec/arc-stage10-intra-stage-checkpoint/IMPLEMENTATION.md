@@ -18,7 +18,7 @@ upstream: arc-stage10-intra-stage-checkpoint-DESIGN
 
 | 文件 | 改动 |
 |---|---|
-| `researchclaw/pipeline/step_journal.py`（新增） | `STEP_JOURNAL_NAME` / `STEP_LOCK_NAME`；`hash_text`、`code_version`、`step_key`、`load_steps`、`append_step`、`last_done`、`should_skip`；append 用 `exclusive_lock` + `flush` + `fsync`；坏行末尾容忍、中间抛 `StepJournalError`；**`_read_package_bytes` 经 `importlib.resources` 读取生成器源码，`Path(__file__)` 兜底**（D-5） |
+| `researchclaw/pipeline/step_journal.py`（新增） | `STEP_JOURNAL_NAME` / `STEP_LOCK_NAME`；`hash_text`、`code_version`、`step_key`、`load_steps`、`append_step`、`last_done`、`should_skip`；append 经 `safe_join` 打开 + `exclusive_lock` + `flush` + `fsync`，并在 `tests/boundary_registry.yaml` 登记写点 W-032（policy=safe_join，owner=P-193）；坏行末尾容忍、中间抛 `StepJournalError`；**`_read_package_bytes` 经 `importlib.resources` 读取生成器源码，`Path(__file__)` 兜底**（D-5） |
 | `researchclaw/pipeline/runner.py` | 新增 `_write_stage_start`（保留 `last_completed_stage`，写 `in_progress_stage/name/at`，`tmp + _replace_with_retry`）；`read_checkpoint` 在解析后优先返回 `in_progress_stage`；阶段循环 `stage.started` 后调用 `_write_stage_start`（异常不中断） |
 | `researchclaw/runtime/event_log.py` | 新增 `_last_unfinished_stage`；`rebuild_checkpoint` 在重建时回填 `in_progress_stage/name/at`（D-9 / 复审 D-4），使 checkpoint 损坏后 `--resume` 仍落在在飞阶段 |
 | `researchclaw/pipeline/code_agent.py` | 新增模块级 `_blueprint_inputs_digest`；新增 `CodeAgent._persist_blueprint`（原子写 `architecture_spec.yaml` + `append_step`）；`_phase1_blueprint` 标记 `variant = first/retry`，拿到 `arch_spec` 后立即落盘；重建 `RenderedPrompt` 时补 `version=`（即 `prompt_version` 字段） |
@@ -57,8 +57,7 @@ python -m pytest tests/test_rc_runner.py tests/test_runner_events.py \
 
 ## 4. 边界
 
-- **L2 未接入**：`should_skip` 已就绪并有 8 条单测，但生成路径尚未调用它（M2）。
-- **L3 未做**：无 LLM 响应缓存。
+- **L2 未接入**：`should_skip` 已就绪并有 8 条单测，但生成路径尚未调用它（M2）。- **L3 未做**：无 LLM 响应缓存。
 - checkpoint 损坏且**事件链中无任何 `stage.completed`**（首个阶段即中断）时，`rebuild_checkpoint` 返回 `None`，需人工 `--from-stage` 指定；这是 D-9 之后仅剩的恢复盲区。
 - `--from-stage` 手动重跑仍不归档旧产物（沿用既有行为）。
 - B 站未部署验证；本轮只做本地实现与回归。
