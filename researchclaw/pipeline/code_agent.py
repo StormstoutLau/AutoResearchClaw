@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from researchclaw.config import CodeAgentConfig
+from researchclaw.pipeline._helpers import _close_unterminated_fence
 from researchclaw.pipeline.entrypoint_contract import (
     ENTRYPOINT_MAX_TOKENS,
     ENTRYPOINT_RETRY_MAX_TOKENS,
@@ -41,6 +42,24 @@ from researchclaw.pipeline.entrypoint_contract import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class ModuleExtractionError(RuntimeError):
+    """A blueprint module could not be extracted after the 32768 escalation.
+
+    B-34 M1-b: the previous code logged a WARNING and ``continue``d, so Stage
+    10 kept generating the remaining modules, ran validation and review, and
+    only failed at the evidence gate — up to hours later.  Raising here fails
+    at the module that broke.
+    """
+
+    def __init__(self, *, file_name: str, reason: str) -> None:
+        self.file_name = file_name
+        self.reason = reason  # "truncated" | "empty"
+        super().__init__(
+            f"{file_name}: module extraction failed ({reason}) — refusing to "
+            "continue with a missing or partial module"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -533,6 +552,43 @@ class CodeAgent:
         except OSError as exc:  # noqa: BLE001 - observability must not break codegen
             logger.warning("could not record codegen decision: %s", exc)
 
+    def _record_module_failure(
+        self,
+        *,
+        file_name: str,
+        reason: str,
+        truncated: bool,
+        file_spec_str: str,
+        dep_code: str,
+        prompt_version: str,
+        model: str,
+    ) -> None:
+        """Journal a failed module generation (B-34 M1-b).
+
+        Only digests are stored (I-2); the entry is ``status="failed"`` so a
+        re-entry never reuses it (I-3).  Best-effort: an unwritable journal
+        must not mask the real failure.
+        """
+        from researchclaw.pipeline.step_journal import append_step, hash_text
+
+        self._log_event(f"  {file_name}: journalling failed module ({reason})")
+        try:
+            append_step(
+                self._stage_dir,
+                step_id="generate_file",
+                variant=file_name,
+                status="failed",
+                inputs_digest=hash_text(file_spec_str + "\n---\n" + dep_code),
+                outputs={},
+                model=model,
+                truncated=truncated,
+                prompt_version=prompt_version,
+            )
+        except Exception as exc:  # noqa: BLE001 - journal is best-effort
+            logger.warning(
+                "could not journal failed module %s: %s", file_name, exc,
+            )
+
     def _persist_blueprint(
         self,
         arch_spec: str,
@@ -801,17 +857,53 @@ class CodeAgent:
                 pkg_hint=pkg_hint,
             )
             resp = self._chat(sp.system, sp.user, max_tokens=8192)
+            budget = 8192
             if getattr(resp, "truncated", False):
                 self._log_event(
                     f"  {file_name}: truncated — retrying with 32768"
                 )
                 resp = self._chat(sp.system, sp.user, max_tokens=32768)
+                budget = 32768
 
-            # Extract code from response
+            # Extract code from response.  M1-a closes an unterminated fence
+            # before the patterns run; otherwise a complete answer that just
+            # forgot the closing fence is discarded as empty.
+            truncated = bool(getattr(resp, "truncated", False))
             code = self._extract_single_file_code(resp.content, file_name)
-            if not code:
-                self._log_event(f"  WARNING: Empty code for {file_name}")
-                continue
+            if truncated or not code:
+                # B-34 M1-b: never continue silently.  A truncated 32768
+                # response is incomplete code, and an empty extraction means
+                # the module does not exist — either way the remaining work
+                # would end in an evidence-gate failure hours later.
+                reason = "truncated" if truncated else "empty"
+                self._codegen_diag.setdefault("module_failures", []).append({
+                    "file": file_name,
+                    "reason": reason,
+                    "budget_tokens": budget,
+                    "response_chars": len(str(getattr(resp, "content", "") or "")),
+                })
+                self._record_module_failure(
+                    file_name=file_name,
+                    reason=reason,
+                    truncated=truncated,
+                    file_spec_str=file_spec_str,
+                    dep_code=dep_code,
+                    prompt_version=getattr(sp, "version", ""),
+                    model=str(getattr(resp, "model", "") or ""),
+                )
+                if truncated:
+                    message = (
+                        f"{file_name}: response still truncated at {budget} "
+                        "tokens (finish_reason=length)"
+                    )
+                else:
+                    message = (
+                        f"{file_name}: no code could be extracted from the "
+                        "response"
+                    )
+                self._log_event(f"  ERROR: {message}")
+                logger.error("Stage 10 module generation failed: %s", message)
+                raise ModuleExtractionError(file_name=file_name, reason=reason)
 
             generated_files[file_name] = code
 
@@ -899,6 +991,12 @@ class CodeAgent:
     @staticmethod
     def _extract_single_file_code(content: str, expected_name: str) -> str:
         """Extract Python code from LLM response for a single file."""
+        # B-34 M1-a (same fix as P-178): a complete answer may omit the
+        # closing fence.  Without this, every fenced pattern below misses,
+        # the raw-text fallback fails ``ast.parse``, and the module is
+        # silently dropped.
+        content = _close_unterminated_fence(content)
+
         # Try to extract from ```python``` block
         m = re.search(r"```python\s*\n(.*?)```", content, re.DOTALL)
         if m and m.group(1).strip():
