@@ -1,8 +1,8 @@
 ---
 id: arc-stage10-repair-guardrails-DESIGN
 type: design
-version: 1.0
-status: draft
+version: 1.1
+status: verified
 date: 2026-11-28
 depends: [arc-stage10-repair-guardrails-RESEARCH]
 upstream: arc-stage10-repair-guardrails-RESEARCH
@@ -25,7 +25,7 @@ upstream: arc-stage10-repair-guardrails-RESEARCH
 |---|---|---|---|---|
 | D-1 | 同一文件同一拒收原因连续 2 次 → 停止该文件的定向修复，写 `repeated_rejection` 事件并交给阶段层/显式失败 | Cline v3.54 防无限重试；wally #195 自纠循环 | 继续跑满 4 轮 | P0 |
 | D-2 | `agent_repair` 增修复前后 `digest/lines/kept`：被拒时记录保留版本摘要，形成逐文件还原点读数 | Cline Checkpoints；aider `/undo` | 只记 accepted 名称 | P0 |
-| D-7 | 离线 fixture 基准：语法/入口/符号/截断/未知文件/重复拒收 6 场景，比较修复成功率、墙钟、误接受率 | AlphaCodium 的 flow 对照 | 只看现场单次结果 | P0（基准先行） |
+| D-7 | 离线 fixture 基准：语法/入口/符号/截断/未知文件/重复拒收 6 场景，比较修复成功率、墙钟、误接受率（P-224 已实施，见 [IMPLEMENTATION](IMPLEMENTATION.md) §2） | AlphaCodium 的 flow 对照 | 只看现场单次结果 | P0（基准先行） |
 | D-3 | 执行级验收：静态闸门通过后，在沙箱 `py_compile` + `import <module>` 冒烟（不执行训练），失败即拒收；无沙箱时 `verify=skipped` | Agentless patch validation；AlphaCodium 测试迭代 | 纯 AST 静态验收 | P1 |
 | D-4 | 下一轮修复提示注入 `rejected_reasons` 与上一响应 digest（只进摘要，不落正文） | Huang/Olausson：外部反馈决定修复收益 | 同一 prompt 重采样（运行 I 实测 sha 相同） | P1 |
 | D-5 | 同一文件连续 2 次拒收后，第 3 轮改「最小 unified diff 修补」，仍失败则显式失败 | Cursor 行号编辑；Cline diff 应用 | 永远整文件重写 | P2 |

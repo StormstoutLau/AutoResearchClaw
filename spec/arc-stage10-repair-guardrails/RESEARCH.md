@@ -1,8 +1,8 @@
 ---
 id: arc-stage10-repair-guardrails-RESEARCH
 type: design
-version: 1.0
-status: draft
+version: 1.1
+status: verified
 date: 2026-11-28
 depends: [arc-stage10-repair-quality, arc-stage10-generation-budget-contract]
 upstream: arc-master-roadmap
