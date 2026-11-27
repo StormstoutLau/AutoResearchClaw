@@ -484,6 +484,10 @@ class CodeAgentConfig:
     # Phase 2.5: Hard validation gates (AST-based)
     hard_validation: bool = True
     hard_validation_max_repairs: int = 4
+    # P-226 (D-1): stop targeted repair when the same file keeps failing for
+    # the same reason.  Run L burned three ~11.5-minute rounds on the same
+    # data.py syntax error + main.py entrypoint break.  0 disables the stop.
+    repair_stop_after_rejections: int = 2
     # Phase 3: Execution-in-the-loop (run → parse error → fix)
     exec_fix_max_iterations: int = 3
     exec_fix_timeout_sec: int = 60

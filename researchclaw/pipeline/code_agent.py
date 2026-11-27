@@ -1320,6 +1320,7 @@ class CodeAgent:
         issues are logged as warnings only.
         """
         self._log_event("Phase 2.5: Hard validation gates")
+        self._reject_streak: dict[tuple[str, str], int] = {}
 
         for attempt in range(self._cfg.hard_validation_max_repairs + 1):
             round_t0 = time.time()
@@ -1365,8 +1366,33 @@ class CodeAgent:
                 attempt=attempt,
                 max_attempts=self._cfg.hard_validation_max_repairs,
             )
+            stop = self._repeated_rejection()
+            if stop is not None:
+                name, code, count = stop
+                self._log_event(
+                    f"  Repeated rejection for {name} ({code} x{count}) — "
+                    "stopping targeted repair"
+                )
+                _record_repair_trace(
+                    self._stage_dir,
+                    phase="agent_repair_stopped",
+                    attempt=attempt,
+                    max_attempts=self._cfg.hard_validation_max_repairs,
+                    extra={"file": name, "reason": code, "count": count},
+                )
+                return files
 
         return files
+
+    def _repeated_rejection(self) -> tuple[str, str, int] | None:
+        """P-226 (D-1): the first (file, reason) that hit the stop limit."""
+        limit = int(self._cfg.repair_stop_after_rejections or 0)
+        if limit <= 0:
+            return None
+        for (name, code), count in sorted(self._reject_streak.items()):
+            if count >= limit:
+                return name, code, count
+        return None
 
     def _hard_validate(
         self, files: dict[str, str],
@@ -1609,6 +1635,17 @@ class CodeAgent:
         fixed, rejected_reasons = self._accept_repair_files(
             files, candidates, blueprint,
         )
+        # P-226 (D-1): only consecutive identical failures count.  An accepted
+        # fix clears the file's streak, and a new reason starts at 1, so a
+        # model that keeps alternating failure modes still gets the full
+        # budget instead of being stopped for the wrong cause.
+        previous = getattr(self, "_reject_streak", {})
+        streak: dict[tuple[str, str], int] = {}
+        for name, why in rejected_reasons.items():
+            code = why.split(":", 1)[0].strip()
+            key = (name, code)
+            streak[key] = previous.get(key, 0) + 1
+        self._reject_streak = streak
         for name, why in sorted(rejected_reasons.items()):
             self._log_event(f"  Repair rejected {name}: {why}")
         _record_repair_trace(

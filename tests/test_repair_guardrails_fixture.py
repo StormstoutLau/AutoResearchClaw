@@ -9,9 +9,9 @@ scripted LLM.  The benchmark reports four deterministic metrics:
 - ``accepted_bad`` — a guard-breaking reply was merged (must be 0)
 - ``rounds``       — hard-validation repair rounds (repeat-rejection baseline)
 
-The repeat-rejection case pins today's behaviour (4 rounds) so that D-1 can
-prove a cheaper 2-round stop later; every other case must already be 0
-``accepted_bad`` under P-222.
+The repeat-rejection case now pins D-1 (P-226): the same file+reason twice
+stops targeted repair at 2 rounds, and two variants prove the stop can be
+disabled and that alternating reasons keep the full budget.
 """
 
 from __future__ import annotations
@@ -91,11 +91,12 @@ class _FakeLLM:
         )
 
 
-def _agent(tmp_path: Path, llm) -> CodeAgent:
+def _agent(tmp_path: Path, llm, **overrides) -> CodeAgent:
     cfg = CodeAgentConfig(
         review_max_rounds=0,
         hard_validation_max_repairs=4,
         exec_fix_max_iterations=0,
+        **overrides,
     )
     return CodeAgent(
         llm=llm, prompts=_FakePM(), config=cfg, stage_dir=tmp_path,
@@ -183,13 +184,13 @@ class TestRepairGuardrailFixture:
         assert out["data.py"] == GOOD_DATA
         _report("unknown_file", len(llm.calls), "helpers.py" not in out, False)
 
-    def test_06_same_reason_repeats_to_the_limit(self, tmp_path: Path) -> None:
-        """Baseline for D-1: today four rounds run, all rejected.
+    def test_06_same_reason_stops_at_two(self, tmp_path: Path) -> None:
+        """D-1 (P-226): the same file+reason twice stops the loop.
 
-        After D-1 the same scenario must stop at two rounds while still
-        keeping the original file; this assertion is the reference point.
+        The pre-D-1 baseline (P-224 C-7) was 5 validation rows / 4 calls;
+        the stop-loss must keep the original file while halving the rounds.
         """
-        bad = _named("data.py", "def broken(:\n")
+        bad = _named("main.py", MAIN_OK) + _named("data.py", "def broken(:\n")
         llm = _FakeLLM([bad])
         agent = _agent(tmp_path, llm)
 
@@ -205,16 +206,60 @@ class TestRepairGuardrailFixture:
             row for row in load_repair_trace(tmp_path)
             if row.get("phase") == "agent_repair"
         ]
-        assert len(rounds) == 5  # attempt-0..4, all failed
-        assert len(llm.calls) == 4  # D-1 target: 2
-        assert len(repairs) == 4
-        assert all(not row["accepted"] for row in repairs)
+        stops = [
+            row for row in load_repair_trace(tmp_path)
+            if row.get("phase") == "agent_repair_stopped"
+        ]
+        assert len(rounds) == 2  # attempt-0..1, then stop
+        assert len(llm.calls) == 2  # was 4 before D-1
+        assert len(repairs) == 2
+        assert len(stops) == 1
+        assert stops[0]["file"] == "data.py"
+        assert stops[0]["reason"] == "syntax_error"
+        assert stops[0]["count"] == 2
+        assert all("data.py" not in row["accepted"] for row in repairs)
         assert out["data.py"] == SCOPING_BAD
         _report("repeat_rejection", len(llm.calls), out["data.py"] == SCOPING_BAD, False)
+
+    def test_07_stop_loss_can_be_disabled(self, tmp_path: Path) -> None:
+        bad = _named("main.py", MAIN_OK) + _named("data.py", "def broken(:\n")
+        llm = _FakeLLM([bad])
+        agent = _agent(tmp_path, llm, repair_stop_after_rejections=0)
+
+        agent._hard_validate_and_repair(
+            {"data.py": SCOPING_BAD}, "t", "p", "m", "", BLUEPRINT,
+        )
+
+        assert len(llm.calls) == 4
+        rounds = [
+            row for row in load_steps(tmp_path)
+            if row["step_id"] == "hard_validation"
+        ]
+        assert len(rounds) == 5
+
+    def test_08_alternating_reasons_keep_the_budget(self, tmp_path: Path) -> None:
+        """A different reason is not a repeated rejection."""
+        syntax = _named("main.py", MAIN_OK) + _named("data.py", "def broken(:\n")
+        symbols = (
+            _named("main.py", MAIN_OK)
+            + _named("data.py", "def load_data():\n    return 1\n")
+        )
+        llm = _FakeLLM([syntax, symbols, syntax, symbols])
+        agent = _agent(tmp_path, llm)
+
+        agent._hard_validate_and_repair(
+            {"data.py": SCOPING_BAD}, "t", "p", "m", "", BLUEPRINT,
+        )
+
+        assert len(llm.calls) == 4
+        assert not [
+            row for row in load_repair_trace(tmp_path)
+            if row.get("phase") == "agent_repair_stopped"
+        ]
 
     def test_coverage_is_six_scenarios(self) -> None:
         names = [
             name for name in dir(self)
             if name.startswith("test_") and name[5:7].isdigit()
         ]
-        assert len(names) == 6
+        assert len(names) == 8  # 6 scenarios + 2 D-1 variants
