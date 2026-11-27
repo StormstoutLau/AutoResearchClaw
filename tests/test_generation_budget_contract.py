@@ -18,6 +18,7 @@ from researchclaw.pipeline.codegen_evidence import (
     evaluate_stage10_evidence,
     load_blueprint,
     missing_symbols,
+    resolve_metric,
 )
 from researchclaw.pipeline.step_journal import load_steps
 
@@ -433,3 +434,69 @@ class TestModuleSymbolContract:
         rows = [r for r in load_steps(tmp_path) if r["step_id"] == "generate_file"]
         assert rows[-1]["status"] == "failed"
         assert rows[-1]["variant"] == "methods.py"
+
+
+class TestBlueprintMetricPropagation:
+    """B-34 M6: generation must use the metric the exit gate checks."""
+
+    BP = (
+        "metric: early_detection_roc_auc\n"
+        "files:\n"
+        "  - name: methods.py\n"
+        "    generation_order: 1\n"
+    )
+
+    def test_resolve_metric_prefers_blueprint(self, tmp_path: Path) -> None:
+        (tmp_path / "architecture_spec.yaml").write_text(self.BP, encoding="utf-8")
+        assert resolve_metric(tmp_path, "primary_metric") == (
+            "early_detection_roc_auc"
+        )
+
+    def test_resolve_metric_falls_back_without_blueprint(
+        self, tmp_path: Path,
+    ) -> None:
+        assert resolve_metric(tmp_path, "primary_metric") == "primary_metric"
+
+    def test_generate_prompts_use_the_declared_metric(
+        self, tmp_path: Path,
+    ) -> None:
+        # No main.py in the blueprint, so the dedicated entrypoint prompt is
+        # built (it is the one that carries the metric name).
+        bp = (
+            "metric: early_detection_roc_auc\n"
+            "files:\n"
+            "  - name: methods.py\n"
+            "    generation_order: 1\n"
+            "  - name: config.py\n"
+            "    generation_order: 2\n"
+        )
+        main_ok = (
+            'def main() -> None:\n'
+            '    print("METRIC_DEF: early_detection_roc_auc | direction=higher")\n'
+            '    print("early_detection_roc_auc: 0.8")\n'
+            "\n\n"
+            'if __name__ == "__main__":\n'
+            "    main()\n"
+        )
+        llm = _FakeLLM([
+            f"```yaml\n{bp}```\n",
+            _fenced("class Monitor:\n    pass\n"),
+            _fenced("X = 1\n"),
+            _fenced(main_ok),
+        ])
+        agent = _agent(tmp_path, llm)
+
+        files = agent.generate(
+            topic="t", exp_plan="p", metric="primary_metric", pkg_hint="",
+        ).files
+
+        assert "main.py" in files
+        entry_prompts = [
+            call["messages"][0]["content"] for call in llm.calls
+            if "Primary metric:" in call["messages"][0]["content"]
+        ]
+        assert entry_prompts
+        assert all(
+            "Primary metric: early_detection_roc_auc" in prompt
+            for prompt in entry_prompts
+        )

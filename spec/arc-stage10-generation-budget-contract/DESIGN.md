@@ -1,7 +1,7 @@
 ---
 id: arc-stage10-generation-budget-contract-DESIGN
 type: design
-version: 1.1
+version: 1.2
 status: verified
 date: 2026-11-27
 depends: [arc-stage10-generation-budget-contract-RESEARCH]
@@ -11,6 +11,7 @@ upstream: arc-stage10-generation-budget-contract-RESEARCH
 # 设计：生成预算分档、文件预算与符号契约（B-34 M4）
 
 > v1.1（2026-11-27，P-219）：新增 D-11/D-12——符号契约从「出口门」前移到「模块边界」，带一次定向修复。
+> v1.2（2026-11-27，P-221）：新增 D-13——生成侧统一采用蓝图声明的指标名。
 
 ## 1. 决策
 
@@ -28,6 +29,7 @@ upstream: arc-stage10-generation-budget-contract-RESEARCH
 | D-10 | 文件不可解析（`SyntaxError`）时**判失败** | 跳过 | 语法坏的文件本就不可交付；跳过会让契约形同虚设 |
 | D-11 | 符号契约在**模块生成后立即**执行（不只出口门）；缺失时先做**一次**定向修复，提示中列出「声明名」与「缺失名」 | 等出口门统一判 | 运行 I/J 两次在 61 分钟后才由出口门报出 13 个缺失符号；模块级可把反馈缩到分钟级，且提示能直接给出要补的名字 |
 | D-12 | 定向修复后仍缺失 → `generate_file(failed, reason=symbols_missing)` + `ModuleExtractionError` | 继续生成后续模块 | 与 M1-b 同一边界语义：不可交付的模块不应拖到阶段末；账本留失败行，阻止误复用 |
+| D-13 | 生成侧指标名 = 蓝图 `metric`（缺失才回落 `config.experiment.metric_key`）；模块 prompt、专用入口与阶段级入口重生成统一用该值 | 只让出口门读蓝图 | 运行 J 出现 `metric_mismatch`：入口按 `primary_metric` 生成、出口门按蓝图 `early_detection_roc_auc` 校验；判定口径与生成口径必须同源 |
 
 ## 2. 接口
 

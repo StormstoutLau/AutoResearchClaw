@@ -20,6 +20,7 @@ from researchclaw.llm.client import LLMClient
 from researchclaw.pipeline._domain import _detect_domain
 from researchclaw.pipeline.codegen_evidence import (
     evaluate_stage10_evidence,
+    resolve_metric,
     write_evidence_report,
 )
 from researchclaw.pipeline.repair_trace import (
@@ -1378,6 +1379,10 @@ def _execute_code_generation(
         }
 
     # --- B-29: guarantee a runnable entrypoint before validating files ---
+    # B-34 M6: the blueprint's metric is what the exit gate checks; prompting
+    # the entrypoint with config.experiment.metric_key produced
+    # ``metric_mismatch`` in run J.
+    metric = resolve_metric(stage_dir, metric)
     files = _ensure_entrypoint(
         files,
         llm=llm,
@@ -2215,6 +2220,7 @@ Multi-file experiment project with {len(files)} file(s): {file_list}
         )
 
     # B-29: repair loops can still degrade main.py; regenerate before the gate.
+    metric = resolve_metric(stage_dir, metric)
     files = _ensure_entrypoint(
         files,
         llm=llm,

@@ -1,7 +1,7 @@
 ---
 id: arc-stage10-generation-budget-contract-CHECKLIST
 type: design
-version: 1.2
+version: 1.3
 status: accepted
 date: 2026-11-27
 depends: [arc-stage10-generation-budget-contract-IMPLEMENTATION]
@@ -10,6 +10,7 @@ upstream: arc-stage10-generation-budget-contract-IMPLEMENTATION
 
 > v1.1（2026-11-27，P-211）：C-28 由「待现场」转 ✅（运行 H 读数）；新增 C-29（配置解析缺陷）与 C-30（运行 H 的对照）。
 > v1.2（2026-11-27，P-219）：M5 新增 C-31..C-33（模块级符号契约、一次定向修复、边界失败记账）。
+> v1.3（2026-11-27，P-221）：M6 新增 C-34..C-36（蓝图指标解析、入口同源、无蓝图回落）。
 
 # 验收清单：B-34 M4（思考预算分档 + 文件预算 + 符号契约）
 
@@ -48,6 +49,9 @@ upstream: arc-stage10-generation-budget-contract-IMPLEMENTATION
 | C-31 | 模块生成后立即判定声明符号，缺失即在该模块报出 | ✅ `TestModuleSymbolContract::test_missing_helper_reports_absent_names` + 生成路径用例 |
 | C-32 | 缺符号时只做一次定向修复，提示含声明名与缺失名；契约满足不额外调用 | ✅ `test_missing_symbol_is_repaired_once` / `test_satisfied_contract_costs_no_extra_call` |
 | C-33 | 修复后仍缺 → 该模块边界 `ModuleExtractionError(reason=symbols_missing)`，账本留 `failed` 行 | ✅ `test_unrepaired_module_fails_at_its_own_boundary` |
+| C-34 | `resolve_metric` 优先返回蓝图声明的 `metric` | ✅ `test_resolve_metric_prefers_blueprint` |
+| C-35 | 专用入口 prompt 使用蓝图指标名（运行 J 的 `metric_mismatch` 不再发生） | ✅ `test_generate_prompts_use_the_declared_metric` |
+| C-36 | 蓝图缺失/不可解析时回落配置值，行为不变 | ✅ `test_resolve_metric_falls_back_without_blueprint` |
 
 ## 算术
 

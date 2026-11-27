@@ -34,7 +34,11 @@ from typing import Any, Protocol
 
 from researchclaw.config import CodeAgentConfig
 from researchclaw.pipeline._helpers import _close_unterminated_fence
-from researchclaw.pipeline.codegen_evidence import declared_symbols, missing_symbols
+from researchclaw.pipeline.codegen_evidence import (
+    blueprint_metric,
+    declared_symbols,
+    missing_symbols,
+)
 from researchclaw.pipeline.repair_trace import record as _record_repair_trace
 from researchclaw.pipeline.entrypoint_contract import (
     ENTRYPOINT_MAX_TOKENS,
@@ -313,6 +317,12 @@ class CodeAgent:
             arch_spec, blueprint = self._phase1_blueprint(
                 topic, exp_plan, metric,
             )
+            # B-34 M6: the blueprint's metric wins over the config key — the
+            # exit gate compares against the blueprint, so the entrypoint must
+            # be generated with the same name.
+            declared_metric = blueprint_metric(blueprint)
+            if declared_metric:
+                metric = declared_metric
 
         # Phase 2: Code generation
         nodes_explored = 0

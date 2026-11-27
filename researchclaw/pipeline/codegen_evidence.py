@@ -393,6 +393,28 @@ def normalize_metric(name: str) -> str:
     return re.sub(r"[\s\-]+", "_", str(name or "").strip().lower())
 
 
+def blueprint_metric(blueprint: Mapping[str, Any] | None) -> str:
+    """Metric name declared by the blueprint (B-34 M6)."""
+    if not isinstance(blueprint, Mapping):
+        return ""
+    return _find_metric(blueprint)
+
+
+def resolve_metric(stage_dir: str | Path, fallback: str = "") -> str:
+    """Effective metric: the blueprint's declaration, else ``fallback``.
+
+    Run J failed with ``metric_mismatch`` because the entrypoint was prompted
+    with ``config.experiment.metric_key`` (``primary_metric``) while the
+    blueprint declared ``early_detection_roc_auc``.  Generation must use the
+    same name the exit gate will check.
+    """
+    try:
+        declared = blueprint_metric(load_blueprint(Path(stage_dir)))
+    except Exception:  # noqa: BLE001 - a missing blueprint is the fallback case
+        declared = ""
+    return declared or str(fallback or "")
+
+
 def check_metric_consistency(
     declared: str, files: Mapping[str, str],
 ) -> list[EvidenceFailure]:

@@ -1,7 +1,7 @@
 ---
 id: arc-stage10-generation-budget-contract-IMPLEMENTATION
 type: design
-version: 1.2
+version: 1.3
 status: verified
 date: 2026-11-27
 depends: [arc-stage10-generation-budget-contract-DESIGN]
@@ -10,6 +10,7 @@ upstream: arc-stage10-generation-budget-contract-DESIGN
 
 > v1.1（2026-11-27，P-211）：补 §6「配置解析缺陷与修复」与运行 H 读数；§1 的测试数由 25 更新为 27。
 > v1.2（2026-11-27，P-219）：M5——符号契约前移到模块边界，补 §8 与 4 例测试（31 passed）。
+> v1.3（2026-11-27，P-221）：M6——生成侧统一采用蓝图指标名，补 §9 与 3 例测试（34 passed）。
 
 # 实施记录：B-34 M4
 
@@ -167,3 +168,27 @@ file_max_lines=_safe_int(data.get("file_max_lines"), 300),
 **测试**：`TestModuleSymbolContract` 4 例（`missing_symbols` 判定、契约满足不额外调用、缺失后一次修复成功、修复无效在模块边界抛错并记账）；`tests/test_generation_budget_contract.py` **31 passed**，相关五文件 81 passed。
 
 **边界**：只在 `_phase2_sequential_generate`（顺序生成）启用；单发回退路径仍由出口门判定（`generate_project` 无逐模块边界）；符号仍按 `ast.walk` 的类/函数名匹配，模块级常量不算「已定义」。
+
+## 9. M6：生成侧统一采用蓝图指标名（P-221）
+
+**动机（现场）**：运行 J attempt 2 的出口门报 `metric_mismatch: blueprint metric 'early_detection_roc_auc' != METRIC_DEF 'primary_metric'`。入口生成用的是 `config.experiment.metric_key`（默认 `primary_metric`），而出口门校验的是蓝图 `metric`。
+
+**改动**：
+
+| 文件 | 改动 |
+|---|---|
+| [`codegen_evidence.py`](../../researchclaw/pipeline/codegen_evidence.py) | 新增公开 `blueprint_metric(blueprint)` 与 `resolve_metric(stage_dir, fallback)`（读 `architecture_spec.yaml`，失败回落） |
+| [`code_agent.py`](../../researchclaw/pipeline/code_agent.py) | 蓝图解析成功后把 `metric` 切换为蓝图声明值，后续模块 prompt 与专用入口生成同源 |
+| [`_code_generation.py`](../../researchclaw/pipeline/stage_impls/_code_generation.py) | 两处 `_ensure_entrypoint` 调用前先 `resolve_metric(stage_dir, metric)` |
+
+**行为对照**：
+
+| 场景 | 之前 | 现在 |
+|---|---|---|
+| 蓝图声明 `early_detection_roc_auc` | 入口按 `primary_metric` 生成 → 出口 `metric_mismatch` | 入口按蓝图名生成，出口一致 |
+| 蓝图无 `metric` | 用配置值 | 仍用配置值（行为不变） |
+| 蓝图不可解析 | 用配置值 | 用配置值（`resolve_metric` 捕获异常） |
+
+**测试**：`TestBlueprintMetricPropagation` 3 例（`resolve_metric` 优先蓝图 / 无蓝图回落 / 专用入口 prompt 使用蓝图指标名）；`tests/test_generation_budget_contract.py` **34 passed**，相关四文件 142 passed。
+
+**边界**：只影响生成与入口提示；不改出口门判据；`metric_key` 仍是 Stage 12–14 的解析键（若蓝图指标与配置键不同，Stage 12 的取值需与之一致，属后续批次）。
