@@ -313,11 +313,18 @@ def _write_stage_meta(
         # Failed / paused / blocked stages should point back to themselves so
         # retry-resume tooling does not imply that the pipeline advanced.
         next_stage = stage
+    # ``StageResult.decision`` defaults to "proceed", so a failed stage used to
+    # land in decision.json as ``{"status": "failed", "decision": "proceed"}``.
+    # Keep explicit decisions (abort / resume / degraded / …) but never claim
+    # "proceed" for a stage that did not complete.
+    decision = result.decision
+    if result.status is not StageStatus.DONE and decision == "proceed":
+        decision = result.status.value
     meta = {
         "stage_id": f"{int(stage):02d}-{stage.name.lower()}",
         "run_id": run_id,
         "status": result.status.value,
-        "decision": result.decision,
+        "decision": decision,
         "output_artifacts": list(result.artifacts),
         "evidence_refs": list(result.evidence_refs),
         "error": result.error,

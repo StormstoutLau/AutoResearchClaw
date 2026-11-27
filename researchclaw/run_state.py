@@ -30,6 +30,7 @@ class RunStatus(str, Enum):
     """Normalised run status shared by every consumer."""
 
     RUNNING = "running"
+    STALLED = "stalled"
     PAUSED = "paused"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -48,6 +49,7 @@ class RunState:
     start_time: str = ""
     last_update: str = ""
     is_active: bool = False
+    silence_sec: float = 0.0
     schema_version: int = 0
     hitl: dict[str, Any] | None = None
     artifacts: tuple[str, ...] = field(default_factory=tuple)
@@ -63,6 +65,7 @@ class RunState:
             "start_time": self.start_time,
             "last_update": self.last_update,
             "is_active": self.is_active,
+            "silence_sec": round(self.silence_sec, 1),
             "schema_version": self.schema_version,
             "hitl": self.hitl,
             "artifacts": list(self.artifacts),
@@ -114,6 +117,26 @@ def _parse_timestamp(value: Any) -> datetime | None:
 
 def _iso(moment: datetime | None) -> str:
     return moment.isoformat() if moment is not None else ""
+
+
+def _positive_float(value: Any) -> float:
+    if isinstance(value, bool):
+        return 0.0
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return number if number > 0 else 0.0
+
+
+def _positive_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
 
 
 def _map_status(value: Any) -> RunStatus | None:
@@ -241,23 +264,59 @@ def read_run_state(
     )
 
     is_active = False
+    silence_sec = 0.0
+    heartbeat_dt: datetime | None = None
     heartbeat_ts = ""
+    interval = _positive_float(heartbeat.get("interval_sec")) if heartbeat else 0.0
+    effective_stale = (
+        max(float(stale_after_sec), 3.0 * interval)
+        if interval else float(stale_after_sec)
+    )
     if heartbeat:
-        heartbeat_dt = _parse_timestamp(heartbeat.get("timestamp"))
-        heartbeat_ts = _iso(heartbeat_dt) or str(heartbeat.get("timestamp") or "")
+        raw_ts = heartbeat.get("updated_at") or heartbeat.get("timestamp")
+        heartbeat_dt = _parse_timestamp(raw_ts)
+        heartbeat_ts = _iso(heartbeat_dt) or str(raw_ts or "")
         if heartbeat_dt is not None:
             delta = (reference - heartbeat_dt).total_seconds()
-            is_active = -stale_after_sec <= delta <= stale_after_sec
+            silence_sec = max(0.0, delta)
+            is_active = -effective_stale <= delta <= effective_stale
+
+    # B-31b follow-up (P-218): a fresh ``status=running`` heartbeat proves a
+    # rerun is executing, while ``pipeline_summary.json`` only exists after a
+    # run ends.  Replaying ``--from-stage 10`` after a failed attempt used to
+    # report ``failed`` (and stage 11, the last *completed* stage) for the
+    # whole rerun.  Only the explicit ``running`` marker overrides the stale
+    # summary; heartbeats without that field keep the old semantics.
+    live_running = bool(
+        heartbeat
+        and str(heartbeat.get("status") or "") == "running"
+        and is_active
+    )
+    in_progress = _positive_int(checkpoint.get("in_progress_stage"))
+    if live_running and in_progress is not None:
+        stage = in_progress
+        stage_name = str(
+            checkpoint.get("in_progress_name") or stage_name or ""
+        )
 
     status: RunStatus | None = _map_status(summary.get("final_status"))
     if status is None:
         status = _map_status(checkpoint.get("status"))
-    if status in {RunStatus.COMPLETED, RunStatus.FAILED}:
+    if status in {RunStatus.COMPLETED, RunStatus.FAILED} and not live_running:
         is_active = False
-    elif is_active:
+    elif live_running or is_active:
         status = RunStatus.RUNNING
     elif _hitl_is_paused(checkpoint.get("hitl")):
         status = RunStatus.PAUSED
+    elif (
+        heartbeat_dt is not None
+        and in_progress is not None
+        and silence_sec > effective_stale
+    ):
+        # B-31b: a stage was running and its heartbeat went silent — the
+        # process may be dead or wedged.  A completed checkpoint keeps the old
+        # UNKNOWN semantics (nothing proves the process is alive).
+        status = RunStatus.STALLED
     elif status is RunStatus.RUNNING:
         # Nothing proves the process is alive: a checkpoint alone is not enough.
         status = RunStatus.UNKNOWN
@@ -283,6 +342,7 @@ def read_run_state(
         start_time=_read_start_time(run_dir, checkpoint_ts),
         last_update=heartbeat_ts or checkpoint_ts,
         is_active=is_active,
+        silence_sec=silence_sec,
         schema_version=schema_version,
         hitl=checkpoint.get("hitl") if isinstance(checkpoint.get("hitl"), dict) else None,
         artifacts=artifacts,

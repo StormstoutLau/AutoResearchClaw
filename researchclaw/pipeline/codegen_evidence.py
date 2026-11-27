@@ -205,6 +205,97 @@ def _basename(name: str) -> str:
     return name.replace("\\", "/").rsplit("/", 1)[-1].strip()
 
 
+_SYMBOL_KEYS = ("symbols", "required_symbols", "classes", "functions")
+
+
+def _declared_symbols(
+    blueprint: Mapping[str, Any],
+) -> list[tuple[str, str]]:
+    """Blueprint-declared ``(file, symbol)`` pairs (B-34 M4).
+
+    Only entries that also carry ``generation_order`` participate, matching
+    ``_declared_files``.  ``symbols``/``required_symbols`` accept plain
+    strings or ``{name: ...}`` mappings; ``classes``/``functions`` accept
+    strings or ``{name: ...}`` too, so all four spellings work.
+    """
+    entries = blueprint.get("files")
+    if isinstance(entries, dict):
+        entries = [
+            {**_entry, "name": _entry.get("name") or str(key)}
+            if isinstance(_entry, dict) else {"name": str(key)}
+            for key, _entry in entries.items()
+        ]
+    if not isinstance(entries, list):
+        return []
+    out: list[tuple[str, str]] = []
+    for entry in entries:
+        if not isinstance(entry, dict) or "generation_order" not in entry:
+            continue
+        file_name = _basename(next(
+            (_as_text(entry.get(key)) for key in _FILE_NAME_KEYS
+             if _as_text(entry.get(key))),
+            "",
+        ))
+        if not file_name:
+            continue
+        for key in _SYMBOL_KEYS:
+            value = entry.get(key)
+            items = value if isinstance(value, (list, tuple)) else [value]
+            for item in items:
+                if isinstance(item, str):
+                    symbol = item.strip()
+                elif isinstance(item, Mapping):
+                    symbol = _as_text(item.get("name"))
+                else:
+                    symbol = ""
+                if symbol:
+                    out.append((file_name, symbol))
+    return out
+
+
+def _defined_names(code: str) -> set[str]:
+    """Top-level and nested class/function names defined by one module."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return set()
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            names.add(node.name)
+    return names
+
+
+def check_symbol_contract(
+    blueprint: Mapping[str, Any], files: Mapping[str, str],
+) -> list[EvidenceFailure]:
+    """Declared symbols of a delivered file must exist in that file's AST.
+
+    A file-level gate cannot tell "module delivered" from "module delivered
+    but hollow"; this is the cheap structural check that closes that gap.
+    Missing files are left to ``check_declared_files`` so a single root cause
+    is not reported twice.
+    """
+    declared = _declared_symbols(blueprint)
+    if not declared:
+        return []
+    delivered = {_basename(name): code for name, code in files.items()}
+    missing: list[str] = []
+    for file_name, symbol in declared:
+        code = delivered.get(file_name)
+        if code is None:
+            continue
+        if symbol not in _defined_names(code):
+            missing.append(f"{file_name}:{symbol}")
+    if not missing:
+        return []
+    return [EvidenceFailure(
+        code="blueprint_symbols_missing",
+        detail="declared symbols not found in the delivered code: "
+        + ", ".join(sorted(set(missing))),
+    )]
+
+
 # ---------------------------------------------------------------------------
 # Individual gates
 # ---------------------------------------------------------------------------
@@ -456,6 +547,7 @@ def evaluate_stage10_evidence(
         )
     else:
         report.failures.extend(check_declared_files(blueprint, delivered))
+        report.failures.extend(check_symbol_contract(blueprint, delivered))
         declared_metric = _find_metric(blueprint) or str(metric or "")
         report.failures.extend(check_metric_consistency(declared_metric, delivered))
         warnings, synthetic = check_data_source(blueprint, delivered)

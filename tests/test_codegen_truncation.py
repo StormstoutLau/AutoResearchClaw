@@ -256,3 +256,28 @@ class TestRepairMerge:
         )
         assert calls == [8192, 32768]
         assert not resp.truncated
+
+
+class TestBlockedReportCounts:
+    """The BLOCKED report must print the repairs that actually ran."""
+
+    def test_reports_performed_repairs_not_the_limit(self) -> None:
+        report = _code_generation._blocked_validation_report(
+            {"data.py": 2}, 5, ["File data.py: repair aborted after 2 unusable responses"],
+        )
+        assert "after 2 repair attempt(s)" in report
+        assert "limit 5/file" in report
+        assert "- data.py: 2" in report
+        assert "after 5 repairs" not in report
+
+    def test_sums_across_files(self) -> None:
+        report = _code_generation._blocked_validation_report(
+            {"a.py": 1, "b.py": 3}, 5, [],
+        )
+        assert "after 4 repair attempt(s)" in report
+        assert "- a.py: 1" in report and "- b.py: 3" in report
+
+    def test_no_repairs_at_all_is_reported_as_zero(self) -> None:
+        report = _code_generation._blocked_validation_report({}, 5, ["boom"])
+        assert "after 0 repair attempt(s)" in report
+        assert "- boom" in report

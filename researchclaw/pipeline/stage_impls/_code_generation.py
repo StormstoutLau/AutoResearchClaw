@@ -22,6 +22,14 @@ from researchclaw.pipeline.codegen_evidence import (
     evaluate_stage10_evidence,
     write_evidence_report,
 )
+from researchclaw.pipeline.repair_trace import (
+    digest as _repair_digest,
+    record as _record_repair_trace,
+)
+from researchclaw.pipeline.step_journal import (
+    append_step as _append_progress_step,
+    hash_text as _progress_digest,
+)
 from researchclaw.pipeline._helpers import (
     StageResult,
     _chat_with_prompt,
@@ -56,6 +64,56 @@ def _is_parseable(code: str) -> bool:
     except SyntaxError:
         return False
     return True
+
+
+def _blocked_validation_report(
+    repair_counts: dict[str, int],
+    max_repair: int,
+    validation_log: list[str],
+) -> str:
+    """Render the BLOCKED report with the repairs that actually ran.
+
+    The header used to print ``max_repair`` (the per-file limit), so an early
+    abort after two unusable replies was reported as "after 5 repairs" — the
+    same contradiction the run-I postmortem flagged for the log lines.
+    """
+    performed = sum(int(n) for n in repair_counts.values())
+    lines = [
+        "# Code Validation Report",
+        "",
+        f"**Status**: BLOCKED — critical issues remain after {performed} "
+        f"repair attempt(s) (limit {max_repair}/file)",
+        "",
+    ]
+    if repair_counts:
+        lines.append("Repairs performed per file:")
+        lines.extend(
+            f"- {name}: {count}"
+            for name, count in sorted(repair_counts.items())
+        )
+        lines.append("")
+    lines.extend(f"- {entry}" for entry in validation_log)
+    return "\n".join(lines)
+
+
+def _journal_alignment(
+    stage_dir: Path, variant: str, status: str, text: str,
+) -> None:
+    """Record one alignment decision as a progress-only step (B-31b/B-33).
+
+    Alignment is not reusable work, so ``outputs`` is empty and
+    ``should_skip`` can never suppress a later run.
+    """
+    try:
+        _append_progress_step(
+            stage_dir,
+            step_id="alignment",
+            variant=variant,
+            status=status,
+            inputs_digest=_progress_digest(text),
+        )
+    except Exception:  # noqa: BLE001 - journal is best-effort
+        logger.debug("could not journal alignment step", exc_info=True)
 
 
 def _extract_valid_repair_files(
@@ -228,6 +286,17 @@ def _ensure_entrypoint(
         (exp_dir / "main.py").write_text(code, encoding="utf-8")
     except OSError as exc:
         logger.warning("Stage 10: could not write generated main.py: %s", exc)
+    try:
+        _append_progress_step(
+            exp_dir.parent,
+            step_id="entrypoint",
+            variant="stage",
+            status="done",
+            inputs_digest=_progress_digest(topic + "\n---\n" + metric),
+            outputs={"main.py": _progress_digest(code)},
+        )
+    except Exception:  # noqa: BLE001 - journal is best-effort
+        logger.debug("could not journal stage entrypoint", exc_info=True)
     return files
 
 
@@ -1286,6 +1355,10 @@ def _execute_code_generation(
     # --- Validate each file + auto-repair loop ---
     all_valid = True
     attempt = 0
+    # Actual repairs performed per file; ``max_repair`` is only the limit.
+    # The report used to print the limit, so an early abort (2 unusable
+    # responses) was reported as "after 5 repairs".
+    repair_counts: dict[str, int] = {}
     for fname, code in list(files.items()):
         # Skip non-Python files (requirements.txt, setup.py, etc.)
         if not fname.endswith(".py"):
@@ -1298,6 +1371,7 @@ def _execute_code_generation(
         while not validation.ok and llm is not None and repair_attempt < max_repair:
             repair_attempt += 1
             attempt += 1
+            repair_counts[fname] = repair_attempt
             # Only send errors to the LLM — warnings don't block validation
             # and confuse the LLM into over-correcting (e.g. removing runtime imports)
             errors_only = type(validation)(
@@ -1314,6 +1388,15 @@ def _execute_code_generation(
                 max_repair,
                 validation.summary(),
             )
+            _record_repair_trace(
+                stage_dir,
+                phase="validation_failed",
+                file=fname,
+                attempt=repair_attempt,
+                max_attempts=max_repair,
+                error_summary=validation.summary(),
+                errors=validation.issues,
+            )
             all_files_ctx = "\n\n".join(
                 f"```filename:{f}\n{c}\n```" for f, c in files.items()
             )
@@ -1325,22 +1408,76 @@ def _execute_code_generation(
             )
             resp = _chat_with_prompt(llm, rp.system, rp.user)
             _repaired = _extract_code_block(resp.content)
+            _record_repair_trace(
+                stage_dir,
+                phase="repair_request",
+                file=fname,
+                attempt=repair_attempt,
+                max_attempts=max_repair,
+                prompt=rp.user,
+                response=resp.content,
+                model=str(getattr(resp, "model", "") or ""),
+                truncated=getattr(resp, "truncated", None),
+                extra={
+                    "issues_text_sha256": _repair_digest(issues_text),
+                    "issues_text_chars": len(issues_text),
+                },
+            )
             if _repaired.strip() and _is_parseable(_repaired):
                 files[fname] = _repaired
                 invalid_returns = 0
+                _record_repair_trace(
+                    stage_dir,
+                    phase="repair_accepted",
+                    file=fname,
+                    attempt=repair_attempt,
+                    max_attempts=max_repair,
+                    accepted=[fname],
+                )
             elif _repaired.strip():
                 invalid_returns += 1
                 logger.warning(
                     "Repair attempt returned invalid Python for %s, keeping original",
                     fname,
                 )
+                _record_repair_trace(
+                    stage_dir,
+                    phase="repair_rejected",
+                    file=fname,
+                    attempt=repair_attempt,
+                    max_attempts=max_repair,
+                    reason=(
+                        "truncated"
+                        if getattr(resp, "truncated", False)
+                        else "invalid_python"
+                    ),
+                    rejected=[fname],
+                )
             else:
                 invalid_returns += 1
                 logger.warning("Repair attempt returned empty code, keeping original")
+                _record_repair_trace(
+                    stage_dir,
+                    phase="repair_rejected",
+                    file=fname,
+                    attempt=repair_attempt,
+                    max_attempts=max_repair,
+                    reason="empty",
+                    rejected=[fname],
+                )
             if invalid_returns >= 2:
                 logger.error(
                     "Repair aborted for %s after %d unusable response(s)",
                     fname, invalid_returns,
+                )
+                _record_repair_trace(
+                    stage_dir,
+                    phase="repair_aborted",
+                    file=fname,
+                    attempt=repair_attempt,
+                    max_attempts=max_repair,
+                    reason="unusable_responses",
+                    extra={"invalid_returns": invalid_returns},
                 )
                 validation_log.append(
                     f"File {fname}: repair aborted after {invalid_returns} "
@@ -1350,10 +1487,11 @@ def _execute_code_generation(
             validation = validate_code(files[fname])
         if not validation.ok:
             all_valid = False
-            # BUG-14: Log remaining issues prominently
+            # BUG-14: Log remaining issues prominently.  Report the repairs
+            # that actually ran for this file, not the configured limit.
             logger.warning(
-                "Code validation FAILED for %s after %d repair attempts: %s",
-                fname, max_repair, validation.summary(),
+                "Code validation FAILED for %s after %d repair attempt(s): %s",
+                fname, repair_counts.get(fname, 0), validation.summary(),
             )
 
     # Improvement G: RL algorithm-environment compatibility check
@@ -1379,14 +1517,14 @@ def _execute_code_generation(
                     ):
                         _has_critical = True
         if _has_critical:
+            _performed = sum(repair_counts.values())
             logger.error(
                 "Stage 10: CRITICAL validation issues remain after %d repair "
-                "attempts. Blocking stage.", max_repair,
+                "attempt(s) (limit %d/file). Blocking stage.",
+                _performed, max_repair,
             )
             (stage_dir / "validation_report.md").write_text(
-                "# Code Validation Report\n\n"
-                f"**Status**: BLOCKED — critical issues remain after {max_repair} repairs\n\n"
-                + "\n".join(f"- {e}" for e in validation_log),
+                _blocked_validation_report(repair_counts, max_repair, validation_log),
                 encoding="utf-8",
             )
             return StageResult(
@@ -1545,6 +1683,17 @@ def _execute_code_generation(
                 max_tokens=_code_max_tokens,
             )
             repaired = _extract_valid_repair_files(repair_resp.content, set(files))
+            _record_repair_trace(
+                stage_dir,
+                phase="project_repair",
+                prompt=repair_prompt,
+                response=repair_resp.content,
+                model=str(getattr(repair_resp, "model", "") or ""),
+                truncated=getattr(repair_resp, "truncated", None),
+                accepted=sorted(repaired),
+                rejected=sorted(set(files) - set(repaired)),
+                reason="merged" if repaired else "no_valid_file",
+            )
             if repaired:
                 files = _merge_repair_files(files, repaired)
                 for fname, code in files.items():
@@ -1810,6 +1959,8 @@ def _execute_code_generation(
                 alignment_ok = False
                 alignment_note = align_data.get("reason", "Misaligned")
                 suggestions = align_data.get("suggestions", "")
+                _journal_alignment(stage_dir, "initial", "misaligned",
+                                   all_code_for_check)
                 logger.warning(
                     "Stage 10: Topic-experiment MISALIGNMENT detected: %s",
                     alignment_note,
@@ -1897,6 +2048,10 @@ def _execute_code_generation(
                     if isinstance(recheck_data, dict) and recheck_data.get("aligned", False):
                         alignment_ok = True
                         alignment_note = f"Regenerated after alignment check (attempt {_regen_attempt})"
+                        _journal_alignment(
+                            stage_dir, f"regen-{_regen_attempt}", "done",
+                            recheck_code,
+                        )
                         logger.info(
                             "Stage 10: Code aligned after regen attempt %d",
                             _regen_attempt,
@@ -1905,12 +2060,18 @@ def _execute_code_generation(
                     else:
                         alignment_note = recheck_data.get("reason", alignment_note)
                         suggestions = recheck_data.get("suggestions", suggestions)
+                        _journal_alignment(
+                            stage_dir, f"regen-{_regen_attempt}", "misaligned",
+                            recheck_code,
+                        )
                         logger.warning(
                             "Stage 10: Regen attempt %d still misaligned: %s",
                             _regen_attempt, alignment_note,
                         )
         except Exception as exc:
             logger.debug("Alignment check failed: %s", exc)
+        if alignment_ok and not alignment_note:
+            _journal_alignment(stage_dir, "initial", "done", all_code_for_check)
 
     # --- FIX-7: Ablation distinctness check ---
     main_code = files.get("main.py", "")

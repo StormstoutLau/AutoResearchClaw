@@ -253,15 +253,25 @@ def _write_stage_start(run_dir: Path, stage: Stage, run_id: str) -> None:
 
 
 def _write_heartbeat(run_dir: Path, stage: Stage, run_id: str) -> None:
-    """Write heartbeat file for sentinel watchdog monitoring (atomic, P-027)."""
+    """Write heartbeat file for sentinel watchdog monitoring (atomic, P-027).
+
+    B-31b: the in-stage ``ProgressKeeper`` writes the same file every 30 s;
+    this completion write flips ``status`` to ``done`` and keeps ``timestamp``
+    for older readers.
+    """
     import os
 
+    now = _utcnow_iso()
     heartbeat = {
         "pid": os.getpid(),
         "last_stage": int(stage),
         "last_stage_name": stage.name,
+        "stage": int(stage),
+        "stage_name": stage.name,
+        "status": "done",
         "run_id": run_id,
-        "timestamp": _utcnow_iso(),
+        "updated_at": now,
+        "timestamp": now,
     }
     target = run_dir / "heartbeat.json"
     fd, tmp_path = tempfile.mkstemp(dir=run_dir, suffix=".tmp", prefix="heartbeat_")
@@ -868,14 +878,34 @@ def execute_pipeline(
         t0 = _time.monotonic()
         _stage_started_at = _utcnow_iso()
 
-        result = execute_stage(
-            stage,
-            run_dir=run_dir,
-            run_id=run_id,
-            config=config,
-            adapters=adapters,
-            auto_approve_gates=auto_approve_gates,
-        )
+        # B-31b: keep heartbeat.json fresh while the stage runs; without this
+        # the file only changed on DONE and a healthy long stage looked dead.
+        progress_keeper = None
+        try:
+            from researchclaw.runtime.progress import ProgressKeeper
+
+            progress_keeper = ProgressKeeper(
+                run_dir, run_id, stage, stage.name,
+                stage_dir=run_dir / f"stage-{stage_num:02d}",
+            ).start()
+        except Exception:  # noqa: BLE001 - observability must not break a run
+            logger.warning("progress keeper failed to start", exc_info=True)
+
+        try:
+            result = execute_stage(
+                stage,
+                run_dir=run_dir,
+                run_id=run_id,
+                config=config,
+                adapters=adapters,
+                auto_approve_gates=auto_approve_gates,
+            )
+        finally:
+            if progress_keeper is not None:
+                try:
+                    progress_keeper.stop()
+                except Exception:  # noqa: BLE001 - never mask the stage result
+                    logger.debug("progress keeper stop failed", exc_info=True)
         elapsed = _time.monotonic() - t0
 
         # G3 M4: a paused/blocked stage may hand back, but never widen scope (A3-8).

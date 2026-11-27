@@ -34,6 +34,7 @@ from typing import Any, Protocol
 
 from researchclaw.config import CodeAgentConfig
 from researchclaw.pipeline._helpers import _close_unterminated_fence
+from researchclaw.pipeline.repair_trace import record as _record_repair_trace
 from researchclaw.pipeline.entrypoint_contract import (
     ENTRYPOINT_MAX_TOKENS,
     ENTRYPOINT_RETRY_MAX_TOKENS,
@@ -92,6 +93,21 @@ _YAML_REPAIR_SUFFIX = (
     "- Output exactly one ```yaml fenced block and nothing else.\n"
     "- Quote every list-item value that ends with ':' or contains ': '.\n"
     "- Keep the same keys, file names and generation_order values.\n"
+)
+
+# B-34 M4: modules whose job is wiring/formatting rather than algorithm
+# design.  These get a lower thinking effort so the budget goes to code.
+_MECHANICAL_FILE_HINTS = (
+    "config",
+    "settings",
+    "constants",
+    "schema",
+    "types",
+    "utils",
+    "util",
+    "cli",
+    "io",
+    "loader",
 )
 
 
@@ -283,6 +299,8 @@ class CodeAgent:
         max_tokens: int = 8192,
     ) -> CodeAgentResult:
         """Execute all enabled phases and return generated files."""
+        from researchclaw.pipeline.step_journal import hash_text
+
         t0 = time.time()
         self._log_event("CodeAgent.generate() started")
 
@@ -347,6 +365,16 @@ class CodeAgent:
             files = self._phase2_generate_and_fix(
                 topic, exp_plan, metric, pkg_hint, arch_spec, max_tokens,
             )
+            if files:
+                self._journal_progress_step(
+                    "generate_project",
+                    variant="single",
+                    status="done",
+                    inputs_digest=_blueprint_inputs_digest(topic, exp_plan, metric),
+                    outputs={
+                        name: hash_text(code) for name, code in files.items()
+                    },
+                )
             # Hard validation gates (E-03) for single-shot too
             if self._cfg.hard_validation and files:
                 files = self._hard_validate_and_repair(
@@ -589,6 +617,50 @@ class CodeAgent:
                 "could not journal failed module %s: %s", file_name, exc,
             )
 
+    def _journal_progress_step(
+        self,
+        step_id: str,
+        *,
+        variant: str = "",
+        status: str = "done",
+        inputs_digest: str = "",
+        outputs: dict[str, str] | None = None,
+        model: str = "",
+        elapsed_sec: float = 0.0,
+        prompt_version: str = "",
+    ) -> None:
+        """Append a progress row to ``steps.jsonl`` (B-33 ledger).
+
+        Progress rows without outputs are intentionally not reusable
+        (``should_skip`` requires a non-empty output map), so recording a
+        validation round can never make a later run skip real work.
+        """
+        from researchclaw.pipeline.step_journal import append_step
+
+        try:
+            append_step(
+                self._stage_dir,
+                step_id=step_id,
+                variant=variant,
+                status=status,
+                inputs_digest=inputs_digest,
+                outputs=outputs or {},
+                model=model,
+                elapsed_sec=elapsed_sec,
+                prompt_version=prompt_version,
+            )
+        except Exception as exc:  # noqa: BLE001 - journal is best-effort
+            self._log_event(f"  WARNING: could not journal {step_id}: {exc}")
+
+    @staticmethod
+    def _files_digest(files: dict[str, str]) -> str:
+        from researchclaw.pipeline.step_journal import hash_text
+
+        joined = "\n---\n".join(
+            f"{name}:{hash_text(code)}" for name, code in sorted(files.items())
+        )
+        return hash_text(joined)
+
     def _persist_blueprint(
         self,
         arch_spec: str,
@@ -782,6 +854,38 @@ class CodeAgent:
 
     # ── Phase 2a: Sequential File Generation ─────────────────────────────
 
+    @staticmethod
+    def _is_mechanical_module(file_name: str) -> bool:
+        """Wiring/formatting modules need less reasoning than algorithms."""
+        stem = file_name.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower()
+        return any(hint in stem for hint in _MECHANICAL_FILE_HINTS)
+
+    def _module_line_budget(self, file_spec: dict[str, Any]) -> int:
+        """Line budget for one module: blueprint value, else config default."""
+        raw = file_spec.get("max_lines")
+        try:
+            value = int(raw) if raw is not None else int(self._cfg.file_max_lines)
+        except (TypeError, ValueError):
+            value = int(self._cfg.file_max_lines)
+        return max(40, value)
+
+    def _thinking_extra(self, file_name: str) -> dict[str, Any]:
+        """Per-module thinking controls (B-34 M4).
+
+        Returns ``{}`` unless ``thinking_policy == "tiered"``, so the default
+        stays byte-identical for providers that reject unknown body keys.
+        """
+        policy = str(getattr(self._cfg, "thinking_policy", "off") or "off")
+        if policy != "tiered":
+            return {}
+        if self._is_mechanical_module(file_name):
+            effort = str(
+                getattr(self._cfg, "thinking_mechanical_effort", "") or ""
+            )
+            return {"reasoning_effort": effort} if effort else {}
+        limit = int(getattr(self._cfg, "thinking_core_max_tokens", 0) or 0)
+        return {"reasoning": {"max_tokens": limit}} if limit > 0 else {}
+
     def _phase2_sequential_generate(
         self,
         topic: str,
@@ -796,6 +900,8 @@ class CodeAgent:
 
         generated_files: dict[str, str] = {}
         code_memory: dict[str, dict[str, Any]] = {}  # CodeMem summaries
+
+        from researchclaw.pipeline.step_journal import hash_text
 
         # Sort files by generation_order
         file_specs = blueprint.get("files", [])
@@ -817,6 +923,7 @@ class CodeAgent:
                 f"  Generating {file_name} "
                 f"(order={file_spec.get('generation_order')})"
             )
+            file_t0 = time.time()
 
             # Build dependency context
             deps = file_spec.get("dependencies", [])
@@ -856,13 +963,35 @@ class CodeAgent:
                 exp_plan=exp_plan[:4000],  # Truncate to avoid token overflow
                 pkg_hint=pkg_hint,
             )
-            resp = self._chat(sp.system, sp.user, max_tokens=8192)
+            # B-34 M4: advertise a line budget and pick a thinking tier.
+            _line_budget = self._module_line_budget(file_spec)
+            _budget_note = (
+                f"\n\nBUDGET: keep this file at or under {_line_budget} lines. "
+                "If the design needs more, stop at a coherent, runnable "
+                "subset rather than truncating mid-statement."
+            )
+            sp = type(sp)(
+                system=sp.system,
+                user=sp.user + _budget_note,
+                version=getattr(sp, "version", ""),
+            )
+            _extra_body = self._thinking_extra(file_name)
+            _extra_kwargs = {"extra_body": _extra_body} if _extra_body else {}
+            if _extra_body:
+                self._log_event(
+                    f"  {file_name}: thinking tier {_extra_body}"
+                )
+            resp = self._chat(
+                sp.system, sp.user, max_tokens=8192, **_extra_kwargs,
+            )
             budget = 8192
             if getattr(resp, "truncated", False):
                 self._log_event(
                     f"  {file_name}: truncated — retrying with 32768"
                 )
-                resp = self._chat(sp.system, sp.user, max_tokens=32768)
+                resp = self._chat(
+                    sp.system, sp.user, max_tokens=32768, **_extra_kwargs,
+                )
                 budget = 32768
 
             # Extract code from response.  M1-a closes an unterminated fence
@@ -907,6 +1036,21 @@ class CodeAgent:
 
             generated_files[file_name] = code
 
+            # B-33 L1 extension: a successful module used to be invisible in
+            # steps.jsonl (only failures were journalled), so a 40-minute
+            # Phase 2 looked identical to a dead run.  Progress rows carry
+            # digests only (I-2).
+            self._journal_progress_step(
+                "generate_file",
+                variant=file_name,
+                status="done",
+                inputs_digest=hash_text(file_spec_str + "\n---\n" + dep_code),
+                outputs={file_name: hash_text(code)},
+                model=str(getattr(resp, "model", "") or ""),
+                elapsed_sec=time.time() - file_t0,
+                prompt_version=getattr(sp, "version", ""),
+            )
+
             # Build CodeMem summary via AST
             code_memory[file_name] = self._build_code_summary(
                 file_name, code,
@@ -925,11 +1069,20 @@ class CodeAgent:
             self._log_event(
                 "  WARNING: No main.py generated — requesting dedicated entrypoint"
             )
+            entry_t0 = time.time()
             entry = self._generate_entrypoint_file(
                 topic, exp_plan, metric, generated_files,
             )
             if entry:
                 generated_files["main.py"] = entry
+                self._journal_progress_step(
+                    "entrypoint",
+                    variant="dedicated",
+                    status="done",
+                    inputs_digest=hash_text(topic + "\n---\n" + metric),
+                    outputs={"main.py": hash_text(entry)},
+                    elapsed_sec=time.time() - entry_t0,
+                )
                 self._log_event(
                     f"  Dedicated entrypoint generated: "
                     f"{len(entry.split(chr(10)))} lines"
@@ -1096,7 +1249,18 @@ class CodeAgent:
         self._log_event("Phase 2.5: Hard validation gates")
 
         for attempt in range(self._cfg.hard_validation_max_repairs + 1):
+            round_t0 = time.time()
             critical, warnings = self._hard_validate(files)
+            # Progress-only row: the validation round completed (status reflects
+            # whether critical issues remain).  Empty outputs keep it out of
+            # should_skip, so it can never suppress real work.
+            self._journal_progress_step(
+                "hard_validation",
+                variant=f"attempt-{attempt}",
+                status="done" if not critical else "failed",
+                inputs_digest=self._files_digest(files),
+                elapsed_sec=time.time() - round_t0,
+            )
 
             # Log warnings
             for w in warnings:
@@ -1125,6 +1289,8 @@ class CodeAgent:
             # Targeted repair: ask LLM to fix specific critical issues
             files = self._repair_critical_issues(
                 files, critical, topic, exp_plan, metric, arch_spec,
+                attempt=attempt,
+                max_attempts=self._cfg.hard_validation_max_repairs,
             )
 
         return files
@@ -1302,9 +1468,20 @@ class CodeAgent:
         exp_plan: str,
         metric: str,
         arch_spec: str,
+        *,
+        attempt: int = 0,
+        max_attempts: int = 0,
     ) -> dict[str, str]:
         """Ask LLM to fix critical validation issues."""
         self._log_event("  Targeted repair for critical issues")
+        _record_repair_trace(
+            self._stage_dir,
+            phase="agent_validation_failed",
+            attempt=attempt,
+            max_attempts=max_attempts,
+            error_summary=f"{len(critical_issues)} CRITICAL issue(s)",
+            extra={"issues": [str(i)[:300] for i in critical_issues[:20]]},
+        )
 
         # Identify which files need repair
         affected_files: set[str] = set()
@@ -1348,6 +1525,19 @@ class CodeAgent:
         resp = self._chat(sys_prompt, prompt, max_tokens=16384)
 
         fixed = self._extract_files(resp.content)
+        _record_repair_trace(
+            self._stage_dir,
+            phase="agent_repair",
+            attempt=attempt,
+            max_attempts=max_attempts,
+            prompt=prompt,
+            response=resp.content,
+            model=str(getattr(resp, "model", "") or ""),
+            truncated=getattr(resp, "truncated", None),
+            accepted=sorted(fixed),
+            rejected=sorted(set(files) - set(fixed)),
+            reason="merged" if fixed else "no_extractable_file",
+        )
         if fixed:
             merged = dict(files)
             merged.update(fixed)
@@ -1807,15 +1997,24 @@ class CodeAgent:
 
     # ── Helpers ────────────────────────────────────────────────────────────
 
-    def _chat(self, system: str, user: str, max_tokens: int = 8192) -> Any:
+    def _chat(
+        self,
+        system: str,
+        user: str,
+        max_tokens: int = 8192,
+        extra_body: dict[str, Any] | None = None,
+    ) -> Any:
         """Make an LLM call and track count."""
         self._calls += 1
         messages = [{"role": "user", "content": user}]
-        return self._llm.chat(
-            messages=messages,
-            system=system,
-            max_tokens=max_tokens,
-        )
+        kwargs: dict[str, Any] = {
+            "messages": messages,
+            "system": system,
+            "max_tokens": max_tokens,
+        }
+        if extra_body:
+            kwargs["extra_body"] = extra_body
+        return self._llm.chat(**kwargs)
 
     def _get_or_create_sandbox(self) -> _SandboxLike:
         """Lazily create a single sandbox instance for all validation runs."""

@@ -313,6 +313,7 @@ class LLMClient:
         stage: int = 0,
         attempts: int = 0,
         gate: str = "",
+        extra_body: dict[str, Any] | None = None,
     ) -> LLMResponse:
         """Send a chat completion request with retry and fallback.
 
@@ -331,6 +332,13 @@ class LLMClient:
                 ``strip_thinking_tags`` returns clean input unchanged, so
                 enabling this on a response with no reasoning markers is a
                 no-op. Pass False only to keep the trace deliberately.
+            extra_body: Additional request-body keys merged verbatim into the
+                chat-completions payload (B-34 M4).  Used for provider-specific
+                thinking controls such as ``reasoning_effort``,
+                ``chat_template_kwargs`` or ``reasoning.max_tokens``.  Only the
+                OpenAI-compatible path forwards it, and callers must keep it
+                empty unless the endpoint is known to accept those keys —
+                a strict provider answers 400 for unknown fields.
 
         Returns:
             LLMResponse with content and metadata.
@@ -376,9 +384,16 @@ class LLMClient:
         for m in models:
             try:
                 with self._inflight_guard():
-                    resp = self._call_with_retry(
-                        m, messages, max_tok, temp, json_mode
-                    )
+                    # Pass the 6th argument only when it is actually used, so
+                    # existing single-call test doubles keep working.
+                    if extra_body:
+                        resp = self._call_with_retry(
+                            m, messages, max_tok, temp, json_mode, extra_body,
+                        )
+                    else:
+                        resp = self._call_with_retry(
+                            m, messages, max_tok, temp, json_mode
+                        )
                 if strip_thinking:
                     from researchclaw.utils.thinking_tags import strip_thinking_tags
 
@@ -564,12 +579,18 @@ class LLMClient:
         max_tokens: int,
         temperature: float,
         json_mode: bool,
+        extra_body: dict[str, Any] | None = None,
     ) -> LLMResponse:
         """Call with exponential backoff retry."""
         last_exc: Exception | None = None
         for attempt in range(self.config.max_retries):
             is_last_attempt = attempt >= self.config.max_retries - 1
             try:
+                if extra_body:
+                    return self._raw_call(
+                        model, messages, max_tokens, temperature, json_mode,
+                        extra_body,
+                    )
                 return self._raw_call(
                     model, messages, max_tokens, temperature, json_mode
                 )
@@ -674,6 +695,7 @@ class LLMClient:
         max_tokens: int,
         temperature: float,
         json_mode: bool,
+        extra_body: dict[str, Any] | None = None,
     ) -> LLMResponse:
         """Make a single API call."""
 
@@ -745,6 +767,12 @@ class LLMClient:
                         msgs.insert(0, {"role": "system", "content": _json_hint})
                 else:
                     body["response_format"] = {"type": "json_object"}
+
+            # B-34 M4: provider-specific thinking controls (reasoning_effort,
+            # chat_template_kwargs, reasoning.max_tokens …).  Merged last so a
+            # caller can also override e.g. max_tokens for one call.
+            if extra_body:
+                body.update(extra_body)
 
             payload = json.dumps(body).encode("utf-8")
             url = self._endpoint_url(self.config.base_url)
