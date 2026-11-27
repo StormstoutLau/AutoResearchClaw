@@ -1,7 +1,7 @@
 ---
 id: arc-stage10-repair-quality-IMPLEMENTATION
 type: design
-version: 1.3
+version: 1.4
 status: verified
 date: 2026-11-27
 depends: [arc-stage10-repair-quality-DESIGN]
@@ -11,6 +11,7 @@ upstream: arc-stage10-repair-quality-DESIGN
 > v1.1（2026-11-27，P-213 续）：部署首跑发现 **CodeAgent 的 `_repair_critical_issues` 是第三个 repair 站点**（P0 初版只覆盖 `_code_generation`），已补两处事件与 2 例测试。
 > v1.2（2026-11-27，P-214）：部署后在 B 站重跑 Stage 10（运行 I），把 7 行现场 trace 与三问答案写入 §6；C-12 现场关闭。
 > v1.3（2026-11-27，P-216）：运行 I 终态（attempt 3 失败）与两处状态矛盾的修复写入 §7（`decision.json` 不再在失败态写 `proceed`；`validation_report.md` 改为实际 repair 次数）。
+> v1.4（2026-11-27，P-220）：运行 J 暴露 `Deep repair fixed -14/3` 负计数，补 §8（按集合计数并报告剩余）。
 
 # 实施记录：B-36 P0（repair 取证）
 
@@ -150,3 +151,19 @@ python -m pytest tests/test_repair_trace.py tests/test_code_agent.py \
 **测试**：`tests/test_codegen_truncation.py::TestBlockedReportCounts` 3 例（实际次数字面量、跨文件求和、零次）；`tests/test_rc_executor.py` 2 例（失败态不再写 `proceed`、显式 `abort` 保留）。相关回归 357 passed（六文件）。
 
 **仍存的同源问题（未在本批修）**：CodeAgent 的 `Max repair attempts reached` 与 `fixed x/y` 仍各有独立口径（属 P2「计数与止损统一」）；`validation_report.md` 的 PASSED/FAILED 分支仍用跨文件累计 `attempt`（语义正确，但与 BLOCKED 分支的措辞不统一）。
+
+## 8. `Deep repair fixed -14/3` 负计数（P-220）
+
+**现场**：运行 J attempt 2 的日志写 `Stage 10: Deep repair fixed -14/3 critical issues`，`code_complexity.json` 同样记录负数。修复后 critical 从 3 条变成 17 条（模型重写文件触发了新的检查项），而计数器用「修复前条数 − 修复后条数」求差。
+
+**修法**：
+
+| 改动 | 说明 |
+|---|---|
+| 抽出 `_DEEP_CRITICAL_KEYWORDS` 常量 | 原先同一份关键词表在「修复前/修复后」各写一遍，易漂移 |
+| 新增 `_critical_deep(warnings)` / `_deep_repair_counts(before, after)` | 纯函数；`fixed = max(0, 修复前 − 剩余)`，`remaining` 单独返回 |
+| 日志与 `code_complexity.json` | 改为 `fixed %d of %d (%d remain)`，不再出现负数 |
+
+**测试**：`TestDeepRepairCounts` 3 例（正常收敛、增加时钳到 0 且余量正确、非 critical 警告不计）；`tests/test_codegen_truncation.py` 20 passed，`test_rc_stages.py` 84 passed。
+
+**边界**：只改计数呈现；repair 行为、阈值与关键词集合未变（`copy-paste` 仍按小写匹配，与既有门一致）。

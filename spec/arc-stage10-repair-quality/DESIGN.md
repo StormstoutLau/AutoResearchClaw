@@ -1,7 +1,7 @@
 ---
 id: arc-stage10-repair-quality-DESIGN
 type: design
-version: 1.2
+version: 1.3
 status: verified
 date: 2026-11-27
 depends: [arc-stage10-repair-quality-RESEARCH]
@@ -12,6 +12,7 @@ upstream: arc-stage10-repair-quality-RESEARCH
 
 > v1.1（2026-11-27，P-214）：`repair_rejected.reason` 增 `truncated`（优先于 `invalid_python`）；`repair_request.extra` 增 `issues_text_sha256/chars`，使「错误文本是否进 prompt」可直接对照。
 > v1.2（2026-11-27，P-216）：运行 I 终态暴露两处状态矛盾，补 D-8（报告写实际 repair 次数）与 D-9（失败态不写 `proceed`）。
+> v1.3（2026-11-27，P-220）：补 D-10（深修计数按集合求差并钳到 0，余量单独报告）。
 > 本文件只覆盖 **P0 取证**；P1..P3（错误闭环、计数统一、fixture 回归）仍为 draft，见 RESEARCH §4。
 
 ## 1. 决策
@@ -27,6 +28,7 @@ upstream: arc-stage10-repair-quality-RESEARCH
 | D-7 | 不改 repair 的提示、预算、止损阈值 | 顺手优化 | P0 只取证；行为变更需 P1/P2 的单独验收 |
 | D-8 | 报告计数 = **实际执行**的 repair 次数（含逐文件明细），每文件上限只作附注 | 沿用 `max_repair` | 提前 abort（2 次不可用响应）时报告写「after 5 repairs」，与日志的 `invalid_returns` 自相矛盾；计数必须同源 |
 | D-9 | `decision.json` 的 `decision` 在非 DONE 状态不得为默认 `proceed`：默认值改写为 `status.value`，显式 decision（`abort`/`resume`/`degraded`）原样保留 | 直接删 `decision` 字段 | `StageResult.decision` 默认 `proceed`，失败阶段因此写出 `{"status":"failed","decision":"proceed"}`；删字段会破坏 schema 与既有 `resume` 断言 |
+| D-10 | 深修计数 `fixed = max(0, before − remaining)`，余量单独报告 | 保留 `before − after` 差值 | 修复可能引入新警告，运行 J 出现 `fixed -14/3`；负的「已修复数」比不报告更误导 |
 
 ## 2. 接口
 

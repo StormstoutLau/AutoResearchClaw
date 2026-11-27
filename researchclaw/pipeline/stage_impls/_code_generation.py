@@ -307,6 +307,42 @@ _CONTINUOUS_ENVS = {
     "mountaincarcontinuous", "lunarlander-continuous",
 }
 
+# Deep-validation warnings that block delivery (P-220).  Kept in one place so
+# the "before" and "after repair" counts cannot drift apart.
+_DEEP_CRITICAL_KEYWORDS = (
+    "UnboundLocalError", "unregistered", "does not exist",
+    "empty or trivial subclass", "does NOT override",
+    "Import-usage mismatch", "NameError",
+    "was removed", "ptp()",
+    "copy-paste", "identical method signatures",
+    "identical AST", "NOT a real ablation",
+    "shadows stdlib/pip",
+)
+
+
+def _critical_deep(warnings: list[str]) -> list[str]:
+    """Subset of deep-validation warnings that must be repaired."""
+    return [
+        w for w in warnings
+        if any(keyword in w for keyword in _DEEP_CRITICAL_KEYWORDS)
+    ]
+
+
+def _deep_repair_counts(
+    before: list[str], after: list[str],
+) -> tuple[int, int]:
+    """``(fixed, remaining)`` after one deep-repair cycle.
+
+    A repair can *introduce* warnings (the model rewrites a file and trips a
+    new check), so ``len(before) - len(after)`` went negative in run J
+    (``fixed -14/3``).  ``fixed`` is clamped at 0 and ``remaining`` is
+    reported separately instead of pretending the delta is a success count.
+    """
+    before_critical = _critical_deep(before)
+    remaining = len(_critical_deep(after))
+    fixed = max(0, len(before_critical) - remaining)
+    return fixed, remaining
+
 
 def _execute_collider_plan_generation(
     stage_dir: Path,
@@ -1628,15 +1664,7 @@ def _execute_code_generation(
     complexity_warnings.extend(deep_warnings)
 
     # --- P1.2: If critical deep issues found, attempt one repair cycle ---
-    critical_deep = [w for w in deep_warnings if any(
-        kw in w for kw in ("UnboundLocalError", "unregistered", "does not exist",
-                           "empty or trivial subclass", "does NOT override",
-                           "Import-usage mismatch", "NameError",
-                           "was removed", "ptp()",
-                           "copy-paste", "identical method signatures",
-                           "identical AST", "NOT a real ablation",
-                           "shadows stdlib/pip")
-    )]
+    critical_deep = _critical_deep(deep_warnings)
     if critical_deep and llm is not None:
         logger.info(
             "Stage 10: %d critical code issues found — triggering repair cycle",
@@ -1704,25 +1732,17 @@ def _execute_code_generation(
                 )
                 # Re-check after repair
                 deep_warnings_after = deep_validate_files(files)
-                fixed = len(critical_deep) - len([
-                    w for w in deep_warnings_after
-                    if any(kw in w for kw in (
-                        "UnboundLocalError", "unregistered", "does not exist",
-                        "empty or trivial subclass", "does NOT override",
-                        "Import-usage mismatch", "NameError",
-                        "was removed", "ptp()",
-                        "copy-paste", "identical method signatures",
-                        "identical AST", "NOT a real ablation",
-                        "shadows stdlib/pip",
-                    ))
-                ])
+                fixed, remaining = _deep_repair_counts(
+                    deep_warnings, deep_warnings_after,
+                )
                 logger.info(
-                    "Stage 10: Deep repair fixed %d/%d critical issues",
-                    fixed, len(critical_deep),
+                    "Stage 10: Deep repair fixed %d of %d critical issues "
+                    "(%d remain)",
+                    fixed, len(critical_deep), remaining,
                 )
                 complexity_warnings.append(
                     f"[REPAIR] Deep repair fixed {fixed}/{len(critical_deep)} "
-                    f"critical issues"
+                    f"critical issues ({remaining} remain)"
                 )
         except Exception as exc:
             logger.debug("Deep repair failed: %s", exc)

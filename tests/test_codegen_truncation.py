@@ -281,3 +281,28 @@ class TestBlockedReportCounts:
         report = _code_generation._blocked_validation_report({}, 5, ["boom"])
         assert "after 0 repair attempt(s)" in report
         assert "- boom" in report
+
+
+class TestDeepRepairCounts:
+    """P-220: a repair that adds warnings must not report a negative count."""
+
+    def test_reduction_is_counted(self) -> None:
+        before = ["[a.py] Variable 'x' ... UnboundLocalError", "clean warning"]
+        after = ["clean warning"]
+        assert _code_generation._deep_repair_counts(before, after) == (1, 0)
+
+    def test_increase_is_clamped_to_zero(self) -> None:
+        before = ["[a.py] UnboundLocalError risk"]
+        after = [
+            "[a.py] UnboundLocalError risk",
+            "[b.py] copy-paste ablation detected",
+            "[c.py] shadows stdlib/pip",
+        ]
+        fixed, remaining = _code_generation._deep_repair_counts(before, after)
+        assert fixed == 0
+        assert remaining == 3
+
+    def test_non_critical_warnings_do_not_count(self) -> None:
+        before = ["[a.py] very long function"]
+        after = ["[a.py] very long function", "[b.py] deeply nested"]
+        assert _code_generation._deep_repair_counts(before, after) == (0, 0)

@@ -1,7 +1,7 @@
 ---
 id: arc-stage10-repair-quality-CHECKLIST
 type: design
-version: 1.3
+version: 1.4
 status: accepted
 date: 2026-11-27
 depends: [arc-stage10-repair-quality-IMPLEMENTATION]
@@ -11,6 +11,7 @@ upstream: arc-stage10-repair-quality-IMPLEMENTATION
 > v1.1（2026-11-27，P-213 续）：C-9 扩为三个 repair 站点；新增 C-13（agent 站点两事件）；算术 11→13。
 > v1.2（2026-11-27，P-214）：C-12 由运行 I（部署后首跑）现场关闭——5/6 类事件实际出现，`repair_aborted` 因第 2 次修复即被接受而未触发。
 > v1.3（2026-11-27，P-216）：新增 C-14（报告写实际 repair 次数）与 C-15（失败态不写 `proceed`）；算术 13→15。
+> v1.4（2026-11-27，P-220）：新增 C-16（深修计数不为负、余量单独报告）；算术 15→16。
 
 # 验收清单：B-36 P0（repair 取证）
 
@@ -31,6 +32,7 @@ upstream: arc-stage10-repair-quality-IMPLEMENTATION
 | C-13 | agent 站点写出 `agent_validation_failed` 与 `agent_repair`（含 attempt/max、accepted/rejected/reason） | ✅ `test_agent_validation_and_repair_are_recorded` / `test_agent_repair_without_files_is_recorded` |
 | C-14 | BLOCKED 报告写**实际执行**的 repair 次数（非每文件上限），并逐文件列出 | ✅ `TestBlockedReportCounts` 3 例 |
 | C-15 | 失败阶段不把默认 `proceed` 写进 `decision.json`；显式 decision 保留 | ✅ `test_write_stage_meta_never_claims_proceed_for_failure` / `test_write_stage_meta_keeps_explicit_failure_decision` |
+| C-16 | 深修计数不为负：`fixed = max(0, 修复前 − 剩余)`，余量单独报告 | ✅ `TestDeepRepairCounts` 3 例（含运行 J 的 -14/3 形态） |
 
 ## 算术
 
@@ -41,8 +43,8 @@ upstream: arc-stage10-repair-quality-IMPLEMENTATION
 | 回归 | 1（C-11） | 0 |
 | agent 站点 | 1（C-13） | 0 |
 | 现场 | 1（C-12） | 0 |
-| 状态一致性 | 2（C-14、C-15） | 0 |
-| **合计** | **15 项通过** | **0** |
+| 状态一致性 | 3（C-14、C-15、C-16） | 0 |
+| **合计** | **16 项通过** | **0** |
 
 ## 边界
 
