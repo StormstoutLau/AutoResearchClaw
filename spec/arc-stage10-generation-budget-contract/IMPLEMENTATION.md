@@ -1,7 +1,7 @@
 ---
 id: arc-stage10-generation-budget-contract-IMPLEMENTATION
 type: design
-version: 1.1
+version: 1.2
 status: verified
 date: 2026-11-27
 depends: [arc-stage10-generation-budget-contract-DESIGN]
@@ -9,6 +9,7 @@ upstream: arc-stage10-generation-budget-contract-DESIGN
 ---
 
 > v1.1（2026-11-27，P-211）：补 §6「配置解析缺陷与修复」与运行 H 读数；§1 的测试数由 25 更新为 27。
+> v1.2（2026-11-27，P-219）：M5——符号契约前移到模块边界，补 §8 与 4 例测试（31 passed）。
 
 # 实施记录：B-34 M4
 
@@ -140,3 +141,29 @@ file_max_lines=_safe_int(data.get("file_max_lines"), 300),
 首轮截断由 4/4 降到 **1/5**；Phase 2 共 2 211 s / 13 次调用。Stage 10 仍在 attempt 1
 失败，但失败点已移到「`data.py` 校验 1 个错误 + repair 连续返回非法 Python」，
 不再是生成/提取层（CHECKLIST C-30）。
+
+## 8. M5：符号契约前移到模块边界（P-219）
+
+**动机（现场）**：运行 I attempt 1 与运行 J attempt 1 都以出口证据门
+`blueprint_symbols_missing` 结束，分别在 **68 min** 与 **61 min** 之后才报出
+`data.py` 7 个、`data.py` 7 + `main.py` 6 个缺失符号；期间已完成 5 模块生成、
+5 轮硬校验、入口生成、项目级 repair 与对齐门。
+
+**改动**：
+
+| 文件 | 改动 |
+|---|---|
+| [`codegen_evidence.py`](../../researchclaw/pipeline/codegen_evidence.py) | 新增 `declared_symbols(blueprint, file_name)` 与 `missing_symbols(blueprint, file_name, code)`（与出口门共用 `_declared_symbols` / `_defined_names`） |
+| [`code_agent.py`](../../researchclaw/pipeline/code_agent.py) | 每个模块抽取成功后立即比对声明符号；缺失则用 `SYMBOL CONTRACT` 提示做**一次**定向修复（预算随原模块，截断则升级 32 768）；仍缺失则记 `generate_file(failed, reason=symbols_missing)` 并抛 `ModuleExtractionError` |
+
+**行为对照**：
+
+| 场景 | 之前 | 现在 |
+|---|---|---|
+| 模块缺声明符号 | 继续生成，61–68 min 后出口门失败 | 该模块生成后立即发现（分钟级） |
+| 缺符号但可补 | 无机会 | 一次定向修复，提示列出需补的名字 |
+| 修复后仍缺 | 阶段末失败 | 该模块边界失败，账本留 `failed` 行 |
+
+**测试**：`TestModuleSymbolContract` 4 例（`missing_symbols` 判定、契约满足不额外调用、缺失后一次修复成功、修复无效在模块边界抛错并记账）；`tests/test_generation_budget_contract.py` **31 passed**，相关五文件 81 passed。
+
+**边界**：只在 `_phase2_sequential_generate`（顺序生成）启用；单发回退路径仍由出口门判定（`generate_project` 无逐模块边界）；符号仍按 `ast.walk` 的类/函数名匹配，模块级常量不算「已定义」。

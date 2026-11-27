@@ -1,7 +1,7 @@
 ---
 id: arc-stage10-generation-budget-contract-CHECKLIST
 type: design
-version: 1.1
+version: 1.2
 status: accepted
 date: 2026-11-27
 depends: [arc-stage10-generation-budget-contract-IMPLEMENTATION]
@@ -9,6 +9,7 @@ upstream: arc-stage10-generation-budget-contract-IMPLEMENTATION
 ---
 
 > v1.1（2026-11-27，P-211）：C-28 由「待现场」转 ✅（运行 H 读数）；新增 C-29（配置解析缺陷）与 C-30（运行 H 的对照）。
+> v1.2（2026-11-27，P-219）：M5 新增 C-31..C-33（模块级符号契约、一次定向修复、边界失败记账）。
 
 # 验收清单：B-34 M4（思考预算分档 + 文件预算 + 符号契约）
 
@@ -44,6 +45,9 @@ upstream: arc-stage10-generation-budget-contract-IMPLEMENTATION
 | C-28 | B 站配置 `thinking_policy=tiered` 后截断率下降 | ✅ 运行 H：首轮截断 4/4 → **1/5**；`data.py` 由「32 768 仍截断→失败」变为 **6 249 一次成功**（320 行）；`config.py` 2 542（39 s）。详见 [postmortem §2.5](../../docs/arc-b-site-stage10-postmortem-20261126.md) |
 | C-29 | yaml 的四个新键能被 `_parse_code_agent_config` 解析（修复前 `policy` 回落 `off`） | ✅ `test_new_keys_are_parsed` / `test_defaults_survive_an_empty_block`；修复后线上复读 `policy=tiered core=2048` |
 | C-30 | 运行 H 的失败点已不在生成/提取层 | ✅ attempt 1 在 `data.py` 代码校验 + repair 无效处失败（`CRITICAL validation issues remain after 5 repair attempts`） |
+| C-31 | 模块生成后立即判定声明符号，缺失即在该模块报出 | ✅ `TestModuleSymbolContract::test_missing_helper_reports_absent_names` + 生成路径用例 |
+| C-32 | 缺符号时只做一次定向修复，提示含声明名与缺失名；契约满足不额外调用 | ✅ `test_missing_symbol_is_repaired_once` / `test_satisfied_contract_costs_no_extra_call` |
+| C-33 | 修复后仍缺 → 该模块边界 `ModuleExtractionError(reason=symbols_missing)`，账本留 `failed` 行 | ✅ `test_unrepaired_module_fails_at_its_own_boundary` |
 
 ## 算术
 

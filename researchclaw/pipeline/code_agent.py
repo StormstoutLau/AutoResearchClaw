@@ -34,6 +34,7 @@ from typing import Any, Protocol
 
 from researchclaw.config import CodeAgentConfig
 from researchclaw.pipeline._helpers import _close_unterminated_fence
+from researchclaw.pipeline.codegen_evidence import declared_symbols, missing_symbols
 from researchclaw.pipeline.repair_trace import record as _record_repair_trace
 from researchclaw.pipeline.entrypoint_contract import (
     ENTRYPOINT_MAX_TOKENS,
@@ -51,12 +52,13 @@ class ModuleExtractionError(RuntimeError):
     B-34 M1-b: the previous code logged a WARNING and ``continue``d, so Stage
     10 kept generating the remaining modules, ran validation and review, and
     only failed at the evidence gate — up to hours later.  Raising here fails
-    at the module that broke.
+    at the module that broke.  M5 adds ``symbols_missing``: the module parsed
+    but does not define the names the blueprint promised.
     """
 
     def __init__(self, *, file_name: str, reason: str) -> None:
         self.file_name = file_name
-        self.reason = reason  # "truncated" | "empty"
+        self.reason = reason  # "truncated" | "empty" | "symbols_missing"
         super().__init__(
             f"{file_name}: module extraction failed ({reason}) — refusing to "
             "continue with a missing or partial module"
@@ -1033,6 +1035,67 @@ class CodeAgent:
                 self._log_event(f"  ERROR: {message}")
                 logger.error("Stage 10 module generation failed: %s", message)
                 raise ModuleExtractionError(file_name=file_name, reason=reason)
+
+            # B-34 M5: check the symbols the blueprint declares for THIS file
+            # right after it is generated.  The stage-exit gate caught them
+            # only after all modules, hard validation, the entrypoint and the
+            # alignment pass — 61 minutes in run J — and then failed the stage.
+            declared = declared_symbols(blueprint, file_name)
+            missing = missing_symbols(blueprint, file_name, code)
+            if missing:
+                self._log_event(
+                    f"  {file_name}: {len(missing)} declared symbol(s) missing "
+                    f"({', '.join(missing[:6])}) — targeted repair"
+                )
+                repair_user = sp.user + (
+                    "\n\nSYMBOL CONTRACT: the blueprint declares these names "
+                    f"for this file: {', '.join(declared)}.\n"
+                    "Your previous answer did not define: "
+                    f"{', '.join(missing)}.\n"
+                    "Re-emit the COMPLETE file and define EVERY declared name "
+                    "at the top level (no placeholders)."
+                )
+                resp2 = self._chat(
+                    sp.system, repair_user, max_tokens=budget, **_extra_kwargs,
+                )
+                if getattr(resp2, "truncated", False) and budget < 32768:
+                    resp2 = self._chat(
+                        sp.system, repair_user, max_tokens=32768, **_extra_kwargs,
+                    )
+                code2 = self._extract_single_file_code(resp2.content, file_name)
+                if code2:
+                    missing = missing_symbols(blueprint, file_name, code2)
+                if code2 and not missing:
+                    code = code2
+                    resp = resp2
+                    self._log_event(
+                        f"  {file_name}: symbol contract satisfied after repair"
+                    )
+                else:
+                    self._codegen_diag.setdefault("module_failures", []).append({
+                        "file": file_name,
+                        "reason": "symbols_missing",
+                        "budget_tokens": budget,
+                        "missing_symbols": missing[:20],
+                    })
+                    self._record_module_failure(
+                        file_name=file_name,
+                        reason="symbols_missing",
+                        truncated=False,
+                        file_spec_str=file_spec_str,
+                        dep_code=dep_code,
+                        prompt_version=getattr(sp, "version", ""),
+                        model=str(getattr(resp2, "model", "") or ""),
+                    )
+                    message = (
+                        f"{file_name}: declared symbols still missing after "
+                        f"repair ({', '.join(missing[:6])})"
+                    )
+                    self._log_event(f"  ERROR: {message}")
+                    logger.error("Stage 10 module generation failed: %s", message)
+                    raise ModuleExtractionError(
+                        file_name=file_name, reason="symbols_missing",
+                    )
 
             generated_files[file_name] = code
 

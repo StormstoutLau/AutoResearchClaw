@@ -1,7 +1,7 @@
 ---
 id: arc-stage10-generation-budget-contract-DESIGN
 type: design
-version: 1.0
+version: 1.1
 status: verified
 date: 2026-11-27
 depends: [arc-stage10-generation-budget-contract-RESEARCH]
@@ -9,6 +9,8 @@ upstream: arc-stage10-generation-budget-contract-RESEARCH
 ---
 
 # 设计：生成预算分档、文件预算与符号契约（B-34 M4）
+
+> v1.1（2026-11-27，P-219）：新增 D-11/D-12——符号契约从「出口门」前移到「模块边界」，带一次定向修复。
 
 ## 1. 决策
 
@@ -24,6 +26,8 @@ upstream: arc-stage10-generation-budget-contract-RESEARCH
 | D-8 | 符号来源支持 `symbols` / `required_symbols` / `classes` / `functions` 四种拼写，元素可为字符串或 `{name: ...}` | 只认一种拼写 | 蓝图由模型生成，拼写不稳定；四种都接受不增加歧义 |
 | D-9 | 符号匹配集 = `ast.walk` 中所有 `ClassDef/FunctionDef/AsyncFunctionDef` 的名字（含嵌套与方法） | 只认顶层 | 蓝图常声明方法名；只认顶层会造成假失败 |
 | D-10 | 文件不可解析（`SyntaxError`）时**判失败** | 跳过 | 语法坏的文件本就不可交付；跳过会让契约形同虚设 |
+| D-11 | 符号契约在**模块生成后立即**执行（不只出口门）；缺失时先做**一次**定向修复，提示中列出「声明名」与「缺失名」 | 等出口门统一判 | 运行 I/J 两次在 61 分钟后才由出口门报出 13 个缺失符号；模块级可把反馈缩到分钟级，且提示能直接给出要补的名字 |
+| D-12 | 定向修复后仍缺失 → `generate_file(failed, reason=symbols_missing)` + `ModuleExtractionError` | 继续生成后续模块 | 与 M1-b 同一边界语义：不可交付的模块不应拖到阶段末；账本留失败行，阻止误复用 |
 
 ## 2. 接口
 

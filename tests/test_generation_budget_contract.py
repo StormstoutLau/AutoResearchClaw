@@ -12,12 +12,14 @@ import pytest
 
 from researchclaw.config import CodeAgentConfig
 from researchclaw.llm.client import LLMClient, LLMConfig
-from researchclaw.pipeline.code_agent import CodeAgent
+from researchclaw.pipeline.code_agent import CodeAgent, ModuleExtractionError
 from researchclaw.pipeline.codegen_evidence import (
     check_symbol_contract,
     evaluate_stage10_evidence,
     load_blueprint,
+    missing_symbols,
 )
+from researchclaw.pipeline.step_journal import load_steps
 
 BLUEPRINT = """files:
   - name: config.py
@@ -187,7 +189,6 @@ class TestLineBudget:
     def test_blueprint_value_wins(self, tmp_path: Path) -> None:
         agent = _agent(tmp_path, None, file_max_lines=300)
         assert agent._module_line_budget({"max_lines": 180}) == 180
-
     def test_invalid_value_falls_back(self, tmp_path: Path) -> None:
         agent = _agent(tmp_path, None, file_max_lines=300)
         assert agent._module_line_budget({"max_lines": "many"}) == 300
@@ -351,3 +352,84 @@ class TestClientPassthrough:
         )
         assert "reasoning_effort" not in captured["body"]
         assert "reasoning" not in captured["body"]
+
+
+class TestModuleSymbolContract:
+    """B-34 M5: a module is checked at its own boundary, not at stage exit."""
+
+    @staticmethod
+    def _blueprint(**symbols) -> dict:
+        return {"files": [{
+            "name": "methods.py", "generation_order": 1,
+            "symbols": list(symbols.get("symbols", [])),
+        }]}
+
+    def test_missing_helper_reports_absent_names(self) -> None:
+        bp = self._blueprint(symbols=["TauKLMonitor", "helper"])
+        assert missing_symbols(bp, "methods.py", "class TauKLMonitor: pass\n") == [
+            "helper",
+        ]
+        assert missing_symbols(bp, "methods.py", "x = 1\n") == [
+            "TauKLMonitor", "helper",
+        ]
+
+    def test_satisfied_contract_costs_no_extra_call(self, tmp_path: Path) -> None:
+        code = "class TauKLMonitor:\n    pass\n"
+        llm = _FakeLLM([_fenced(code)])
+        agent = _agent(tmp_path, llm)
+
+        files = agent._phase2_sequential_generate(
+            topic="t", exp_plan="p", metric="m", pkg_hint="", arch_spec="",
+            blueprint=self._blueprint(symbols=["TauKLMonitor"]),
+        )
+
+        assert "TauKLMonitor" in files["methods.py"]
+        # The extra calls are the dedicated entrypoint (no main.py declared);
+        # none of them may be a symbol-contract repair.
+        assert not any(
+            "SYMBOL CONTRACT" in call["messages"][0]["content"]
+            for call in llm.calls
+        )
+        rows = [r for r in load_steps(tmp_path) if r["step_id"] == "generate_file"]
+        assert rows[-1]["status"] == "done"
+
+    def test_missing_symbol_is_repaired_once(self, tmp_path: Path) -> None:
+        broken = _fenced("class Other:\n    pass\n")
+        fixed = _fenced(
+            "class TauKLMonitor:\n    pass\n\n\ndef helper():\n    return 1\n"
+        )
+        llm = _FakeLLM([broken, fixed])
+        agent = _agent(tmp_path, llm)
+
+        files = agent._phase2_sequential_generate(
+            topic="t", exp_plan="p", metric="m", pkg_hint="", arch_spec="",
+            blueprint=self._blueprint(symbols=["TauKLMonitor", "helper"]),
+        )
+
+        repairs = [
+            call for call in llm.calls
+            if "SYMBOL CONTRACT" in call["messages"][0]["content"]
+        ]
+        assert len(repairs) == 1
+        assert "TauKLMonitor" in files["methods.py"]
+        rows = [r for r in load_steps(tmp_path) if r["step_id"] == "generate_file"]
+        assert rows[-1]["status"] == "done"
+
+    def test_unrepaired_module_fails_at_its_own_boundary(
+        self, tmp_path: Path,
+    ) -> None:
+        broken = _fenced("class Other:\n    pass\n")
+        llm = _FakeLLM([broken, broken])
+        agent = _agent(tmp_path, llm)
+
+        with pytest.raises(ModuleExtractionError) as excinfo:
+            agent._phase2_sequential_generate(
+                topic="t", exp_plan="p", metric="m", pkg_hint="", arch_spec="",
+                blueprint=self._blueprint(symbols=["TauKLMonitor"]),
+            )
+
+        assert excinfo.value.reason == "symbols_missing"
+        assert excinfo.value.file_name == "methods.py"
+        rows = [r for r in load_steps(tmp_path) if r["step_id"] == "generate_file"]
+        assert rows[-1]["status"] == "failed"
+        assert rows[-1]["variant"] == "methods.py"

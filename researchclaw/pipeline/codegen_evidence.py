@@ -266,6 +266,32 @@ def _defined_names(code: str) -> set[str]:
     return names
 
 
+def declared_symbols(
+    blueprint: Mapping[str, Any], file_name: str,
+) -> list[str]:
+    """Blueprint-declared symbols for one file (B-34 M5).
+
+    Kept public so the generator can check a module at its own boundary
+    instead of waiting for the stage-exit gate.
+    """
+    wanted = _basename(file_name)
+    return sorted({
+        symbol for name, symbol in _declared_symbols(blueprint)
+        if name == wanted
+    })
+
+
+def missing_symbols(
+    blueprint: Mapping[str, Any], file_name: str, code: str,
+) -> list[str]:
+    """Declared symbols for *file_name* that *code* does not define."""
+    wanted = declared_symbols(blueprint, file_name)
+    if not wanted:
+        return []
+    defined = _defined_names(code)
+    return [symbol for symbol in wanted if symbol not in defined]
+
+
 def check_symbol_contract(
     blueprint: Mapping[str, Any], files: Mapping[str, str],
 ) -> list[EvidenceFailure]:
