@@ -26,6 +26,7 @@ upstream: null
 | 检查项 | 状态 | 说明 |
 |--------|------|------|
 | DESIGN.md 的设计决策可追溯到 RESEARCH.md | ☐ | |
+| RESEARCH.md 的 §2.3 已声明调研档位，§2.4 已写降级链 | ☐ | |
 | RESEARCH.md 的关键发现被 DESIGN.md 使用 | ☐ | |
 | 无文档间矛盾 | ☐ | |
 
