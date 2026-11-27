@@ -326,6 +326,80 @@ cd ~/AutoResearchClaw-main && ~/arc-venv/bin/python -m researchclaw run \
 
 ---
 
+### 2.7 运行 K（P-219 快照）与 P-222 部署（2026-11-27～28）
+
+**部署（11-27 23:02）**：快照 `arc-p219.tgz` 42 870 752 B，SHA-256 `9e095dda718b369e8d4b7f4601ebeca633ca64c38686f878dbfb800525e3d219`；旧代码 `AutoResearchClaw-main.prev-p216`、旧 Stage 10 `stage-10.bak-p219`；`code_version=0.5.0+442673c4`。tmux `p219-stage10`，日志 `~/arc-runs/g7-baseline/p219-stage10.log`，23:02:26 CST 启动。
+
+**快照边界**：只含到 P-219（M5 符号边界检查）。P-220（深修计数钳制）与 P-221（M6 指标传播）晚于快照——由 `Deep repair fixed -3/7` 与部署代码无 `resolve_metric` 反证，二者留待运行 L 验证。
+
+**时间线（CST）**：
+
+| 时刻 | 事件 | 读数 |
+|---|---|---|
+| 23:02:26 | 运行 K 启动 | — |
+| 23:20–23:48 | attempt 1 生成 5 模块 → 硬校验 | 77 → 36 → 35 → 35 → 36，4 轮未收敛 |
+| 23:48:39 | 入口契约未满足 → 专用入口 | 23:53 第 1 次语法错误；00:02:58 第 2 次成功（5 962 字符） |
+| 00:05:05 | data.py 修复 2 次均返回非法 Python | `Repair aborted for data.py after 2 unusable response(s)` |
+| 00:06:09 | attempt 1 失败 | `BLOCKED — critical issues remain after 3 repair attempt(s) (limit 5/file)`，逐文件 `data.py: 2` |
+| 00:08:44–00:16:27 | attempt 2 蓝图 | 8 192 截断 → 32 768；61 001 字符 / 3 files |
+| 00:16:27–00:29:37 | config/data/methods 生成 | `config.py` 168 行；data.py 走 `reasoning.max_tokens=2048`（tiered 生效） |
+| 00:29:37 | 无 main.py → 专用入口 | 221 行 / 391.7 s |
+| 00:29:37–00:46:27 | 硬校验 13 → 2 → 2 → 2 → 2 | 每轮 `Repair updated 2 file(s)`：data.py 语法错误换形态、main.py 每轮丢 `__main__` |
+| 00:46:27 | `Max repair attempts reached` | 入口守卫仍缺失 |
+| 00:47:42–01:05:18 | 入口重生成 + 阶段层校验/深修 | `Deep repair fixed -3/7`（P-220 未部署） |
+| 01:05:25 | attempt 2 失败（出口门） | `blueprint_symbols_missing`：data.py 缺 7 个声明符号 |
+| 01:05:46–01:20 | attempt 3 | 01:07:58 蓝图升 32 768；01:18:17 models.py（476 行 / 8 类）；01:20 进入专用入口后为部署 P-222 手动停止 |
+
+**attempt 2 出口门缺失符号**：`FinancialWindowDataset`、`create_synthetic_fallback`、`get_dataloaders`、`inject_regime_shifts`、`load_yahoo_returns`、`standardize_target_using_train`、`standardize_using_train`（data.py 声明 9 个，仅剩 `make_windows` / `build_control_matrix`）。
+
+**关键读数**：
+
+1. **P-216 B 现场生效**：`validation_report.md` 写 `after 3 repair attempt(s)` 并逐文件列出 `data.py: 2`，不再是每文件上限 5。
+2. **M5 未触发的根因**：`grep -c 'declared symbol' = 0`。蓝图只给 config/data/methods 声明符号（main.py 无声明，由入口生成负责），生成时 data.py 9/9 齐全；符号是在后续硬校验修复中被覆写丢失的——M5 只检查生成边界，覆盖不到修复路径。
+3. **心跳/步骤回传正常**：心跳 30 s 刷新；`steps.jsonl` 25 行（`generate_file`×8、`hard_validation`×8、`blueprint`×3、`entrypoint`×2、`alignment`×1），`phase` 随步骤在 generate/validate/alignment 间切换。
+4. **`decision.json` 暂缺属预期**：`_write_stage_meta` 只在阶段收尾写出，运行中不存在。
+5. 次要告警：`BUG-184 main.py imports 'inspect' which is not in generated files`；`config.py` 与 stdlib 同名（深修不可修复项）。
+
+**运行 K 暴露的新缺陷（P-222 依据）**：`_repair_critical_issues` 直接合并修复回复，无 `ast.parse`、无入口契约、无符号回退检查；截断（16 384）不升级。四轮修复因此把合法 data.py 写成碎片、把带 `__main__` 的入口覆盖成无守卫版本；阶段层 `_extract_valid_repair_files` 两道都查，agent 层却直接 `merged.update(fixed)`。详见 `spec/arc-stage10-repair-quality/IMPLEMENTATION.md` §9。
+
+**P-222 部署流水（可重放）**：
+
+```bash
+# 1) 本地打包（与 §2.6 同一排除集 + *.pyc）
+tar -czf D:\tmp\arc-p222.tgz --exclude=.git --exclude=.venv --exclude=__pycache__ \
+  --exclude=.pytest_cache --exclude=*.pyc -C d:\AutoResearchClaw-main\AutoResearchClaw-main .
+# 48 792 250 B；sha256 2602774d99fe4dff386e760cb337ac30a18a66255cbab5ade42d7302c2bfcade
+scp D:\tmp\arc-p222.tgz D:\tmp\p222-deploy.sh D:\tmp\p222-start.sh scott-lau@<B_HOST>:~/
+
+# 2) 停运行 K + 替换代码（旧代码保留）
+tmux kill-session -t p219-stage10; pkill -f 'python -m researchclaw run'
+cd ~ && mv AutoResearchClaw-main AutoResearchClaw-main.prev-p219
+mkdir AutoResearchClaw-main && tar -xzf arc-p222.tgz -C AutoResearchClaw-main
+
+# 3) 能力探针（全部 True）与配置校验
+#    accept_repair_files(entrypoint_contract, symbol_contract)
+#    resolve_metric / blueprint_metric / deep_repair_clamp / resolve_metric_used
+#    code_version=0.5.0+0266e240；researchclaw validate → passed
+
+# 4) 归档旧 Stage 10 + 启动运行 L
+mv ~/arc-runs/g7-baseline/stage-10 ~/arc-runs/g7-baseline/stage-10.bak-p222
+rm -f ~/arc-runs/g7-baseline/.inflight/token-*.json
+tmux new-session -d -s p222-stage10 'cd ~/AutoResearchClaw-main && ~/arc-venv/bin/python -m researchclaw run \
+  --output ~/arc-runs/g7-baseline --config ~/config.g7-field.yaml \
+  --from-stage CODE_GENERATION --to-stage CODE_GENERATION \
+  --log-level INFO --log-file ~/arc-runs/g7-baseline/p222-stage10.log'
+```
+
+**租约事故（运行 L 首次启动）**：停止运行 K（约 01:20）后，其 lease 因 TTL 续期持有到 `17:29:07Z`；01:20:49 与 01:28:46 两次启动均以 `LeaseBusy: run is leased by scott-lau-GTR-Pro:1763976 until 2026-11-27T17:29:07Z` 立即退出（`p222-stage10.stdout` 保留堆栈）。等租约到期后 01:29:19 重启成功，新 lease `pid 1847290 / fencing 8`。
+
+**运行 L 启动读数**：01:29:19 心跳 `status=running`、30 s 刷新；01:29:39 进入 Phase 1 蓝图；此时 `steps.jsonl` / `repair_trace.jsonl` 尚未生成（属蓝图阶段的正常空账本）。
+
+**回退点**：`AutoResearchClaw-main.prev-p219`、`stage-10.bak-p222`、`arc-p219.tgz` / `arc-p222.tgz`。
+
+**运行 L 观察要点**：`Repair rejected ...`（P-222 三闸门）、`Deep repair fixed x/7 (n remain)` 非负（P-220）、模块边界 `declared symbol(s) missing`（M5）、专用入口 `Primary metric:` 取蓝图值（M6）。
+
+---
+
 ## 3. 故障分层（F 表）
 
 ### F-1 出口门缺失（已修：P-178）
