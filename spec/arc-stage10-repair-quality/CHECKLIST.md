@@ -1,9 +1,9 @@
 ---
 id: arc-stage10-repair-quality-CHECKLIST
 type: design
-version: 1.4
+version: 1.5
 status: accepted
-date: 2026-11-27
+date: 2026-11-28
 depends: [arc-stage10-repair-quality-IMPLEMENTATION]
 upstream: arc-stage10-repair-quality-IMPLEMENTATION
 ---
@@ -12,6 +12,7 @@ upstream: arc-stage10-repair-quality-IMPLEMENTATION
 > v1.2（2026-11-27，P-214）：C-12 由运行 I（部署后首跑）现场关闭——5/6 类事件实际出现，`repair_aborted` 因第 2 次修复即被接受而未触发。
 > v1.3（2026-11-27，P-216）：新增 C-14（报告写实际 repair 次数）与 C-15（失败态不写 `proceed`）；算术 13→15。
 > v1.4（2026-11-27，P-220）：新增 C-16（深修计数不为负、余量单独报告）；算术 15→16。
+> v1.5（2026-11-28，P-222）：新增 C-17..C-19（agent 修复三闸门）；算术 16→19。
 
 # 验收清单：B-36 P0（repair 取证）
 
@@ -33,6 +34,9 @@ upstream: arc-stage10-repair-quality-IMPLEMENTATION
 | C-14 | BLOCKED 报告写**实际执行**的 repair 次数（非每文件上限），并逐文件列出 | ✅ `TestBlockedReportCounts` 3 例 |
 | C-15 | 失败阶段不把默认 `proceed` 写进 `decision.json`；显式 decision 保留 | ✅ `test_write_stage_meta_never_claims_proceed_for_failure` / `test_write_stage_meta_keeps_explicit_failure_decision` |
 | C-16 | 深修计数不为负：`fixed = max(0, 修复前 − 剩余)`，余量单独报告 | ✅ `TestDeepRepairCounts` 3 例（含运行 J 的 -14/3 形态） |
+| C-17 | agent 修复回复语法错误或破坏 `main.py` 入口契约时整文件拒收，原文件保留 | ✅ `test_syntax_broken_repair_keeps_previous_file` / `test_repair_that_breaks_entrypoint_is_rejected` |
+| C-18 | 修复不得减少蓝图声明符号：回退即拒收并列出丢失名，补全则接受 | ✅ `test_repair_that_drops_declared_symbols_is_rejected` / `test_repair_that_restores_symbols_is_accepted` |
+| C-19 | 修复回复截断时升级一次 32768；未知模块不进入项目（`main.py` 例外需过契约） | ✅ `test_truncated_repair_retries_at_32768` / `test_unknown_module_is_not_added` / `test_missing_main_can_be_added_when_contract_holds` |
 
 ## 算术
 
@@ -44,7 +48,8 @@ upstream: arc-stage10-repair-quality-IMPLEMENTATION
 | agent 站点 | 1（C-13） | 0 |
 | 现场 | 1（C-12） | 0 |
 | 状态一致性 | 3（C-14、C-15、C-16） | 0 |
-| **合计** | **16 项通过** | **0** |
+| 修复验收闸门 | 3（C-17、C-18、C-19） | 0 |
+| **合计** | **19 项通过** | **0** |
 
 ## 边界
 

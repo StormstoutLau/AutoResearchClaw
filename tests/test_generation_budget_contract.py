@@ -20,6 +20,7 @@ from researchclaw.pipeline.codegen_evidence import (
     missing_symbols,
     resolve_metric,
 )
+from researchclaw.pipeline.repair_trace import load as load_repair_trace
 from researchclaw.pipeline.step_journal import load_steps
 
 BLUEPRINT = """files:
@@ -500,3 +501,136 @@ class TestBlueprintMetricPropagation:
             "Primary metric: early_detection_roc_auc" in prompt
             for prompt in entry_prompts
         )
+
+
+def _named(name: str, code: str) -> str:
+    """A repair reply with an explicit filename marker."""
+    return f"```filename:{name}\n{code}```\n"
+
+
+class _TruncatedOnceLLM(_FakeLLM):
+    """First reply claims truncation; later replies are complete."""
+
+    def __init__(self, responses: list[str]) -> None:
+        super().__init__(responses)
+        self._call_no = 0
+
+    def chat(self, messages, **kwargs):  # noqa: ANN001, ANN003
+        resp = super().chat(messages, **kwargs)
+        self._call_no += 1
+        if self._call_no == 1:
+            resp.truncated = True
+            resp.finish_reason = "length"
+        return resp
+
+
+class TestRepairAcceptanceGate:
+    """P-222: a repair may fix issues, never destroy a working file."""
+
+    BP = (
+        "files:\n"
+        "  - name: data.py\n"
+        "    generation_order: 1\n"
+        "    functions: [load_data, build_features]\n"
+    )
+    GOOD_DATA = (
+        "def load_data():\n"
+        "    return 1\n"
+        "\n\n"
+        "def build_features():\n"
+        "    return 2\n"
+    )
+
+    def _repair(self, tmp_path: Path, llm, files: dict[str, str]):
+        agent = _agent(tmp_path, llm)
+        return agent._repair_critical_issues(
+            files, ["[data.py] UnboundLocalError risk"], "t", "p", "m",
+            self.BP,
+        )
+
+    def test_syntax_broken_repair_keeps_previous_file(
+        self, tmp_path: Path,
+    ) -> None:
+        reply = (
+            _named("main.py", MAIN_OK) + _named("data.py", "def broken(:\n")
+        )
+        llm = _FakeLLM([reply])
+        out = self._repair(
+            tmp_path, llm, {"data.py": self.GOOD_DATA, "main.py": MAIN_OK},
+        )
+
+        assert out["data.py"] == self.GOOD_DATA
+        trace = load_repair_trace(tmp_path)
+        assert trace[-1]["accepted"] == ["main.py"]
+        assert "syntax_error" in trace[-1]["rejected_reasons"]["data.py"]
+
+    def test_repair_that_breaks_entrypoint_is_rejected(
+        self, tmp_path: Path,
+    ) -> None:
+        no_guard = 'def main() -> None:\n    print("METRIC_DEF: m")\n'
+        llm = _FakeLLM([_named("main.py", no_guard)])
+        out = self._repair(
+            tmp_path, llm, {"main.py": MAIN_OK},
+        )
+
+        assert out["main.py"] == MAIN_OK
+
+    def test_repair_that_drops_declared_symbols_is_rejected(
+        self, tmp_path: Path,
+    ) -> None:
+        stripped = "def load_data():\n    return 1\n"
+        reply = _named("main.py", MAIN_OK) + _named("data.py", stripped)
+        llm = _FakeLLM([reply])
+        out = self._repair(
+            tmp_path, llm, {"data.py": self.GOOD_DATA, "main.py": MAIN_OK},
+        )
+
+        assert out["data.py"] == self.GOOD_DATA
+        trace = load_repair_trace(tmp_path)
+        assert "symbol_contract" in trace[-1]["rejected_reasons"]["data.py"]
+
+    def test_repair_that_restores_symbols_is_accepted(
+        self, tmp_path: Path,
+    ) -> None:
+        partial = "def load_data():\n    return 1\n"
+        reply = _named("main.py", MAIN_OK) + _named("data.py", self.GOOD_DATA)
+        llm = _FakeLLM([reply])
+        out = self._repair(
+            tmp_path, llm, {"data.py": partial, "main.py": MAIN_OK},
+        )
+
+        assert out["data.py"] == self.GOOD_DATA.strip()
+
+    def test_unknown_module_is_not_added(self, tmp_path: Path) -> None:
+        reply = (
+            _named("main.py", MAIN_OK) + _named("helpers.py", "X = 1\n")
+        )
+        llm = _FakeLLM([reply])
+        out = self._repair(
+            tmp_path, llm, {"data.py": self.GOOD_DATA, "main.py": MAIN_OK},
+        )
+
+        assert "helpers.py" not in out
+        assert out["data.py"] == self.GOOD_DATA
+
+    def test_missing_main_can_be_added_when_contract_holds(
+        self, tmp_path: Path,
+    ) -> None:
+        llm = _FakeLLM([_named("main.py", MAIN_OK)])
+        out = self._repair(
+            tmp_path, llm, {"data.py": self.GOOD_DATA},
+        )
+
+        assert out["main.py"] == MAIN_OK.strip()
+
+    def test_truncated_repair_retries_at_32768(self, tmp_path: Path) -> None:
+        llm = _TruncatedOnceLLM([
+            _named("data.py", "def broken(:\n"),
+            _named("main.py", MAIN_OK) + _named("data.py", self.GOOD_DATA),
+        ])
+        out = self._repair(
+            tmp_path, llm, {"data.py": self.GOOD_DATA, "main.py": MAIN_OK},
+        )
+
+        assert out["data.py"] == self.GOOD_DATA.strip()
+        assert [call["max_tokens"] for call in llm.calls] == [16384, 32768]

@@ -130,11 +130,22 @@ class TestAgentRepairTracing:
     def test_agent_validation_and_repair_are_recorded(
         self, tmp_path: Path,
     ) -> None:
-        content = "```filename:a.py\nx = 1\n```\n"
+        main = (
+            "def main():\n"
+            "    print('METRIC_DEF: m')\n"
+            "\n\n"
+            "if __name__ == '__main__':\n"
+            "    main()\n"
+        )
+        content = (
+            f"```filename:main.py\n{main}```\n"
+            "```filename:a.py\nx = 1\n```\n"
+        )
         agent = self._agent(tmp_path, content)
         expected = sorted(agent._extract_files(content))
         agent._repair_critical_issues(
-            {"a.py": "x = 0\n"}, ["[a.py] boom"], "t", "p", "m", "",
+            {"a.py": "x = 0\n", "main.py": main},
+            ["[a.py] boom"], "t", "p", "m", "",
             attempt=1, max_attempts=4,
         )
         rows = load(tmp_path)

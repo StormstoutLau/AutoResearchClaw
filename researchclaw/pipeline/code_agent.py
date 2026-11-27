@@ -1596,8 +1596,21 @@ class CodeAgent:
 
         sys_prompt = self._pm.system("code_generation")
         resp = self._chat(sys_prompt, prompt, max_tokens=16384)
+        if getattr(resp, "truncated", False) or (
+            getattr(resp, "finish_reason", "") == "length"
+        ):
+            # A truncated repair reply usually ends mid-string; one retry at
+            # the module budget is cheaper than merging broken code.
+            self._log_event("  Repair response truncated — retrying with 32768")
+            resp = self._chat(sys_prompt, prompt, max_tokens=32768)
 
-        fixed = self._extract_files(resp.content)
+        candidates = self._extract_files(resp.content)
+        blueprint = self._parse_blueprint(arch_spec) if arch_spec else None
+        fixed, rejected_reasons = self._accept_repair_files(
+            files, candidates, blueprint,
+        )
+        for name, why in sorted(rejected_reasons.items()):
+            self._log_event(f"  Repair rejected {name}: {why}")
         _record_repair_trace(
             self._stage_dir,
             phase="agent_repair",
@@ -1609,7 +1622,12 @@ class CodeAgent:
             truncated=getattr(resp, "truncated", None),
             accepted=sorted(fixed),
             rejected=sorted(set(files) - set(fixed)),
-            reason="merged" if fixed else "no_extractable_file",
+            reason=(
+                "merged" if fixed
+                else "rejected_all" if candidates
+                else "no_extractable_file"
+            ),
+            extra={"rejected_reasons": rejected_reasons} if rejected_reasons else None,
         )
         if fixed:
             merged = dict(files)
@@ -1620,8 +1638,61 @@ class CodeAgent:
             )
             return merged
 
-        self._log_event("  WARNING: Repair produced no extractable files")
+        if candidates:
+            self._log_event("  WARNING: Repair produced no usable files")
+        else:
+            self._log_event("  WARNING: Repair produced no extractable files")
         return files
+
+    def _accept_repair_files(
+        self,
+        files: dict[str, str],
+        candidates: dict[str, str],
+        blueprint: dict[str, Any] | None,
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        """Keep only repair files that cannot make the project worse (P-222).
+
+        A repair reply may fix issues; it may not introduce syntax errors,
+        break the entrypoint contract, add unknown modules, or drop
+        blueprint-declared symbols.  In run K four consecutive repairs
+        replaced a valid ``data.py`` with fragments until seven declared
+        symbols were gone, and only the stage-exit gate noticed 59 minutes
+        later.  Rejecting the file keeps the last known-good version, so the
+        next validation round reports the original issue instead of a new
+        one.
+        """
+        accepted: dict[str, str] = {}
+        rejected: dict[str, str] = {}
+        for name, code in candidates.items():
+            if name not in files and name != "main.py":
+                rejected[name] = "unknown_file"
+                continue
+            if name.endswith(".py"):
+                try:
+                    ast.parse(code)
+                except SyntaxError as exc:
+                    rejected[name] = (
+                        f"syntax_error: {exc.msg} (line {exc.lineno})"
+                    )
+                    continue
+            if name == "main.py":
+                issues = entrypoint_issues(code)
+                if issues:
+                    rejected[name] = (
+                        "entrypoint_contract: " + "; ".join(issues)
+                    )
+                    continue
+            if blueprint is not None:
+                before = missing_symbols(blueprint, name, files.get(name, ""))
+                after = missing_symbols(blueprint, name, code)
+                if len(after) > len(before):
+                    lost = sorted(set(after) - set(before))
+                    rejected[name] = (
+                        "symbol_contract: loses " + ", ".join(lost[:6])
+                    )
+                    continue
+            accepted[name] = code
+        return accepted, rejected
 
     # ── Phase 2b: Single-Shot Generate + Exec-Fix (legacy) ───────────────
 

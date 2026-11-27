@@ -1,9 +1,9 @@
 ---
 id: arc-stage10-repair-quality-IMPLEMENTATION
 type: design
-version: 1.4
+version: 1.5
 status: verified
-date: 2026-11-27
+date: 2026-11-28
 depends: [arc-stage10-repair-quality-DESIGN]
 upstream: arc-stage10-repair-quality-DESIGN
 ---
@@ -12,6 +12,7 @@ upstream: arc-stage10-repair-quality-DESIGN
 > v1.2（2026-11-27，P-214）：部署后在 B 站重跑 Stage 10（运行 I），把 7 行现场 trace 与三问答案写入 §6；C-12 现场关闭。
 > v1.3（2026-11-27，P-216）：运行 I 终态（attempt 3 失败）与两处状态矛盾的修复写入 §7（`decision.json` 不再在失败态写 `proceed`；`validation_report.md` 改为实际 repair 次数）。
 > v1.4（2026-11-27，P-220）：运行 J 暴露 `Deep repair fixed -14/3` 负计数，补 §8（按集合计数并报告剩余）。
+> v1.5（2026-11-28，P-222）：运行 K 暴露 agent 修复路径会覆写坏文件，补 §9（三闸门验收 + 截断升级）。
 
 # 实施记录：B-36 P0（repair 取证）
 
@@ -167,3 +168,39 @@ python -m pytest tests/test_repair_trace.py tests/test_code_agent.py \
 **测试**：`TestDeepRepairCounts` 3 例（正常收敛、增加时钳到 0 且余量正确、非 critical 警告不计）；`tests/test_codegen_truncation.py` 20 passed，`test_rc_stages.py` 84 passed。
 
 **边界**：只改计数呈现；repair 行为、阈值与关键词集合未变（`copy-paste` 仍按小写匹配，与既有门一致）。
+
+## 9. agent 修复回复的三闸门验收（P-222）
+
+**现场（运行 K，P-219 快照）**：attempt 2 的 `_repair_critical_issues` 连续 4 轮各报 2 条 critical，每轮都 `Repair updated 2 file(s): data.py, main.py`：
+
+| 轮次 | data.py 被写入的结果 | main.py 被写入的结果 |
+|---|---|---|
+| 1 | `unterminated triple-quoted string (line 100)` | 丢掉 `if __name__ == "__main__"` |
+| 2 | `expected an indented block after 'if' (line 72)` | 同上 |
+| 3 | `'[' was never closed (line 57)` | 同上 |
+| 4 | 同上 | 同上 |
+
+四轮后 data.py 只剩 `make_windows` / `build_control_matrix` 两个函数，01:05:25 出口门一次列出 `data.py` 缺失的 7 个声明符号，距 00:06 attempt 2 启动 59 分钟。修复回复本身被截断（同一响应首轮 `16384` 未升级），而合并前既无语法校验也无入口契约校验——阶段层的 `_extract_valid_repair_files` 两道都查，agent 层却直接 `merged.update(fixed)`。
+
+**修法**：
+
+| 改动 | 说明 |
+|---|---|
+| 新增 `CodeAgent._accept_repair_files(files, candidates, blueprint)` | 纯函数式验收：未知模块（`main.py` 例外）→ `unknown_file`；`.py` 不可 `ast.parse` → `syntax_error`；`main.py` 违反 `entrypoint_issues` → `entrypoint_contract`；蓝图声明符号比原文件更缺 → `symbol_contract`（列出丢失名） |
+| `_repair_critical_issues` | 截断（`truncated` 或 `finish_reason=length`）时用 32768 重发一次；只合并通过验收的文件；逐文件记录拒收原因；`extra.rejected_reasons` 进 `agent_repair` 事件；`reason` 增 `rejected_all` |
+| 符号不回退的比较口径 | `len(missing(after)) > len(missing(before))`：允许「修复把缺失补回来」，禁止「修复把已有符号丢掉」；无蓝图或无声明时为 no-op |
+
+**行为对照**：
+
+| 场景 | 之前 | 现在 |
+|---|---|---|
+| 修复回复语法错误 | 覆盖原文件，下一轮再报同类 critical | 整文件拒收，保留原文件；日志 `Repair rejected data.py: syntax_error...` |
+| 修复回复破坏 `__main__` 守卫 | 覆盖入口，随后每轮都缺守卫 | 整文件拒收，入口保持可用 |
+| 修复回复丢失声明符号 | 静默接受，出口门 59 分钟后失败 | 拒收并列出丢失符号 |
+| 修复回复补回缺失符号 | 接受（无检查） | 接受（`after < before`） |
+| 修复回复截断 | 直接解析（常得空/半截） | 一次 32768 重发 |
+| 修复回复新增未知模块 | 合并进项目 | 拒收（`main.py` 例外，需过入口契约） |
+
+**测试**：`tests/test_generation_budget_contract.py::TestRepairAcceptanceGate` 7 例（语法拒收、入口契约拒收、符号回退拒收、符号补全接受、未知模块不入项目、缺 main.py 可补、截断升级 16384→32768）；该文件 41 passed，相关八文件 245 passed（含 `test_repair_trace.py` 按新语义更新 1 例）。
+
+**边界**：不提高修复轮数/提示预算（仅截断后一次 32768）；`_extract_multi_file_blocks` 的「无 main.py 时把首个文件改名为 main.py」既有行为未改——单文件修复回复仍会被当作 `main.py`，因此会被入口契约闸门拒收（比之前静默覆写更安全）；阶段层项目级 repair 的验收逻辑未改。
