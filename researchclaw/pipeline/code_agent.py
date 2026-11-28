@@ -293,6 +293,9 @@ class CodeAgent:
         self._sandbox: _SandboxLike | None = None
         # B-32 M1: diagnostics for the single-shot fallback record.
         self._codegen_diag: dict[str, Any] = {}
+        # P-230 (B-5): provenance of the persisted blueprint.
+        self._blueprint_source = "model"
+        self._last_blueprint_error = ""
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -360,6 +363,19 @@ class CodeAgent:
                     if blueprint is None
                     else "blueprint_structure_invalid"
                 )
+                if blueprint is None:
+                    # P-230 (B-2): one repair was already attempted; without a
+                    # blueprint every downstream evidence gate is blind, so
+                    # fail before spending the generation budget.
+                    self._record_codegen_decision(
+                        fallback="fail_closed",
+                        reason=reason,
+                        blueprint_chars=len(arch_spec),
+                    )
+                    raise RuntimeError(
+                        "blueprint_unparsable: "
+                        + (self._last_blueprint_error or "no parsable YAML")
+                    )
                 logger.warning(
                     "Sequential generation requested but blueprint unusable "
                     "(%s) — falling back to single-shot",
@@ -504,6 +520,9 @@ class CodeAgent:
         if blueprint:
             n_files = len(blueprint.get("files", []))
             self._log_event(f"  Parsed blueprint: {n_files} files")
+            # P-230 (B-1): replace the raw transport YAML with canonical
+            # serialization so downstream gates can always parse it.
+            self._write_canonical_blueprint(blueprint)
         else:
             self._log_event("  WARNING: Could not parse blueprint YAML")
 
@@ -525,8 +544,21 @@ class CodeAgent:
         """
         self._codegen_diag["yaml_repair_attempted"] = True
         self._log_event("  Blueprint YAML invalid — requesting a YAML-only repair")
+        _before_error = self._last_blueprint_error
+        delta = ""
+        if _before_error:
+            # P-230 (B-2): delta retry — hand back the parser message and the
+            # one rule that fixes this class of failure.
+            delta = (
+                "\n- The parser reported: "
+                + _before_error
+                + "\n- Quote any value containing ':' (function signatures "
+                "included), e.g. signature: '(config: Config) -> dict'.\n"
+            )
         try:
-            resp = self._chat(system, user + _YAML_REPAIR_SUFFIX, max_tokens=32768)
+            resp = self._chat(
+                system, user + _YAML_REPAIR_SUFFIX + delta, max_tokens=32768,
+            )
         except Exception as exc:  # noqa: BLE001 - repair is best-effort
             logger.warning("Blueprint YAML repair call failed: %s", exc)
             return "", None
@@ -547,6 +579,10 @@ class CodeAgent:
             return "", None
         blueprint = self._parse_blueprint(repaired)
         if blueprint is None:
+            # P-230 (B-4): the same parser error twice means retrying again
+            # would repeat the same output — stop instead of looping.
+            if _before_error and self._last_blueprint_error == _before_error:
+                self._codegen_diag["blueprint_error_repeated"] = True
             self._log_event("  YAML repair still did not parse")
             return "", None
 
@@ -556,6 +592,8 @@ class CodeAgent:
             inputs_digest=inputs_digest,
             prompt_version=prompt_version,
         )
+        self._blueprint_source = "repaired"
+        self._write_canonical_blueprint(blueprint)
         self._log_event("  YAML repair parsed successfully")
         return repaired, blueprint
 
@@ -577,6 +615,11 @@ class CodeAgent:
             "blueprint_chars": blueprint_chars,
             "yaml_repair_attempted": bool(
                 self._codegen_diag.get("yaml_repair_attempted")
+            ),
+            # P-230 (B-5): "model" / "canonical" / "repaired" provenance.
+            "blueprint_source": self._blueprint_source,
+            "blueprint_error_repeated": bool(
+                self._codegen_diag.get("blueprint_error_repeated")
             ),
             "at": datetime.now(timezone.utc).isoformat(),
         }
@@ -710,6 +753,43 @@ class CodeAgent:
             )
         except Exception:  # noqa: BLE001 - journal is best-effort
             self._log_event("  WARNING: could not append blueprint step record")
+
+    def _write_canonical_blueprint(self, blueprint: dict[str, Any]) -> None:
+        """Persist the parsed blueprint as canonical YAML plus a JSON twin.
+
+        P-230 (B-1): the model's raw YAML is only a transport format.  Dumping
+        the parsed dict lets ``yaml.safe_dump`` quote every value that contains
+        ``:`` — run N's ``signature: (config: Config, ...)`` broke the file that
+        the gates read while the in-memory copy had parsed fine.
+        """
+        try:
+            import yaml
+
+            text = yaml.safe_dump(
+                blueprint, sort_keys=False, allow_unicode=True,
+                default_flow_style=False,
+            )
+        except Exception as exc:  # noqa: BLE001 - persistence is best-effort
+            self._log_event(f"  WARNING: could not serialize blueprint: {exc}")
+            return
+        try:
+            path = self._stage_dir / "architecture_spec.yaml"
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_text(text, encoding="utf-8")
+            tmp.replace(path)
+            (self._stage_dir / "architecture_spec.json").write_text(
+                json.dumps(blueprint, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except OSError as exc:  # noqa: BLE001
+            self._log_event(f"  WARNING: could not persist blueprint: {exc}")
+            return
+        if self._blueprint_source == "model":
+            self._blueprint_source = "canonical"
+        self._log_event(
+            f"  Canonical blueprint written ({len(text)} chars, "
+            f"source={self._blueprint_source})"
+        )
 
     def _build_domain_context(self) -> str:
         """Build domain-specific context for injection into prompts.
@@ -848,6 +928,7 @@ class CodeAgent:
                 if isinstance(data, dict) and "files" in data:
                     return data
             except Exception as exc:
+                self._last_blueprint_error = f"{type(exc).__name__}: {exc}"
                 self._log_event(f"  Blueprint YAML parse error: {exc}")
         return None
 

@@ -83,17 +83,29 @@ class EvidenceReport:
 
 
 def load_blueprint(stage_dir: Path) -> dict[str, Any] | None:
-    """Load ``architecture_spec.yaml`` if it parses to a mapping."""
-    path = stage_dir / BLUEPRINT_NAME
-    if not path.is_file():
-        return None
-    try:
-        import yaml
+    """Load the blueprint, preferring YAML and falling back to JSON.
 
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001 - an unreadable blueprint is "unavailable"
-        return None
-    return data if isinstance(data, dict) else None
+    P-230 (B-1): the generator now also writes ``architecture_spec.json``
+    from the parsed dict, so a YAML quoting accident cannot blind the gates.
+    """
+    yaml_path = stage_dir / BLUEPRINT_NAME
+    if yaml_path.is_file():
+        try:
+            import yaml
+
+            data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+        except Exception:  # noqa: BLE001 - try the JSON twin below
+            pass
+    json_path = stage_dir / "architecture_spec.json"
+    if json_path.is_file():
+        try:
+            data = json.loads(json_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 - unreadable means unavailable
+            return None
+        return data if isinstance(data, dict) else None
+    return None
 
 
 def _as_text(value: Any) -> str:
@@ -589,10 +601,15 @@ def evaluate_stage10_evidence(
     delivered = collect_delivered(files, delivered_dir)
     blueprint = load_blueprint(stage_dir)
     if blueprint is None:
-        report.warnings.append(
-            "blueprint unavailable — file/metric/data gates skipped (see "
-            "codegen_decision.json)"
-        )
+        # P-230 (B-3): fail closed.  Run N shipped DONE while this was a
+        # warning, with every file/metric/data gate silently skipped.
+        report.failures.append(EvidenceFailure(
+            code="blueprint_unavailable",
+            detail=(
+                "architecture blueprint missing or unparsable — file/metric/"
+                "data gates cannot run (see codegen_decision.json)"
+            ),
+        ))
     else:
         report.failures.extend(check_declared_files(blueprint, delivered))
         report.failures.extend(check_symbol_contract(blueprint, delivered))

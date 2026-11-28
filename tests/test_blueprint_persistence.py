@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 from researchclaw.config import CodeAgentConfig
 from researchclaw.pipeline.code_agent import CodeAgent
+from researchclaw.pipeline.codegen_evidence import load_blueprint
 from researchclaw.pipeline.step_journal import load_steps
 from researchclaw.prompts import PromptManager
 
@@ -53,8 +54,10 @@ class TestBlueprintPersistence:
         arch, blueprint = agent._phase1_blueprint("topic", "plan", "accuracy")
         assert blueprint is not None
         assert (tmp_path / "architecture_spec.yaml").is_file()
-        on_disk = (tmp_path / "architecture_spec.yaml").read_text(encoding="utf-8")
-        assert on_disk == arch
+        # P-230 (B-1): the persisted file is the canonical re-serialization of
+        # the parsed dict, so compare structure rather than raw text.
+        assert load_blueprint(tmp_path) == blueprint
+        assert (tmp_path / "architecture_spec.json").is_file()
 
     def test_artifact_written_even_when_yaml_is_bad(self, tmp_path: Path) -> None:
         agent = _agent(tmp_path, [(NOT_YAML, False)])

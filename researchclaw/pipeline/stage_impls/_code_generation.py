@@ -466,7 +466,7 @@ def _ensure_symbol_contract(
     for name, code in repaired.items():
         try:
             exp_dir.mkdir(parents=True, exist_ok=True)
-            (exp_dir / name).write_text(code, encoding="utf-8")
+            safe_join(exp_dir, name).write_text(code, encoding="utf-8")
         except OSError as exc:
             logger.warning(
                 "Stage 10: could not write symbol repair for %s: %s", name, exc,
@@ -1457,7 +1457,9 @@ def _execute_code_generation(
             ),
             encoding="utf-8",
         )
-        if _agent_result.architecture_spec:
+        # P-230 (B-1): never overwrite the canonical blueprint with the raw
+        # transport copy — run N's raw YAML failed to parse at the gate.
+        if _agent_result.architecture_spec and load_blueprint(stage_dir) is None:
             (stage_dir / "architecture_spec.yaml").write_text(
                 _agent_result.architecture_spec, encoding="utf-8",
             )

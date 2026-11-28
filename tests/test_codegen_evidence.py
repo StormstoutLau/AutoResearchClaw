@@ -172,14 +172,16 @@ class TestEvaluate:
         assert "no_compute_unit" in codes
         assert "blueprint_files_missing" in codes
 
-    def test_missing_blueprint_still_checks_compute(self, tmp_path: Path) -> None:
+    def test_missing_blueprint_fails_closed(self, tmp_path: Path) -> None:
         report = evaluate_stage10_evidence(
             stage_dir=tmp_path,
             files={"config.py": CONFIG_PY, "main.py": CONFIG_ONLY_MAIN},
             metric="auroc_delta",
         )
-        assert any("blueprint unavailable" in w for w in report.warnings)
-        assert [f.code for f in report.failures] == ["no_compute_unit"]
+        codes = [f.code for f in report.failures]
+        assert "blueprint_unavailable" in codes
+        assert "no_compute_unit" in codes
+        assert not report.ok
 
     def test_stage_metric_is_used_when_blueprint_has_none(self, tmp_path: Path) -> None:
         _write_blueprint(tmp_path, "files:\n  - name: main.py\n    generation_order: 1\n")
@@ -190,6 +192,7 @@ class TestEvaluate:
         assert "metric_mismatch" in codes
 
     def test_report_is_written(self, tmp_path: Path) -> None:
+        _bp(tmp_path)
         report = evaluate_stage10_evidence(
             stage_dir=tmp_path, files=_files(), metric="auroc_delta",
         )

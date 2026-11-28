@@ -2588,6 +2588,10 @@ class TestComputeBudgetBlock:
                 "time_budget_sec": 60,
                 "metric_key": "best_loss",
                 "metric_direction": "minimize",
+                # P-230 (B-2): this test asserts budget injection, not
+                # blueprint planning; without a parsable blueprint the agent
+                # now fails closed, and the fake LLM only emits code.
+                "code_agent": {"architecture_planning": False},
                 "sandbox": {
                     "python_path": sys.executable,
                     "gpu_required": False,

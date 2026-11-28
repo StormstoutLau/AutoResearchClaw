@@ -921,3 +921,11 @@ write_sites:
     reason: "append-only step journal kept inside the stage directory; filename is a module constant"
     owner: P-193
     expires: null
+  - id: W-033
+    relpath: researchclaw/pipeline/stage_impls/_code_generation.py
+    qualname: _ensure_symbol_contract
+    ordinal: 1
+    policy: safe_join
+    reason: "symbol-contract repair output kept inside the experiment directory"
+    owner: P-229
+    expires: null
