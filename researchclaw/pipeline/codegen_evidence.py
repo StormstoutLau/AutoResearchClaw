@@ -260,7 +260,11 @@ def _declared_symbols(
                     symbol = _as_text(item.get("name"))
                 else:
                     symbol = ""
-                if symbol:
+                # P-232: only real identifiers can be definitions.  Run P's
+                # blueprint listed the guard block as a "function" named
+                # ``if __name__ == "__main__"``; requiring that as a symbol
+                # made module generation fail on a file that was correct.
+                if symbol and symbol.isidentifier():
                     out.append((file_name, symbol))
     return out
 

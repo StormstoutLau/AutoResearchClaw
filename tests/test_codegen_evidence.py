@@ -10,7 +10,9 @@ from researchclaw.pipeline.codegen_evidence import (
     check_data_source,
     check_declared_files,
     check_metric_consistency,
+    check_symbol_contract,
     count_compute_units,
+    declared_symbols,
     evaluate_stage10_evidence,
     load_blueprint,
     symbol_contract_block,
@@ -207,6 +209,39 @@ class TestEvaluate:
 def _bp(stage_dir: Path, text: str = BLUEPRINT) -> Path:
     _write_blueprint(stage_dir, text)
     return stage_dir
+
+
+class TestDeclaredSymbolIdentifiers:
+    """P-232: only identifiers can be symbols (guard block is not one)."""
+
+    BP = {
+        "files": [{
+            "name": "main.py",
+            "generation_order": 1,
+            "functions": [
+                {"name": "main", "signature": "() -> None"},
+                {"name": 'if __name__ == "__main__"', "signature": "()"},
+            ],
+        }],
+    }
+
+    def test_pseudo_symbol_is_ignored(self) -> None:
+        assert declared_symbols(self.BP, "main.py") == ["main"]
+
+    def test_contract_does_not_require_guard_block(self) -> None:
+        code = (
+            "def main() -> None:\n"
+            "    print('METRIC_DEF: auroc')\n"
+            "\n\n"
+            "if __name__ == '__main__':\n"
+            "    main()\n"
+        )
+        assert check_symbol_contract(self.BP, {"main.py": code}) == []
+
+    def test_block_lists_only_identifiers(self) -> None:
+        block = symbol_contract_block(self.BP)
+        assert "main" in block
+        assert "__main__" not in block
 
 
 class TestSymbolContractBlock:
