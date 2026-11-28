@@ -353,6 +353,131 @@ def _ensure_entrypoint(
     return files
 
 
+def _missing_symbols_by_file(
+    failures: list[Any],
+) -> dict[str, list[str]]:
+    """Turn symbol-contract failures into ``{file: [symbol, ...]}``."""
+    missing: dict[str, list[str]] = {}
+    for failure in failures:
+        detail = str(getattr(failure, "detail", "") or "")
+        for item in detail.split(":", 1)[-1].split(","):
+            name, _, symbol = item.strip().partition(":")
+            if name.strip() and symbol.strip():
+                missing.setdefault(name.strip(), []).append(symbol.strip())
+    return missing
+
+
+def _ensure_symbol_contract(
+    files: dict[str, str],
+    *,
+    stage_dir: Path,
+    exp_dir: Path,
+    llm: LLMClient | None,
+    pm: PromptManager,
+    topic: str,
+) -> dict[str, str]:
+    """P-229: re-check the symbol contract after late entrypoint rewrites.
+
+    ``_ensure_entrypoint`` and the alignment regen run *after* the earlier
+    symbol checks, so run M shipped a main.py missing four declared symbols
+    and only the exit gate noticed.  One targeted repair is attempted here;
+    a second failure is deliberately left to the exit gate.
+    """
+    if llm is None:
+        return files
+    blueprint = load_blueprint(stage_dir)
+    if not blueprint:
+        return files
+    failures = check_symbol_contract(blueprint, files)
+    if not failures:
+        return files
+
+    missing = _missing_symbols_by_file(failures)
+    if not missing:
+        return files
+    logger.warning(
+        "Stage 10: symbol contract broken after late rewrite: %s",
+        "; ".join(
+            f"{name}: {', '.join(symbols)}" for name, symbols in missing.items()
+        ),
+    )
+    affected = {name for name in missing if name in files}
+    code_ctx = "\n\n".join(
+        f"```filename:{name}\n{files[name]}\n```" for name in sorted(affected)
+    )
+    wanted = "\n".join(
+        f"- {name}: {', '.join(symbols)}"
+        for name, symbols in sorted(missing.items())
+    )
+    prompt = (
+        "The delivered code is missing symbols declared in the architecture "
+        "blueprint.\n\n"
+        "## Missing symbols\n"
+        f"{wanted}\n\n"
+        "## Current files\n"
+        f"{code_ctx}\n\n"
+        "## Rules\n"
+        "1. Add every missing symbol with a real implementation\n"
+        "2. Keep all existing classes/functions unchanged\n"
+        "3. Output the complete corrected file(s) as ```filename:xxx.py```\n"
+    )
+    resp = _chat_with_prompt(
+        llm, pm.system("code_generation"), prompt, max_tokens=16384,
+    )
+    truncated = bool(getattr(resp, "truncated", False)) or (
+        getattr(resp, "finish_reason", "") == "length"
+    )
+    if truncated:
+        logger.warning(
+            "Stage 10: symbol repair truncated — retrying with 32768"
+        )
+        resp = _chat_with_prompt(
+            llm, pm.system("code_generation"), prompt, max_tokens=32768,
+        )
+    repaired = _extract_valid_repair_files(resp.content, set(files))
+    merged = _merge_repair_files(files, repaired)
+    remaining = check_symbol_contract(blueprint, merged)
+    try:
+        _record_repair_trace(
+            stage_dir,
+            phase="symbol_contract",
+            prompt=prompt,
+            response=resp.content,
+            model=str(getattr(resp, "model", "") or ""),
+            truncated=getattr(resp, "truncated", None),
+            accepted=sorted(repaired),
+            rejected=sorted(set(affected) - set(repaired)),
+            reason="repaired" if not remaining else "still_missing",
+            extra={
+                "missing": missing,
+                "remaining": [
+                    str(getattr(item, "detail", "")) for item in remaining
+                ],
+            },
+        )
+    except Exception:  # noqa: BLE001 - trace is best-effort
+        logger.debug("could not record symbol repair", exc_info=True)
+    if remaining:
+        logger.error(
+            "Stage 10: symbol contract still broken after one repair: %s",
+            "; ".join(str(getattr(item, "detail", "")) for item in remaining),
+        )
+        return files
+    for name, code in repaired.items():
+        try:
+            exp_dir.mkdir(parents=True, exist_ok=True)
+            (exp_dir / name).write_text(code, encoding="utf-8")
+        except OSError as exc:
+            logger.warning(
+                "Stage 10: could not write symbol repair for %s: %s", name, exc,
+            )
+    logger.info(
+        "Stage 10: symbol contract restored by targeted repair (%s)",
+        ", ".join(sorted(repaired)),
+    )
+    return merged
+
+
 # Improvement G: Continuous-action environments that are incompatible with DQN
 _CONTINUOUS_ENVS = {
     "pendulum", "halfcheetah", "hopper", "walker2d", "ant", "humanoid",
@@ -1444,6 +1569,15 @@ def _execute_code_generation(
         exp_dir=stage_dir / "experiment",
         exp_plan=exp_plan,
     )
+    # P-229: the entrypoint rewrite may drop declared symbols.
+    files = _ensure_symbol_contract(
+        files,
+        stage_dir=stage_dir,
+        exp_dir=stage_dir / "experiment",
+        llm=llm,
+        pm=_pm,
+        topic=config.research.topic,
+    )
 
     # --- Validate each file + auto-repair loop ---
     all_valid = True
@@ -2163,6 +2297,15 @@ def _execute_code_generation(
                     )
                     for fname, code in files.items():
                         safe_join(exp_dir, fname).write_text(code, encoding="utf-8")
+                    # P-229: regen may drop declared symbols from any module.
+                    files = _ensure_symbol_contract(
+                        files,
+                        stage_dir=stage_dir,
+                        exp_dir=exp_dir,
+                        llm=llm,
+                        pm=_pm,
+                        topic=config.research.topic,
+                    )
                     # Re-check alignment on regenerated code (BUG-171 fix)
                     _rc_inv = []
                     for _fn, _cd in files.items():
@@ -2359,6 +2502,16 @@ Multi-file experiment project with {len(files)} file(s): {file_list}
         metric=metric,
         exp_dir=exp_dir,
         exp_plan=exp_plan,
+    )
+    # P-229: re-check after the final entrypoint regeneration (run M lost
+    # evaluate_monitor/run_condition/set_seed/train_model here).
+    files = _ensure_symbol_contract(
+        files,
+        stage_dir=stage_dir,
+        exp_dir=exp_dir,
+        llm=llm,
+        pm=_pm,
+        topic=config.research.topic,
     )
 
     # P-178: refuse to ship a non-runnable entrypoint (config-only main.py etc.)
