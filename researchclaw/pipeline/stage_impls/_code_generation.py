@@ -1739,8 +1739,13 @@ def _execute_code_generation(
         _baseline = deep_warnings
         for _round in range(1, 3):
             repair_issues = "\n".join(f"- {w}" for w in _issues)
-            all_code_ctx = "\n\n".join(
-                f"```filename:{f}\n{c}\n```" for f, c in files.items()
+            # P-228 (G-1): cap the stage-level repair context as well; every
+            # file stays present but oversized ones keep head+tail only.
+            from researchclaw.pipeline.code_agent import (
+                CodeAgent as _ContextAgent,
+            )
+            all_code_ctx = _ContextAgent._format_files(
+                files, keep_full=set(files), budget=80000,
             )
             _prev_note = (
                 f"STILL NOT FIXED (previous round):\n{repair_issues}\n\n"
@@ -1798,6 +1803,20 @@ def _execute_code_generation(
                     accepted=sorted(repaired),
                     rejected=sorted(set(files) - set(repaired)),
                     reason="merged" if repaired else "no_valid_file",
+                    extra={"usage": {
+                        "prompt_tokens": int(
+                            getattr(repair_resp, "prompt_tokens", 0) or 0
+                        ),
+                        "completion_tokens": int(
+                            getattr(repair_resp, "completion_tokens", 0) or 0
+                        ),
+                        "total_tokens": int(
+                            getattr(repair_resp, "total_tokens", 0) or 0
+                        ),
+                        "finish_reason": str(
+                            getattr(repair_resp, "finish_reason", "") or ""
+                        ),
+                    }},
                 )
                 if not repaired:
                     break

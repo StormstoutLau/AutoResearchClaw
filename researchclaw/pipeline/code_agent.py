@@ -1598,30 +1598,63 @@ class CodeAgent:
         if not affected_files:
             affected_files.update(f for f in files if f.endswith(".py"))
 
-        files_ctx = self._format_files(files)
+        # P-228 (G-1): touched files stay complete; the rest become CodeMem
+        # summaries once the raw context exceeds the budget.
+        files_ctx = self._format_files(files, keep_full=affected_files)
         issues_text = "\n".join(f"- {issue}" for issue in critical_issues)
 
-        prompt = (
-            "Your generated code has CRITICAL issues that will cause "
-            "runtime failures or produce invalid results. Fix ALL of them.\n\n"
-            "## Critical Issues Found\n"
-            f"{issues_text}\n\n"
-            "## Architecture Blueprint\n"
-            f"{arch_spec[:4000]}\n\n"
-            "## Current Code\n"
-            f"{files_ctx}\n\n"
-            "## Rules\n"
-            "1. Fix every critical issue listed above\n"
-            "2. Ablation/variant classes MUST have different implementations "
-            "from their parent — change the forward() or core method\n"
-            "3. Never hardcode metric values — compute them from actual data\n"
-            "4. nn.Module layers must be created in __init__(), not forward()\n"
-            "5. All cross-file imports must reference names that actually exist\n"
-            "6. Output ALL files in ```filename:xxx.py``` format\n"
-        )
+        def _prompt_for(ctx: str) -> str:
+            return (
+                "Your generated code has CRITICAL issues that will cause "
+                "runtime failures or produce invalid results. Fix ALL of them.\n\n"
+                "## Critical Issues Found\n"
+                f"{issues_text}\n\n"
+                "## Architecture Blueprint\n"
+                f"{arch_spec[:4000]}\n\n"
+                "## Current Code\n"
+                f"{ctx}\n\n"
+                "## Rules\n"
+                "1. Fix every critical issue listed above\n"
+                "2. Ablation/variant classes MUST have different implementations "
+                "from their parent — change the forward() or core method\n"
+                "3. Never hardcode metric values — compute them from actual data\n"
+                "4. nn.Module layers must be created in __init__(), not forward()\n"
+                "5. All cross-file imports must reference names that actually exist\n"
+                "6. Output ALL files in ```filename:xxx.py``` format\n"
+                "7. Preserve every declared class/function name; never drop a module\n"
+            )
 
+        prompt = _prompt_for(files_ctx)
         sys_prompt = self._pm.system("code_generation")
-        resp = self._chat(sys_prompt, prompt, max_tokens=16384)
+
+        def _summaries_only() -> str:
+            ctx = self._format_files(files, keep_full=set())
+            return _prompt_for(ctx)
+
+        # P-228 (G-3): stay below the hard cap; a prompt the provider rejects
+        # is retried once with summaries only, mirroring the truncate-head
+        # fallback used by Claude Code for prompt-too-long.
+        _hard_cap = 140000
+        if len(prompt) > _hard_cap:
+            self._log_event(
+                "  Repair prompt over hard cap — switching to summaries only"
+            )
+            prompt = _summaries_only()
+        try:
+            resp = self._chat(sys_prompt, prompt, max_tokens=16384)
+        except Exception as exc:  # noqa: BLE001 - only prompt-too-long retried
+            _text = str(exc).lower()
+            if "prompt" in _text and (
+                "too long" in _text or "context" in _text or "maximum" in _text
+            ):
+                self._log_event(
+                    "  Repair prompt rejected as too long — retrying with "
+                    "summaries only"
+                )
+                prompt = _summaries_only()
+                resp = self._chat(sys_prompt, prompt, max_tokens=16384)
+            else:
+                raise
         if getattr(resp, "truncated", False) or (
             getattr(resp, "finish_reason", "") == "length"
         ):
@@ -1630,11 +1663,29 @@ class CodeAgent:
             self._log_event("  Repair response truncated — retrying with 32768")
             resp = self._chat(sys_prompt, prompt, max_tokens=32768)
 
-        candidates = self._extract_files(resp.content)
-        blueprint = self._parse_blueprint(arch_spec) if arch_spec else None
-        fixed, rejected_reasons = self._accept_repair_files(
-            files, candidates, blueprint,
+        # P-228 (G-4): still truncated after the escalation means the budget
+        # is exhausted by reasoning, not by visible output.  Treat the round
+        # as a rejection (so P-226 can stop it) instead of retrying silently.
+        _still_truncated = bool(getattr(resp, "truncated", False)) or (
+            getattr(resp, "finish_reason", "") == "length"
         )
+        if _still_truncated:
+            self._log_event(
+                "  Repair still truncated at 32768 — dropping this round"
+            )
+            rejected_reasons = {
+                name: "truncated_after_escalation"
+                for name in sorted(affected_files)
+            }
+            candidates: dict[str, str] = {}
+            fixed: dict[str, str] = {}
+            blueprint = None
+        else:
+            candidates = self._extract_files(resp.content)
+            blueprint = self._parse_blueprint(arch_spec) if arch_spec else None
+            fixed, rejected_reasons = self._accept_repair_files(
+                files, candidates, blueprint,
+            )
         # P-226 (D-1): only consecutive identical failures count.  An accepted
         # fix clears the file's streak, and a new reason starts at 1, so a
         # model that keeps alternating failure modes still gets the full
@@ -1648,6 +1699,20 @@ class CodeAgent:
         self._reject_streak = streak
         for name, why in sorted(rejected_reasons.items()):
             self._log_event(f"  Repair rejected {name}: {why}")
+        _usage = {
+            "prompt_tokens": int(getattr(resp, "prompt_tokens", 0) or 0),
+            "completion_tokens": int(getattr(resp, "completion_tokens", 0) or 0),
+            "total_tokens": int(getattr(resp, "total_tokens", 0) or 0),
+            "finish_reason": str(getattr(resp, "finish_reason", "") or ""),
+        }
+        _extra: dict[str, Any] = {
+            "usage": _usage,
+            "summary_mode": len(files_ctx) < sum(
+                len(v) for v in files.values()
+            ),
+        }
+        if rejected_reasons:
+            _extra["rejected_reasons"] = rejected_reasons
         _record_repair_trace(
             self._stage_dir,
             phase="agent_repair",
@@ -1660,11 +1725,12 @@ class CodeAgent:
             accepted=sorted(fixed),
             rejected=sorted(set(files) - set(fixed)),
             reason=(
-                "merged" if fixed
+                "truncated_after_escalation" if _still_truncated
+                else "merged" if fixed
                 else "rejected_all" if candidates
                 else "no_extractable_file"
             ),
-            extra={"rejected_reasons": rejected_reasons} if rejected_reasons else None,
+            extra=_extra,
         )
         if fixed:
             merged = dict(files)
@@ -2253,11 +2319,71 @@ class CodeAgent:
         return _extract_multi_file_blocks(content)
 
     @staticmethod
-    def _format_files(files: dict[str, str]) -> str:
-        """Format files for inclusion in a prompt."""
-        parts = []
+    def _middle_truncate(text: str, limit: int) -> str:
+        """Keep head and tail, drop the middle with an explicit marker.
+
+        Mirrors the Codex output-truncation policy: keeping only the head
+        loses the very lines the critical issues point at.
+        """
+        if limit <= 0 or len(text) <= limit:
+            return text
+        head_budget = int(limit * 0.6)
+        tail_budget = max(0, limit - head_budget)
+        head = text[:head_budget]
+        tail = text[-tail_budget:] if tail_budget else ""
+        omitted = len(text) - len(head) - len(tail)
+        omitted_lines = (
+            text.count("\n") - head.count("\n") - tail.count("\n")
+        )
+        marker = (
+            f"\n... [truncated: {omitted} chars / {omitted_lines} lines "
+            f"omitted, original {len(text)} chars] ...\n"
+        )
+        return head + marker + tail
+
+    @classmethod
+    def _format_files(
+        cls, files: dict[str, str], *,
+        keep_full: set[str] | None = None,
+        budget: int = 60000,
+    ) -> str:
+        """Render files for a repair prompt within a character budget.
+
+        P-228 (G-1): over budget, files the repair does not touch are replaced
+        by their CodeMem summary; touched files stay complete but are
+        middle-truncated to a per-file share.  Run L's repair prompt reached
+        66k chars with no cap at all.
+        """
+        total = sum(len(v) for v in files.values())
+        if total <= budget:
+            return "\n\n".join(
+                f"```filename:{f}\n{files[f]}\n```" for f in sorted(files)
+            )
+        keep = set(keep_full or ())
+        full_parts: dict[str, str] = {}
+        summary_parts: dict[str, str] = {}
         for fname in sorted(files):
-            parts.append(f"```filename:{fname}\n{files[fname]}\n```")
+            code = files[fname]
+            if fname in keep:
+                full_parts[fname] = code
+            else:
+                summary_parts[fname] = json.dumps(
+                    cls._build_code_summary(fname, code), ensure_ascii=False,
+                )
+        summary_len = sum(len(v) + 40 for v in summary_parts.values())
+        remaining = max(2000, budget - summary_len)
+        per_file = max(1500, remaining // max(1, len(full_parts)))
+        parts: list[str] = []
+        for fname, code in full_parts.items():
+            parts.append(
+                f"```filename:{fname}\n{cls._middle_truncate(code, per_file)}\n```"
+            )
+        for fname, summary in summary_parts.items():
+            parts.append(
+                f"```filename:{fname}\n"
+                f"# [summary — this file is not modified by this repair]\n"
+                f"{summary}\n```"
+            )
         return "\n\n".join(parts)
 
     @staticmethod
