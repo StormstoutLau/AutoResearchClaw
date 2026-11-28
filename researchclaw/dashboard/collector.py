@@ -32,6 +32,7 @@ class RunSnapshot:
     start_time: str = ""
     elapsed_sec: float = 0.0
     is_active: bool = False
+    silence_sec: float = 0.0
     topic: str = ""
     metrics: dict[str, Any] = field(default_factory=dict)
     stages_completed: list[str] = field(default_factory=list)
@@ -49,6 +50,7 @@ class RunSnapshot:
             "start_time": self.start_time,
             "elapsed_sec": round(self.elapsed_sec, 1),
             "is_active": self.is_active,
+            "silence_sec": round(self.silence_sec, 1),
             "topic": self.topic,
             "metrics": self.metrics,
             "stages_completed": self.stages_completed,
@@ -111,6 +113,7 @@ class DashboardCollector:
             start_time=state.start_time,
             elapsed_sec=_elapsed_seconds(state.start_time),
             is_active=state.is_active,
+            silence_sec=state.silence_sec,
             topic=state.topic,
             stages_completed=list(state.artifacts),
         )

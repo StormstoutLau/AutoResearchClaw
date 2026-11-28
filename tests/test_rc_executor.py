@@ -299,6 +299,48 @@ def test_write_stage_meta_keeps_paused_stage_as_next_stage(run_dir: Path) -> Non
     assert payload["next_stage"] == int(Stage.PROBLEM_DECOMPOSE)
 
 
+def test_write_stage_meta_never_claims_proceed_for_failure(run_dir: Path) -> None:
+    """A failed stage used to record {"status": "failed", "decision": "proceed"}."""
+    stage_dir = run_dir / "stage-10"
+    stage_dir.mkdir()
+    result = rc_executor.StageResult(
+        stage=Stage.CODE_GENERATION,
+        status=StageStatus.FAILED,
+        artifacts=("validation_report.md",),
+    )
+    rc_executor._write_stage_meta(
+        stage_dir, result.stage, "run-failed", result,
+    )
+    payload = cast(
+        dict[str, Any],
+        json.loads((stage_dir / "decision.json").read_text(encoding="utf-8")),
+    )
+    assert payload["status"] == "failed"
+    assert payload["decision"] == "failed"
+    assert payload["next_stage"] == int(result.stage)
+
+
+def test_write_stage_meta_keeps_explicit_failure_decision(run_dir: Path) -> None:
+    stage_dir = run_dir / "stage-02"
+    stage_dir.mkdir()
+    result = rc_executor.StageResult(
+        stage=Stage.PROBLEM_DECOMPOSE,
+        status=StageStatus.FAILED,
+        artifacts=(),
+        decision="abort",
+        error="Aborted by user",
+    )
+    rc_executor._write_stage_meta(
+        stage_dir, Stage.PROBLEM_DECOMPOSE, "run-abort", result,
+    )
+    payload = cast(
+        dict[str, Any],
+        json.loads((stage_dir / "decision.json").read_text(encoding="utf-8")),
+    )
+    assert payload["status"] == "failed"
+    assert payload["decision"] == "abort"
+
+
 def test_execute_stage_creates_stage_dir_writes_artifacts_and_meta(
     monkeypatch: pytest.MonkeyPatch,
     run_dir: Path,
@@ -2546,6 +2588,10 @@ class TestComputeBudgetBlock:
                 "time_budget_sec": 60,
                 "metric_key": "best_loss",
                 "metric_direction": "minimize",
+                # P-230 (B-2): this test asserts budget injection, not
+                # blueprint planning; without a parsable blueprint the agent
+                # now fails closed, and the fake LLM only emits code.
+                "code_agent": {"architecture_planning": False},
                 "sandbox": {
                     "python_path": sys.executable,
                     "gpu_required": False,

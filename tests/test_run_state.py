@@ -230,3 +230,59 @@ def test_to_dict_is_json_serialisable(tmp_path: Path) -> None:
     assert payload["status"] == "running"
     assert payload["current_stage"] == 12
     assert json.loads(json.dumps(payload))["run_id"] == run_dir.name
+
+
+# --- P-218: a live rerun must not inherit the previous run's summary ---------
+
+
+def _write_previous_failure(run_dir: Path) -> None:
+    (run_dir / "pipeline_summary.json").write_text(
+        json.dumps({"run_id": run_dir.name, "final_status": "failed"}),
+        encoding="utf-8",
+    )
+
+
+def test_live_rerun_overrides_stale_failed_summary(tmp_path: Path) -> None:
+    run_dir = _make_run(tmp_path)
+    _write_checkpoint(
+        run_dir, in_progress_stage=10, in_progress_name="CODE_GENERATION",
+    )
+    _write_previous_failure(run_dir)
+    _write_heartbeat(
+        run_dir, _iso(), status="running", stage=10, stage_name="CODE_GENERATION",
+    )
+
+    state = read_run_state(run_dir)
+
+    assert state.status is RunStatus.RUNNING
+    assert state.is_active is True
+    assert state.current_stage == 10
+    assert state.current_stage_name == "CODE_GENERATION"
+
+
+def test_heartbeat_without_status_keeps_failed_summary(tmp_path: Path) -> None:
+    """Old heartbeats (pre-P-215) carry no ``status`` field."""
+    run_dir = _make_run(tmp_path)
+    _write_checkpoint(run_dir)
+    _write_previous_failure(run_dir)
+    _write_heartbeat(run_dir, _iso())
+
+    state = read_run_state(run_dir)
+
+    assert state.status is RunStatus.FAILED
+    assert state.is_active is False
+
+
+def test_finished_heartbeat_stays_completed(tmp_path: Path) -> None:
+    run_dir = _make_run(tmp_path)
+    _write_checkpoint(run_dir)
+    (run_dir / "pipeline_summary.json").write_text(
+        json.dumps({"run_id": run_dir.name, "final_status": "done"}),
+        encoding="utf-8",
+    )
+    _write_heartbeat(run_dir, _iso(), status="done")
+
+    state = read_run_state(run_dir)
+
+    assert state.status is RunStatus.COMPLETED
+    assert state.is_active is False

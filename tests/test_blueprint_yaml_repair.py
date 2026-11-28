@@ -7,9 +7,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import yaml
+import pytest
 
 from researchclaw.config import CodeAgentConfig
 from researchclaw.pipeline.code_agent import CodeAgent, _fold_trailing_colon_items
+from researchclaw.pipeline.codegen_evidence import load_blueprint
 from researchclaw.pipeline.step_journal import load_steps
 from researchclaw.prompts import PromptManager
 
@@ -131,13 +133,14 @@ class TestRepairRetry:
         agent = _agent(
             tmp_path, [_fenced(UNPARSABLE_BODY), GOOD_BLUEPRINT],
         )
-        arch, blueprint = agent._phase1_blueprint("topic", "plan", "auroc")
+        _, blueprint = agent._phase1_blueprint("topic", "plan", "auroc")
         assert blueprint is not None
         steps = [s for s in load_steps(tmp_path) if s["step_id"] == "blueprint"]
         assert [s["variant"] for s in steps] == ["first", "yaml_repair"]
         on_disk = (tmp_path / "architecture_spec.yaml").read_text(encoding="utf-8")
-        assert on_disk == arch
         assert "generation_order" in on_disk
+        # P-230 (B-1): the persisted file is canonical re-serialization.
+        assert load_blueprint(tmp_path) is not None
 
     def test_repair_failure_keeps_first_version(self, tmp_path: Path) -> None:
         agent = _agent(
@@ -154,17 +157,17 @@ class TestRepairRetry:
 
 
 class TestFallbackDecision:
-    def test_unparsable_writes_decision_file(self, tmp_path: Path) -> None:
+    def test_unparsable_fails_closed(self, tmp_path: Path) -> None:
         agent = _agent(
             tmp_path,
             [_fenced(UNPARSABLE_BODY), "still not yaml", CODE],
         )
-        result = agent.generate("topic", "plan", "auroc", "numpy")
-        assert result.files
+        with pytest.raises(RuntimeError, match="blueprint_unparsable"):
+            agent.generate("topic", "plan", "auroc", "numpy")
         payload = json.loads(
             (tmp_path / "codegen_decision.json").read_text(encoding="utf-8")
         )
-        assert payload["fallback"] == "single_shot"
+        assert payload["fallback"] == "fail_closed"
         assert payload["reason"] == "blueprint_unparsable"
         assert payload["yaml_repair_attempted"] is True
         assert payload["blueprint_chars"] > 0

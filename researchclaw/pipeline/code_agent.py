@@ -23,6 +23,7 @@ returns ``CodeAgentResult`` with the generated files.
 from __future__ import annotations
 
 import ast
+import difflib
 import json
 import logging
 import re
@@ -33,7 +34,17 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from researchclaw.config import CodeAgentConfig
-from researchclaw.pipeline._helpers import _close_unterminated_fence
+from researchclaw.pipeline._helpers import (
+    _close_unterminated_fence,
+    _extract_named_block,
+)
+from researchclaw.pipeline.codegen_evidence import (
+    blueprint_metric,
+    declared_symbols,
+    missing_symbols,
+    symbol_contract_block,
+)
+from researchclaw.pipeline.repair_trace import record as _record_repair_trace
 from researchclaw.pipeline.entrypoint_contract import (
     ENTRYPOINT_MAX_TOKENS,
     ENTRYPOINT_RETRY_MAX_TOKENS,
@@ -50,12 +61,13 @@ class ModuleExtractionError(RuntimeError):
     B-34 M1-b: the previous code logged a WARNING and ``continue``d, so Stage
     10 kept generating the remaining modules, ran validation and review, and
     only failed at the evidence gate — up to hours later.  Raising here fails
-    at the module that broke.
+    at the module that broke.  M5 adds ``symbols_missing``: the module parsed
+    but does not define the names the blueprint promised.
     """
 
     def __init__(self, *, file_name: str, reason: str) -> None:
         self.file_name = file_name
-        self.reason = reason  # "truncated" | "empty"
+        self.reason = reason  # "truncated" | "empty" | "symbols_missing"
         super().__init__(
             f"{file_name}: module extraction failed ({reason}) — refusing to "
             "continue with a missing or partial module"
@@ -92,6 +104,21 @@ _YAML_REPAIR_SUFFIX = (
     "- Output exactly one ```yaml fenced block and nothing else.\n"
     "- Quote every list-item value that ends with ':' or contains ': '.\n"
     "- Keep the same keys, file names and generation_order values.\n"
+)
+
+# B-34 M4: modules whose job is wiring/formatting rather than algorithm
+# design.  These get a lower thinking effort so the budget goes to code.
+_MECHANICAL_FILE_HINTS = (
+    "config",
+    "settings",
+    "constants",
+    "schema",
+    "types",
+    "utils",
+    "util",
+    "cli",
+    "io",
+    "loader",
 )
 
 
@@ -162,6 +189,19 @@ def _fold_trailing_colon_items(lines: list[str]) -> list[str]:
         out.append(f'{indent}- "{escaped}"')
         i = j
     return out
+
+
+def _count_changed_lines(before: str, after: str) -> int:
+    """Added + removed non-header lines between two versions (P-231 D-7)."""
+    diff = difflib.unified_diff(
+        str(before).splitlines(), str(after).splitlines(), lineterm="", n=0,
+    )
+    return sum(
+        1
+        for line in diff
+        if (line.startswith("+") or line.startswith("-"))
+        and not line.startswith(("+++", "---"))
+    )
 
 
 @dataclass
@@ -271,6 +311,9 @@ class CodeAgent:
         self._sandbox: _SandboxLike | None = None
         # B-32 M1: diagnostics for the single-shot fallback record.
         self._codegen_diag: dict[str, Any] = {}
+        # P-230 (B-5): provenance of the persisted blueprint.
+        self._blueprint_source = "model"
+        self._last_blueprint_error = ""
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -283,6 +326,8 @@ class CodeAgent:
         max_tokens: int = 8192,
     ) -> CodeAgentResult:
         """Execute all enabled phases and return generated files."""
+        from researchclaw.pipeline.step_journal import hash_text
+
         t0 = time.time()
         self._log_event("CodeAgent.generate() started")
 
@@ -293,6 +338,12 @@ class CodeAgent:
             arch_spec, blueprint = self._phase1_blueprint(
                 topic, exp_plan, metric,
             )
+            # B-34 M6: the blueprint's metric wins over the config key — the
+            # exit gate compares against the blueprint, so the entrypoint must
+            # be generated with the same name.
+            declared_metric = blueprint_metric(blueprint)
+            if declared_metric:
+                metric = declared_metric
 
         # Phase 2: Code generation
         nodes_explored = 0
@@ -330,6 +381,19 @@ class CodeAgent:
                     if blueprint is None
                     else "blueprint_structure_invalid"
                 )
+                if blueprint is None:
+                    # P-230 (B-2): one repair was already attempted; without a
+                    # blueprint every downstream evidence gate is blind, so
+                    # fail before spending the generation budget.
+                    self._record_codegen_decision(
+                        fallback="fail_closed",
+                        reason=reason,
+                        blueprint_chars=len(arch_spec),
+                    )
+                    raise RuntimeError(
+                        "blueprint_unparsable: "
+                        + (self._last_blueprint_error or "no parsable YAML")
+                    )
                 logger.warning(
                     "Sequential generation requested but blueprint unusable "
                     "(%s) — falling back to single-shot",
@@ -347,6 +411,16 @@ class CodeAgent:
             files = self._phase2_generate_and_fix(
                 topic, exp_plan, metric, pkg_hint, arch_spec, max_tokens,
             )
+            if files:
+                self._journal_progress_step(
+                    "generate_project",
+                    variant="single",
+                    status="done",
+                    inputs_digest=_blueprint_inputs_digest(topic, exp_plan, metric),
+                    outputs={
+                        name: hash_text(code) for name, code in files.items()
+                    },
+                )
             # Hard validation gates (E-03) for single-shot too
             if self._cfg.hard_validation and files:
                 files = self._hard_validate_and_repair(
@@ -464,6 +538,9 @@ class CodeAgent:
         if blueprint:
             n_files = len(blueprint.get("files", []))
             self._log_event(f"  Parsed blueprint: {n_files} files")
+            # P-230 (B-1): replace the raw transport YAML with canonical
+            # serialization so downstream gates can always parse it.
+            self._write_canonical_blueprint(blueprint)
         else:
             self._log_event("  WARNING: Could not parse blueprint YAML")
 
@@ -485,8 +562,21 @@ class CodeAgent:
         """
         self._codegen_diag["yaml_repair_attempted"] = True
         self._log_event("  Blueprint YAML invalid — requesting a YAML-only repair")
+        _before_error = self._last_blueprint_error
+        delta = ""
+        if _before_error:
+            # P-230 (B-2): delta retry — hand back the parser message and the
+            # one rule that fixes this class of failure.
+            delta = (
+                "\n- The parser reported: "
+                + _before_error
+                + "\n- Quote any value containing ':' (function signatures "
+                "included), e.g. signature: '(config: Config) -> dict'.\n"
+            )
         try:
-            resp = self._chat(system, user + _YAML_REPAIR_SUFFIX, max_tokens=32768)
+            resp = self._chat(
+                system, user + _YAML_REPAIR_SUFFIX + delta, max_tokens=32768,
+            )
         except Exception as exc:  # noqa: BLE001 - repair is best-effort
             logger.warning("Blueprint YAML repair call failed: %s", exc)
             return "", None
@@ -507,6 +597,10 @@ class CodeAgent:
             return "", None
         blueprint = self._parse_blueprint(repaired)
         if blueprint is None:
+            # P-230 (B-4): the same parser error twice means retrying again
+            # would repeat the same output — stop instead of looping.
+            if _before_error and self._last_blueprint_error == _before_error:
+                self._codegen_diag["blueprint_error_repeated"] = True
             self._log_event("  YAML repair still did not parse")
             return "", None
 
@@ -516,6 +610,8 @@ class CodeAgent:
             inputs_digest=inputs_digest,
             prompt_version=prompt_version,
         )
+        self._blueprint_source = "repaired"
+        self._write_canonical_blueprint(blueprint)
         self._log_event("  YAML repair parsed successfully")
         return repaired, blueprint
 
@@ -537,6 +633,11 @@ class CodeAgent:
             "blueprint_chars": blueprint_chars,
             "yaml_repair_attempted": bool(
                 self._codegen_diag.get("yaml_repair_attempted")
+            ),
+            # P-230 (B-5): "model" / "canonical" / "repaired" provenance.
+            "blueprint_source": self._blueprint_source,
+            "blueprint_error_repeated": bool(
+                self._codegen_diag.get("blueprint_error_repeated")
             ),
             "at": datetime.now(timezone.utc).isoformat(),
         }
@@ -589,6 +690,50 @@ class CodeAgent:
                 "could not journal failed module %s: %s", file_name, exc,
             )
 
+    def _journal_progress_step(
+        self,
+        step_id: str,
+        *,
+        variant: str = "",
+        status: str = "done",
+        inputs_digest: str = "",
+        outputs: dict[str, str] | None = None,
+        model: str = "",
+        elapsed_sec: float = 0.0,
+        prompt_version: str = "",
+    ) -> None:
+        """Append a progress row to ``steps.jsonl`` (B-33 ledger).
+
+        Progress rows without outputs are intentionally not reusable
+        (``should_skip`` requires a non-empty output map), so recording a
+        validation round can never make a later run skip real work.
+        """
+        from researchclaw.pipeline.step_journal import append_step
+
+        try:
+            append_step(
+                self._stage_dir,
+                step_id=step_id,
+                variant=variant,
+                status=status,
+                inputs_digest=inputs_digest,
+                outputs=outputs or {},
+                model=model,
+                elapsed_sec=elapsed_sec,
+                prompt_version=prompt_version,
+            )
+        except Exception as exc:  # noqa: BLE001 - journal is best-effort
+            self._log_event(f"  WARNING: could not journal {step_id}: {exc}")
+
+    @staticmethod
+    def _files_digest(files: dict[str, str]) -> str:
+        from researchclaw.pipeline.step_journal import hash_text
+
+        joined = "\n---\n".join(
+            f"{name}:{hash_text(code)}" for name, code in sorted(files.items())
+        )
+        return hash_text(joined)
+
     def _persist_blueprint(
         self,
         arch_spec: str,
@@ -626,6 +771,43 @@ class CodeAgent:
             )
         except Exception:  # noqa: BLE001 - journal is best-effort
             self._log_event("  WARNING: could not append blueprint step record")
+
+    def _write_canonical_blueprint(self, blueprint: dict[str, Any]) -> None:
+        """Persist the parsed blueprint as canonical YAML plus a JSON twin.
+
+        P-230 (B-1): the model's raw YAML is only a transport format.  Dumping
+        the parsed dict lets ``yaml.safe_dump`` quote every value that contains
+        ``:`` — run N's ``signature: (config: Config, ...)`` broke the file that
+        the gates read while the in-memory copy had parsed fine.
+        """
+        try:
+            import yaml
+
+            text = yaml.safe_dump(
+                blueprint, sort_keys=False, allow_unicode=True,
+                default_flow_style=False,
+            )
+        except Exception as exc:  # noqa: BLE001 - persistence is best-effort
+            self._log_event(f"  WARNING: could not serialize blueprint: {exc}")
+            return
+        try:
+            path = self._stage_dir / "architecture_spec.yaml"
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_text(text, encoding="utf-8")
+            tmp.replace(path)
+            (self._stage_dir / "architecture_spec.json").write_text(
+                json.dumps(blueprint, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except OSError as exc:  # noqa: BLE001
+            self._log_event(f"  WARNING: could not persist blueprint: {exc}")
+            return
+        if self._blueprint_source == "model":
+            self._blueprint_source = "canonical"
+        self._log_event(
+            f"  Canonical blueprint written ({len(text)} chars, "
+            f"source={self._blueprint_source})"
+        )
 
     def _build_domain_context(self) -> str:
         """Build domain-specific context for injection into prompts.
@@ -764,6 +946,7 @@ class CodeAgent:
                 if isinstance(data, dict) and "files" in data:
                     return data
             except Exception as exc:
+                self._last_blueprint_error = f"{type(exc).__name__}: {exc}"
                 self._log_event(f"  Blueprint YAML parse error: {exc}")
         return None
 
@@ -782,6 +965,38 @@ class CodeAgent:
 
     # ── Phase 2a: Sequential File Generation ─────────────────────────────
 
+    @staticmethod
+    def _is_mechanical_module(file_name: str) -> bool:
+        """Wiring/formatting modules need less reasoning than algorithms."""
+        stem = file_name.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower()
+        return any(hint in stem for hint in _MECHANICAL_FILE_HINTS)
+
+    def _module_line_budget(self, file_spec: dict[str, Any]) -> int:
+        """Line budget for one module: blueprint value, else config default."""
+        raw = file_spec.get("max_lines")
+        try:
+            value = int(raw) if raw is not None else int(self._cfg.file_max_lines)
+        except (TypeError, ValueError):
+            value = int(self._cfg.file_max_lines)
+        return max(40, value)
+
+    def _thinking_extra(self, file_name: str) -> dict[str, Any]:
+        """Per-module thinking controls (B-34 M4).
+
+        Returns ``{}`` unless ``thinking_policy == "tiered"``, so the default
+        stays byte-identical for providers that reject unknown body keys.
+        """
+        policy = str(getattr(self._cfg, "thinking_policy", "off") or "off")
+        if policy != "tiered":
+            return {}
+        if self._is_mechanical_module(file_name):
+            effort = str(
+                getattr(self._cfg, "thinking_mechanical_effort", "") or ""
+            )
+            return {"reasoning_effort": effort} if effort else {}
+        limit = int(getattr(self._cfg, "thinking_core_max_tokens", 0) or 0)
+        return {"reasoning": {"max_tokens": limit}} if limit > 0 else {}
+
     def _phase2_sequential_generate(
         self,
         topic: str,
@@ -796,6 +1011,8 @@ class CodeAgent:
 
         generated_files: dict[str, str] = {}
         code_memory: dict[str, dict[str, Any]] = {}  # CodeMem summaries
+
+        from researchclaw.pipeline.step_journal import hash_text
 
         # Sort files by generation_order
         file_specs = blueprint.get("files", [])
@@ -817,6 +1034,7 @@ class CodeAgent:
                 f"  Generating {file_name} "
                 f"(order={file_spec.get('generation_order')})"
             )
+            file_t0 = time.time()
 
             # Build dependency context
             deps = file_spec.get("dependencies", [])
@@ -856,13 +1074,35 @@ class CodeAgent:
                 exp_plan=exp_plan[:4000],  # Truncate to avoid token overflow
                 pkg_hint=pkg_hint,
             )
-            resp = self._chat(sp.system, sp.user, max_tokens=8192)
+            # B-34 M4: advertise a line budget and pick a thinking tier.
+            _line_budget = self._module_line_budget(file_spec)
+            _budget_note = (
+                f"\n\nBUDGET: keep this file at or under {_line_budget} lines. "
+                "If the design needs more, stop at a coherent, runnable "
+                "subset rather than truncating mid-statement."
+            )
+            sp = type(sp)(
+                system=sp.system,
+                user=sp.user + _budget_note,
+                version=getattr(sp, "version", ""),
+            )
+            _extra_body = self._thinking_extra(file_name)
+            _extra_kwargs = {"extra_body": _extra_body} if _extra_body else {}
+            if _extra_body:
+                self._log_event(
+                    f"  {file_name}: thinking tier {_extra_body}"
+                )
+            resp = self._chat(
+                sp.system, sp.user, max_tokens=8192, **_extra_kwargs,
+            )
             budget = 8192
             if getattr(resp, "truncated", False):
                 self._log_event(
                     f"  {file_name}: truncated — retrying with 32768"
                 )
-                resp = self._chat(sp.system, sp.user, max_tokens=32768)
+                resp = self._chat(
+                    sp.system, sp.user, max_tokens=32768, **_extra_kwargs,
+                )
                 budget = 32768
 
             # Extract code from response.  M1-a closes an unterminated fence
@@ -905,7 +1145,83 @@ class CodeAgent:
                 logger.error("Stage 10 module generation failed: %s", message)
                 raise ModuleExtractionError(file_name=file_name, reason=reason)
 
+            # B-34 M5: check the symbols the blueprint declares for THIS file
+            # right after it is generated.  The stage-exit gate caught them
+            # only after all modules, hard validation, the entrypoint and the
+            # alignment pass — 61 minutes in run J — and then failed the stage.
+            declared = declared_symbols(blueprint, file_name)
+            missing = missing_symbols(blueprint, file_name, code)
+            if missing:
+                self._log_event(
+                    f"  {file_name}: {len(missing)} declared symbol(s) missing "
+                    f"({', '.join(missing[:6])}) — targeted repair"
+                )
+                repair_user = sp.user + (
+                    "\n\nSYMBOL CONTRACT: the blueprint declares these names "
+                    f"for this file: {', '.join(declared)}.\n"
+                    "Your previous answer did not define: "
+                    f"{', '.join(missing)}.\n"
+                    "Re-emit the COMPLETE file and define EVERY declared name "
+                    "at the top level (no placeholders)."
+                )
+                resp2 = self._chat(
+                    sp.system, repair_user, max_tokens=budget, **_extra_kwargs,
+                )
+                if getattr(resp2, "truncated", False) and budget < 32768:
+                    resp2 = self._chat(
+                        sp.system, repair_user, max_tokens=32768, **_extra_kwargs,
+                    )
+                code2 = self._extract_single_file_code(resp2.content, file_name)
+                if code2:
+                    missing = missing_symbols(blueprint, file_name, code2)
+                if code2 and not missing:
+                    code = code2
+                    resp = resp2
+                    self._log_event(
+                        f"  {file_name}: symbol contract satisfied after repair"
+                    )
+                else:
+                    self._codegen_diag.setdefault("module_failures", []).append({
+                        "file": file_name,
+                        "reason": "symbols_missing",
+                        "budget_tokens": budget,
+                        "missing_symbols": missing[:20],
+                    })
+                    self._record_module_failure(
+                        file_name=file_name,
+                        reason="symbols_missing",
+                        truncated=False,
+                        file_spec_str=file_spec_str,
+                        dep_code=dep_code,
+                        prompt_version=getattr(sp, "version", ""),
+                        model=str(getattr(resp2, "model", "") or ""),
+                    )
+                    message = (
+                        f"{file_name}: declared symbols still missing after "
+                        f"repair ({', '.join(missing[:6])})"
+                    )
+                    self._log_event(f"  ERROR: {message}")
+                    logger.error("Stage 10 module generation failed: %s", message)
+                    raise ModuleExtractionError(
+                        file_name=file_name, reason="symbols_missing",
+                    )
+
             generated_files[file_name] = code
+
+            # B-33 L1 extension: a successful module used to be invisible in
+            # steps.jsonl (only failures were journalled), so a 40-minute
+            # Phase 2 looked identical to a dead run.  Progress rows carry
+            # digests only (I-2).
+            self._journal_progress_step(
+                "generate_file",
+                variant=file_name,
+                status="done",
+                inputs_digest=hash_text(file_spec_str + "\n---\n" + dep_code),
+                outputs={file_name: hash_text(code)},
+                model=str(getattr(resp, "model", "") or ""),
+                elapsed_sec=time.time() - file_t0,
+                prompt_version=getattr(sp, "version", ""),
+            )
 
             # Build CodeMem summary via AST
             code_memory[file_name] = self._build_code_summary(
@@ -925,11 +1241,20 @@ class CodeAgent:
             self._log_event(
                 "  WARNING: No main.py generated — requesting dedicated entrypoint"
             )
+            entry_t0 = time.time()
             entry = self._generate_entrypoint_file(
                 topic, exp_plan, metric, generated_files,
             )
             if entry:
                 generated_files["main.py"] = entry
+                self._journal_progress_step(
+                    "entrypoint",
+                    variant="dedicated",
+                    status="done",
+                    inputs_digest=hash_text(topic + "\n---\n" + metric),
+                    outputs={"main.py": hash_text(entry)},
+                    elapsed_sec=time.time() - entry_t0,
+                )
                 self._log_event(
                     f"  Dedicated entrypoint generated: "
                     f"{len(entry.split(chr(10)))} lines"
@@ -1094,9 +1419,21 @@ class CodeAgent:
         issues are logged as warnings only.
         """
         self._log_event("Phase 2.5: Hard validation gates")
+        self._reject_streak: dict[tuple[str, str], int] = {}
 
         for attempt in range(self._cfg.hard_validation_max_repairs + 1):
+            round_t0 = time.time()
             critical, warnings = self._hard_validate(files)
+            # Progress-only row: the validation round completed (status reflects
+            # whether critical issues remain).  Empty outputs keep it out of
+            # should_skip, so it can never suppress real work.
+            self._journal_progress_step(
+                "hard_validation",
+                variant=f"attempt-{attempt}",
+                status="done" if not critical else "failed",
+                inputs_digest=self._files_digest(files),
+                elapsed_sec=time.time() - round_t0,
+            )
 
             # Log warnings
             for w in warnings:
@@ -1125,9 +1462,36 @@ class CodeAgent:
             # Targeted repair: ask LLM to fix specific critical issues
             files = self._repair_critical_issues(
                 files, critical, topic, exp_plan, metric, arch_spec,
+                attempt=attempt,
+                max_attempts=self._cfg.hard_validation_max_repairs,
             )
+            stop = self._repeated_rejection()
+            if stop is not None:
+                name, code, count = stop
+                self._log_event(
+                    f"  Repeated rejection for {name} ({code} x{count}) — "
+                    "stopping targeted repair"
+                )
+                _record_repair_trace(
+                    self._stage_dir,
+                    phase="agent_repair_stopped",
+                    attempt=attempt,
+                    max_attempts=self._cfg.hard_validation_max_repairs,
+                    extra={"file": name, "reason": code, "count": count},
+                )
+                return files
 
         return files
+
+    def _repeated_rejection(self) -> tuple[str, str, int] | None:
+        """P-226 (D-1): the first (file, reason) that hit the stop limit."""
+        limit = int(self._cfg.repair_stop_after_rejections or 0)
+        if limit <= 0:
+            return None
+        for (name, code), count in sorted(self._reject_streak.items()):
+            if count >= limit:
+                return name, code, count
+        return None
 
     def _hard_validate(
         self, files: dict[str, str],
@@ -1302,9 +1666,20 @@ class CodeAgent:
         exp_plan: str,
         metric: str,
         arch_spec: str,
+        *,
+        attempt: int = 0,
+        max_attempts: int = 0,
     ) -> dict[str, str]:
         """Ask LLM to fix critical validation issues."""
         self._log_event("  Targeted repair for critical issues")
+        _record_repair_trace(
+            self._stage_dir,
+            phase="agent_validation_failed",
+            attempt=attempt,
+            max_attempts=max_attempts,
+            error_summary=f"{len(critical_issues)} CRITICAL issue(s)",
+            extra={"issues": [str(i)[:300] for i in critical_issues[:20]]},
+        )
 
         # Identify which files need repair
         affected_files: set[str] = set()
@@ -1322,32 +1697,179 @@ class CodeAgent:
         if not affected_files:
             affected_files.update(f for f in files if f.endswith(".py"))
 
-        files_ctx = self._format_files(files)
+        # P-228 (G-1): touched files stay complete; the rest become CodeMem
+        # summaries once the raw context exceeds the budget.
+        files_ctx = self._format_files(files, keep_full=affected_files)
         issues_text = "\n".join(f"- {issue}" for issue in critical_issues)
+        # P-231 (D-2): the previous prompt cut the blueprint to 4 000 chars,
+        # which only covered the first module — the model was told to preserve
+        # names it could not see.  A parsed symbol contract is both smaller and
+        # complete.
+        blueprint = self._parse_blueprint(arch_spec) if arch_spec else None
+        contract_ctx = (
+            symbol_contract_block(blueprint, files, limit_files=affected_files)
+            if blueprint else ""
+        ) or arch_spec[:4000]
+        affected_list = ", ".join(sorted(affected_files))
 
-        prompt = (
-            "Your generated code has CRITICAL issues that will cause "
-            "runtime failures or produce invalid results. Fix ALL of them.\n\n"
-            "## Critical Issues Found\n"
-            f"{issues_text}\n\n"
-            "## Architecture Blueprint\n"
-            f"{arch_spec[:4000]}\n\n"
-            "## Current Code\n"
-            f"{files_ctx}\n\n"
-            "## Rules\n"
-            "1. Fix every critical issue listed above\n"
-            "2. Ablation/variant classes MUST have different implementations "
-            "from their parent — change the forward() or core method\n"
-            "3. Never hardcode metric values — compute them from actual data\n"
-            "4. nn.Module layers must be created in __init__(), not forward()\n"
-            "5. All cross-file imports must reference names that actually exist\n"
-            "6. Output ALL files in ```filename:xxx.py``` format\n"
-        )
+        def _prompt_for(ctx: str) -> str:
+            return (
+                "Your generated code has CRITICAL issues that will cause "
+                "runtime failures or produce invalid results. Fix ALL of them.\n\n"
+                "## Critical Issues Found\n"
+                f"{issues_text}\n\n"
+                f"## Affected files (return ONLY these: {affected_list})\n\n"
+                "## Architecture Blueprint — symbol contract\n"
+                f"{contract_ctx}\n\n"
+                "## Current Code\n"
+                f"{ctx}\n\n"
+                "## Rules\n"
+                "1. Fix every critical issue listed above\n"
+                "2. Ablation/variant classes MUST have different implementations "
+                "from their parent — change the forward() or core method\n"
+                "3. Never hardcode metric values — compute them from actual data\n"
+                "4. nn.Module layers must be created in __init__(), not forward()\n"
+                "5. All cross-file imports must reference names that actually exist\n"
+                "6. Output ONLY the affected files listed above, each complete, "
+                "in ```filename:xxx.py``` format. Do not return unchanged files.\n"
+                "7. Preserve every declared class/function name and change "
+                "nothing else — no reformatting, no renames, no unrelated "
+                "rewrites.\n"
+            )
 
+        prompt = _prompt_for(files_ctx)
         sys_prompt = self._pm.system("code_generation")
-        resp = self._chat(sys_prompt, prompt, max_tokens=16384)
 
-        fixed = self._extract_files(resp.content)
+        def _summaries_only() -> str:
+            ctx = self._format_files(files, keep_full=set())
+            return _prompt_for(ctx)
+
+        # P-228 (G-3): stay below the hard cap; a prompt the provider rejects
+        # is retried once with summaries only, mirroring the truncate-head
+        # fallback used by Claude Code for prompt-too-long.
+        _hard_cap = 140000
+        if len(prompt) > _hard_cap:
+            self._log_event(
+                "  Repair prompt over hard cap — switching to summaries only"
+            )
+            prompt = _summaries_only()
+        try:
+            resp = self._chat(sys_prompt, prompt, max_tokens=16384)
+        except Exception as exc:  # noqa: BLE001 - only prompt-too-long retried
+            _text = str(exc).lower()
+            if "prompt" in _text and (
+                "too long" in _text or "context" in _text or "maximum" in _text
+            ):
+                self._log_event(
+                    "  Repair prompt rejected as too long — retrying with "
+                    "summaries only"
+                )
+                prompt = _summaries_only()
+                resp = self._chat(sys_prompt, prompt, max_tokens=16384)
+            else:
+                raise
+        if getattr(resp, "truncated", False) or (
+            getattr(resp, "finish_reason", "") == "length"
+        ):
+            # A truncated repair reply usually ends mid-string; one retry at
+            # the module budget is cheaper than merging broken code.
+            self._log_event("  Repair response truncated — retrying with 32768")
+            resp = self._chat(sys_prompt, prompt, max_tokens=32768)
+
+        # P-228 (G-4): still truncated after the escalation means the budget
+        # is exhausted by reasoning, not by visible output.  Treat the round
+        # as a rejection (so P-226 can stop it) instead of retrying silently.
+        _still_truncated = bool(getattr(resp, "truncated", False)) or (
+            getattr(resp, "finish_reason", "") == "length"
+        )
+        _split_mode = False
+        if _still_truncated:
+            # P-231 (D-6): the same prompt at the same size returns the same
+            # truncated reply, so hammering it a third time buys nothing.
+            # Split into one request per affected file instead.
+            self._log_event(
+                "  Repair still truncated at 32768 — splitting per affected file"
+            )
+            fixed, rejected_reasons = self._repair_files_individually(
+                files, affected_files, issues_text, contract_ctx, blueprint,
+            )
+            candidates: dict[str, str] = dict(fixed)
+            _split_mode = True
+        else:
+            candidates = self._extract_files(resp.content)
+            if (
+                "main.py" not in files
+                and set(candidates) == {"main.py"}
+                and len(affected_files) == 1
+            ):
+                # P-231: the extractor names a single block "main.py".  When
+                # exactly one file was affected and main.py is not part of the
+                # project, the reply belongs to that file.
+                only = next(iter(affected_files))
+                if only != "main.py":
+                    rescued = _extract_named_block(resp.content, only)
+                    if rescued is not None:
+                        candidates = {only: rescued}
+            fixed, rejected_reasons = self._accept_repair_files(
+                files, candidates, blueprint,
+            )
+        # P-226 (D-1): only consecutive identical failures count.  An accepted
+        # fix clears the file's streak, and a new reason starts at 1, so a
+        # model that keeps alternating failure modes still gets the full
+        # budget instead of being stopped for the wrong cause.
+        previous = getattr(self, "_reject_streak", {})
+        streak: dict[tuple[str, str], int] = {}
+        for name, why in rejected_reasons.items():
+            code = why.split(":", 1)[0].strip()
+            key = (name, code)
+            streak[key] = previous.get(key, 0) + 1
+        self._reject_streak = streak
+        for name, why in sorted(rejected_reasons.items()):
+            self._log_event(f"  Repair rejected {name}: {why}")
+        _usage = {
+            "prompt_tokens": int(getattr(resp, "prompt_tokens", 0) or 0),
+            "completion_tokens": int(getattr(resp, "completion_tokens", 0) or 0),
+            "total_tokens": int(getattr(resp, "total_tokens", 0) or 0),
+            "finish_reason": str(getattr(resp, "finish_reason", "") or ""),
+        }
+        _extra: dict[str, Any] = {
+            "usage": _usage,
+            "summary_mode": len(files_ctx) < sum(
+                len(v) for v in files.values()
+            ),
+        }
+        if rejected_reasons:
+            _extra["rejected_reasons"] = rejected_reasons
+        if _split_mode:
+            _extra["split_per_file"] = sorted(affected_files)
+        if fixed:
+            # P-231 (D-7): minimal-edit reading — how much each accepted file
+            # actually changed.  A value far above the issue count means the
+            # model rewrote instead of patching, which is the regression source
+            # reported by the over-editing studies.
+            _extra["edited_lines"] = {
+                name: _count_changed_lines(files.get(name, ""), code)
+                for name, code in sorted(fixed.items())
+            }
+        _record_repair_trace(
+            self._stage_dir,
+            phase="agent_repair",
+            attempt=attempt,
+            max_attempts=max_attempts,
+            prompt=prompt,
+            response=resp.content,
+            model=str(getattr(resp, "model", "") or ""),
+            truncated=getattr(resp, "truncated", None),
+            accepted=sorted(fixed),
+            rejected=sorted(set(files) - set(fixed)),
+            reason=(
+                "split_per_file" if _split_mode
+                else "merged" if fixed
+                else "rejected_all" if candidates
+                else "no_extractable_file"
+            ),
+            extra=_extra,
+        )
         if fixed:
             merged = dict(files)
             merged.update(fixed)
@@ -1357,8 +1879,135 @@ class CodeAgent:
             )
             return merged
 
-        self._log_event("  WARNING: Repair produced no extractable files")
+        if candidates:
+            self._log_event("  WARNING: Repair produced no usable files")
+        else:
+            self._log_event("  WARNING: Repair produced no extractable files")
         return files
+
+    def _repair_files_individually(
+        self,
+        files: dict[str, str],
+        affected: set[str],
+        issues_text: str,
+        contract_ctx: str,
+        blueprint: dict[str, Any] | None,
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        """P-231 (D-6): repair one file per request after a split truncation.
+
+        The combined prompt asks for every affected file, so its output grows
+        with the number of files and truncates at 32 768 (run O: five files,
+        four rounds).  One request per file keeps every reply small enough to
+        arrive complete.
+        """
+        fixed: dict[str, str] = {}
+        rejected: dict[str, str] = {}
+        system = self._pm.system("code_generation")
+        for name in sorted(n for n in affected if n in files):
+            prompt = (
+                f"The file `{name}` has CRITICAL issues.\n\n"
+                "## Critical Issues\n"
+                f"{issues_text}\n\n"
+                "## Architecture Blueprint — symbol contract\n"
+                f"{contract_ctx}\n\n"
+                f"## Current `{name}`\n"
+                f"```filename:{name}\n{files[name]}\n```\n\n"
+                "## Rules\n"
+                "1. Fix every critical issue that applies to this file\n"
+                "2. Preserve every declared class/function name; change nothing "
+                "else\n"
+                f"3. Output ONLY `{name}` as one ```filename:{name}``` block\n"
+            )
+            resp = self._chat(system, prompt, max_tokens=16384)
+            truncated = bool(getattr(resp, "truncated", False)) or (
+                getattr(resp, "finish_reason", "") == "length"
+            )
+            if truncated:
+                resp = self._chat(system, prompt, max_tokens=32768)
+                truncated = bool(getattr(resp, "truncated", False)) or (
+                    getattr(resp, "finish_reason", "") == "length"
+                )
+            if truncated:
+                rejected[name] = "truncated_after_escalation"
+                continue
+            candidates = self._extract_files(resp.content)
+            if name not in candidates:
+                # P-231: a bare block without a filename marker is recovered
+                # for the file we asked about instead of being dropped.
+                rescued = _extract_named_block(resp.content, name)
+                if rescued is not None:
+                    candidates = {name: rescued}
+            accepted, why = self._accept_repair_files(files, candidates, blueprint)
+            if accepted:
+                fixed.update(accepted)
+            if why:
+                rejected.update(why)
+            else:
+                rejected.setdefault(name, "not_returned")
+        return fixed, rejected
+
+    def _accept_repair_files(
+        self,
+        files: dict[str, str],
+        candidates: dict[str, str],
+        blueprint: dict[str, Any] | None,
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        """Keep only repair files that cannot make the project worse (P-222).
+
+        A repair reply may fix issues; it may not introduce syntax errors,
+        break the entrypoint contract, add unknown modules, or drop
+        blueprint-declared symbols.  In run K four consecutive repairs
+        replaced a valid ``data.py`` with fragments until seven declared
+        symbols were gone, and only the stage-exit gate noticed 59 minutes
+        later.  Rejecting the file keeps the last known-good version, so the
+        next validation round reports the original issue instead of a new
+        one.
+        """
+        accepted: dict[str, str] = {}
+        rejected: dict[str, str] = {}
+        for name, code in candidates.items():
+            if name not in files and name != "main.py":
+                rejected[name] = "unknown_file"
+                continue
+            if name.endswith(".py"):
+                try:
+                    ast.parse(code)
+                except SyntaxError as exc:
+                    rejected[name] = (
+                        f"syntax_error: {exc.msg} (line {exc.lineno})"
+                    )
+                    continue
+            if name == "main.py":
+                issues = entrypoint_issues(code)
+                if issues:
+                    rejected[name] = (
+                        "entrypoint_contract: " + "; ".join(issues)
+                    )
+                    continue
+            # P-231 (D-7): a repair that keeps less than half of the file's
+            # non-blank lines is a rewrite, not a fix.  Run K replaced a
+            # 9-symbol data.py with a 2-symbol fragment this way.  Checked
+            # after the symbol gate so the reason names the precise loss.
+            if blueprint is not None:
+                before = missing_symbols(blueprint, name, files.get(name, ""))
+                after = missing_symbols(blueprint, name, code)
+                if len(after) > len(before):
+                    lost = sorted(set(after) - set(before))
+                    rejected[name] = (
+                        "symbol_contract: loses " + ", ".join(lost[:6])
+                    )
+                    continue
+            before_code = files.get(name, "")
+            before_lines = [l for l in before_code.splitlines() if l.strip()]
+            after_lines = [l for l in code.splitlines() if l.strip()]
+            if before_lines and len(after_lines) * 2 < len(before_lines):
+                rejected[name] = (
+                    f"catastrophic_rewrite: kept {len(after_lines)}/"
+                    f"{len(before_lines)} non-blank lines"
+                )
+                continue
+            accepted[name] = code
+        return accepted, rejected
 
     # ── Phase 2b: Single-Shot Generate + Exec-Fix (legacy) ───────────────
 
@@ -1807,15 +2456,24 @@ class CodeAgent:
 
     # ── Helpers ────────────────────────────────────────────────────────────
 
-    def _chat(self, system: str, user: str, max_tokens: int = 8192) -> Any:
+    def _chat(
+        self,
+        system: str,
+        user: str,
+        max_tokens: int = 8192,
+        extra_body: dict[str, Any] | None = None,
+    ) -> Any:
         """Make an LLM call and track count."""
         self._calls += 1
         messages = [{"role": "user", "content": user}]
-        return self._llm.chat(
-            messages=messages,
-            system=system,
-            max_tokens=max_tokens,
-        )
+        kwargs: dict[str, Any] = {
+            "messages": messages,
+            "system": system,
+            "max_tokens": max_tokens,
+        }
+        if extra_body:
+            kwargs["extra_body"] = extra_body
+        return self._llm.chat(**kwargs)
 
     def _get_or_create_sandbox(self) -> _SandboxLike:
         """Lazily create a single sandbox instance for all validation runs."""
@@ -1873,11 +2531,71 @@ class CodeAgent:
         return _extract_multi_file_blocks(content)
 
     @staticmethod
-    def _format_files(files: dict[str, str]) -> str:
-        """Format files for inclusion in a prompt."""
-        parts = []
+    def _middle_truncate(text: str, limit: int) -> str:
+        """Keep head and tail, drop the middle with an explicit marker.
+
+        Mirrors the Codex output-truncation policy: keeping only the head
+        loses the very lines the critical issues point at.
+        """
+        if limit <= 0 or len(text) <= limit:
+            return text
+        head_budget = int(limit * 0.6)
+        tail_budget = max(0, limit - head_budget)
+        head = text[:head_budget]
+        tail = text[-tail_budget:] if tail_budget else ""
+        omitted = len(text) - len(head) - len(tail)
+        omitted_lines = (
+            text.count("\n") - head.count("\n") - tail.count("\n")
+        )
+        marker = (
+            f"\n... [truncated: {omitted} chars / {omitted_lines} lines "
+            f"omitted, original {len(text)} chars] ...\n"
+        )
+        return head + marker + tail
+
+    @classmethod
+    def _format_files(
+        cls, files: dict[str, str], *,
+        keep_full: set[str] | None = None,
+        budget: int = 60000,
+    ) -> str:
+        """Render files for a repair prompt within a character budget.
+
+        P-228 (G-1): over budget, files the repair does not touch are replaced
+        by their CodeMem summary; touched files stay complete but are
+        middle-truncated to a per-file share.  Run L's repair prompt reached
+        66k chars with no cap at all.
+        """
+        total = sum(len(v) for v in files.values())
+        if total <= budget:
+            return "\n\n".join(
+                f"```filename:{f}\n{files[f]}\n```" for f in sorted(files)
+            )
+        keep = set(keep_full or ())
+        full_parts: dict[str, str] = {}
+        summary_parts: dict[str, str] = {}
         for fname in sorted(files):
-            parts.append(f"```filename:{fname}\n{files[fname]}\n```")
+            code = files[fname]
+            if fname in keep:
+                full_parts[fname] = code
+            else:
+                summary_parts[fname] = json.dumps(
+                    cls._build_code_summary(fname, code), ensure_ascii=False,
+                )
+        summary_len = sum(len(v) + 40 for v in summary_parts.values())
+        remaining = max(2000, budget - summary_len)
+        per_file = max(1500, remaining // max(1, len(full_parts)))
+        parts: list[str] = []
+        for fname, code in full_parts.items():
+            parts.append(
+                f"```filename:{fname}\n{cls._middle_truncate(code, per_file)}\n```"
+            )
+        for fname, summary in summary_parts.items():
+            parts.append(
+                f"```filename:{fname}\n"
+                f"# [summary — this file is not modified by this repair]\n"
+                f"{summary}\n```"
+            )
         return "\n\n".join(parts)
 
     @staticmethod

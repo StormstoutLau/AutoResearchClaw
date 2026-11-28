@@ -29,6 +29,7 @@ async def list_projects() -> dict[str, Any]:
                         "current_stage_name": state.current_stage_name,
                         "status": state.status.value,
                         "is_active": state.is_active,
+                        "silence_sec": state.silence_sec,
                         "topic": state.topic,
                         "start_time": state.start_time,
                         "last_update": state.last_update,

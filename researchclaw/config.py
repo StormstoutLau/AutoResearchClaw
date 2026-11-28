@@ -484,6 +484,10 @@ class CodeAgentConfig:
     # Phase 2.5: Hard validation gates (AST-based)
     hard_validation: bool = True
     hard_validation_max_repairs: int = 4
+    # P-226 (D-1): stop targeted repair when the same file keeps failing for
+    # the same reason.  Run L burned three ~11.5-minute rounds on the same
+    # data.py syntax error + main.py entrypoint break.  0 disables the stop.
+    repair_stop_after_rejections: int = 2
     # Phase 3: Execution-in-the-loop (run → parse error → fix)
     exec_fix_max_iterations: int = 3
     exec_fix_timeout_sec: int = 60
@@ -494,6 +498,16 @@ class CodeAgentConfig:
     tree_search_eval_timeout_sec: int = 120
     # Phase 5: Multi-agent review dialog
     review_max_rounds: int = 2
+    # B-34 M4: per-module thinking budget.  "off" keeps the provider default;
+    # "tiered" sends a low effort for mechanical modules and optionally bounds
+    # the reasoning tokens of design modules.  Only enable it for endpoints
+    # that accept these body keys (e.g. the halogen server); a strict provider
+    # answers 400 for unknown fields.
+    thinking_policy: str = "off"
+    thinking_mechanical_effort: str = "low"
+    thinking_core_max_tokens: int = 0
+    # B-34 M4: soft line budget advertised in each module prompt.
+    file_max_lines: int = 300
 
 
 @dataclass(frozen=True)
@@ -1610,6 +1624,14 @@ def _parse_code_agent_config(data: dict[str, Any]) -> CodeAgentConfig:
             data.get("tree_search_eval_timeout_sec"), 120
         ),
         review_max_rounds=_safe_int(data.get("review_max_rounds"), 2),
+        thinking_policy=str(data.get("thinking_policy") or "off"),
+        thinking_mechanical_effort=str(
+            data.get("thinking_mechanical_effort", "low") or ""
+        ),
+        thinking_core_max_tokens=_safe_int(
+            data.get("thinking_core_max_tokens"), 0
+        ),
+        file_max_lines=_safe_int(data.get("file_max_lines"), 300),
     )
 
 

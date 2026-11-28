@@ -83,17 +83,29 @@ class EvidenceReport:
 
 
 def load_blueprint(stage_dir: Path) -> dict[str, Any] | None:
-    """Load ``architecture_spec.yaml`` if it parses to a mapping."""
-    path = stage_dir / BLUEPRINT_NAME
-    if not path.is_file():
-        return None
-    try:
-        import yaml
+    """Load the blueprint, preferring YAML and falling back to JSON.
 
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001 - an unreadable blueprint is "unavailable"
-        return None
-    return data if isinstance(data, dict) else None
+    P-230 (B-1): the generator now also writes ``architecture_spec.json``
+    from the parsed dict, so a YAML quoting accident cannot blind the gates.
+    """
+    yaml_path = stage_dir / BLUEPRINT_NAME
+    if yaml_path.is_file():
+        try:
+            import yaml
+
+            data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+        except Exception:  # noqa: BLE001 - try the JSON twin below
+            pass
+    json_path = stage_dir / "architecture_spec.json"
+    if json_path.is_file():
+        try:
+            data = json.loads(json_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 - unreadable means unavailable
+            return None
+        return data if isinstance(data, dict) else None
+    return None
 
 
 def _as_text(value: Any) -> str:
@@ -205,6 +217,174 @@ def _basename(name: str) -> str:
     return name.replace("\\", "/").rsplit("/", 1)[-1].strip()
 
 
+_SYMBOL_KEYS = ("symbols", "required_symbols", "classes", "functions")
+
+
+def _declared_symbols(
+    blueprint: Mapping[str, Any],
+) -> list[tuple[str, str]]:
+    """Blueprint-declared ``(file, symbol)`` pairs (B-34 M4).
+
+    Only entries that also carry ``generation_order`` participate, matching
+    ``_declared_files``.  ``symbols``/``required_symbols`` accept plain
+    strings or ``{name: ...}`` mappings; ``classes``/``functions`` accept
+    strings or ``{name: ...}`` too, so all four spellings work.
+    """
+    entries = blueprint.get("files")
+    if isinstance(entries, dict):
+        entries = [
+            {**_entry, "name": _entry.get("name") or str(key)}
+            if isinstance(_entry, dict) else {"name": str(key)}
+            for key, _entry in entries.items()
+        ]
+    if not isinstance(entries, list):
+        return []
+    out: list[tuple[str, str]] = []
+    for entry in entries:
+        if not isinstance(entry, dict) or "generation_order" not in entry:
+            continue
+        file_name = _basename(next(
+            (_as_text(entry.get(key)) for key in _FILE_NAME_KEYS
+             if _as_text(entry.get(key))),
+            "",
+        ))
+        if not file_name:
+            continue
+        for key in _SYMBOL_KEYS:
+            value = entry.get(key)
+            items = value if isinstance(value, (list, tuple)) else [value]
+            for item in items:
+                if isinstance(item, str):
+                    symbol = item.strip()
+                elif isinstance(item, Mapping):
+                    symbol = _as_text(item.get("name"))
+                else:
+                    symbol = ""
+                if symbol:
+                    out.append((file_name, symbol))
+    return out
+
+
+def _defined_names(code: str) -> set[str]:
+    """Top-level and nested class/function names defined by one module."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return set()
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            names.add(node.name)
+    return names
+
+
+def declared_symbols(
+    blueprint: Mapping[str, Any], file_name: str,
+) -> list[str]:
+    """Blueprint-declared symbols for one file (B-34 M5).
+
+    Kept public so the generator can check a module at its own boundary
+    instead of waiting for the stage-exit gate.
+    """
+    wanted = _basename(file_name)
+    return sorted({
+        symbol for name, symbol in _declared_symbols(blueprint)
+        if name == wanted
+    })
+
+
+def missing_symbols(
+    blueprint: Mapping[str, Any], file_name: str, code: str,
+) -> list[str]:
+    """Declared symbols for *file_name* that *code* does not define."""
+    wanted = declared_symbols(blueprint, file_name)
+    if not wanted:
+        return []
+    defined = _defined_names(code)
+    return [symbol for symbol in wanted if symbol not in defined]
+
+
+def symbol_contract_block(
+    blueprint: Mapping[str, Any] | None,
+    files: Mapping[str, str] | None = None,
+    *,
+    limit_files: set[str] | None = None,
+    max_chars: int = 2000,
+) -> str:
+    """Compact per-file symbol contract for prompts (P-231 D-2).
+
+    A blueprint digest cut to the first N characters happens to contain only
+    the first module's pseudocode (run O: 54 KB blueprint, ``main.py`` never
+    appeared in the first 4 000), so repair prompts asked the model to
+    "preserve every declared name" while hiding those names.  This block lists
+    only what matters — file and declared symbols — and marks which ones the
+    current code already defines.
+
+    ``files`` is optional: without it the block lists names only, which is
+    enough when the file does not exist yet (entrypoint generation).
+    """
+    if not blueprint:
+        return ""
+    declared: dict[str, list[str]] = {}
+    for name, symbol in _declared_symbols(blueprint):
+        if limit_files is not None and name not in limit_files:
+            continue
+        declared.setdefault(name, []).append(symbol)
+    if not declared:
+        return ""
+
+    lines: list[str] = []
+    used = 0
+    for name in sorted(declared):
+        symbols = sorted(set(declared[name]))
+        code = (files or {}).get(name)
+        defined = _defined_names(code) if code is not None else None
+        if defined is None:
+            rendered = ", ".join(symbols)
+        else:
+            rendered = ", ".join(
+                symbol + (" (defined)" if symbol in defined else " (MISSING)")
+                for symbol in symbols
+            )
+        line = f"- {name}: {rendered}"
+        if used + len(line) + 1 > max_chars:
+            lines.append(f"- ... ({len(declared)} declared file(s), truncated)")
+            break
+        lines.append(line)
+        used += len(line) + 1
+    return "\n".join(lines)
+
+
+def check_symbol_contract(
+    blueprint: Mapping[str, Any], files: Mapping[str, str],
+) -> list[EvidenceFailure]:
+    """Declared symbols of a delivered file must exist in that file's AST.
+
+    A file-level gate cannot tell "module delivered" from "module delivered
+    but hollow"; this is the cheap structural check that closes that gap.
+    Missing files are left to ``check_declared_files`` so a single root cause
+    is not reported twice.
+    """
+    declared = _declared_symbols(blueprint)
+    if not declared:
+        return []
+    delivered = {_basename(name): code for name, code in files.items()}
+    missing: list[str] = []
+    for file_name, symbol in declared:
+        code = delivered.get(file_name)
+        if code is None:
+            continue
+        if symbol not in _defined_names(code):
+            missing.append(f"{file_name}:{symbol}")
+    if not missing:
+        return []
+    return [EvidenceFailure(
+        code="blueprint_symbols_missing",
+        detail="declared symbols not found in the delivered code: "
+        + ", ".join(sorted(set(missing))),
+    )]
+
+
 # ---------------------------------------------------------------------------
 # Individual gates
 # ---------------------------------------------------------------------------
@@ -274,6 +454,28 @@ def entrypoint_metric_name(code: str) -> str:
 
 def normalize_metric(name: str) -> str:
     return re.sub(r"[\s\-]+", "_", str(name or "").strip().lower())
+
+
+def blueprint_metric(blueprint: Mapping[str, Any] | None) -> str:
+    """Metric name declared by the blueprint (B-34 M6)."""
+    if not isinstance(blueprint, Mapping):
+        return ""
+    return _find_metric(blueprint)
+
+
+def resolve_metric(stage_dir: str | Path, fallback: str = "") -> str:
+    """Effective metric: the blueprint's declaration, else ``fallback``.
+
+    Run J failed with ``metric_mismatch`` because the entrypoint was prompted
+    with ``config.experiment.metric_key`` (``primary_metric``) while the
+    blueprint declared ``early_detection_roc_auc``.  Generation must use the
+    same name the exit gate will check.
+    """
+    try:
+        declared = blueprint_metric(load_blueprint(Path(stage_dir)))
+    except Exception:  # noqa: BLE001 - a missing blueprint is the fallback case
+        declared = ""
+    return declared or str(fallback or "")
 
 
 def check_metric_consistency(
@@ -450,12 +652,18 @@ def evaluate_stage10_evidence(
     delivered = collect_delivered(files, delivered_dir)
     blueprint = load_blueprint(stage_dir)
     if blueprint is None:
-        report.warnings.append(
-            "blueprint unavailable — file/metric/data gates skipped (see "
-            "codegen_decision.json)"
-        )
+        # P-230 (B-3): fail closed.  Run N shipped DONE while this was a
+        # warning, with every file/metric/data gate silently skipped.
+        report.failures.append(EvidenceFailure(
+            code="blueprint_unavailable",
+            detail=(
+                "architecture blueprint missing or unparsable — file/metric/"
+                "data gates cannot run (see codegen_decision.json)"
+            ),
+        ))
     else:
         report.failures.extend(check_declared_files(blueprint, delivered))
+        report.failures.extend(check_symbol_contract(blueprint, delivered))
         declared_metric = _find_metric(blueprint) or str(metric or "")
         report.failures.extend(check_metric_consistency(declared_metric, delivered))
         warnings, synthetic = check_data_source(blueprint, delivered)

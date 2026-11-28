@@ -633,6 +633,16 @@ subprocess_calls:
     owner: P-106
     expires: null
 
+  - id: S-063
+    relpath: researchclaw/pipeline/stage_impls/_code_generation.py
+    qualname: _smoke_modules
+    ordinal: 1
+    category: A
+    env: inherit
+    reason: "P-231 import smoke via the host Python interpreter (sys.executable -c import ...)"
+    owner: P-106
+    expires: null
+
 write_sites:
   - id: W-001
     relpath: researchclaw/experiment/code_agent.py
@@ -920,4 +930,21 @@ write_sites:
     policy: safe_join
     reason: "append-only step journal kept inside the stage directory; filename is a module constant"
     owner: P-193
+    expires: null
+  - id: W-033
+    relpath: researchclaw/pipeline/stage_impls/_code_generation.py
+    qualname: _ensure_symbol_contract
+    ordinal: 1
+    policy: safe_join
+    reason: "symbol-contract repair output kept inside the experiment directory"
+    owner: P-229
+    expires: null
+
+  - id: W-034
+    relpath: researchclaw/pipeline/stage_impls/_code_generation.py
+    qualname: _execute_code_generation
+    ordinal: 7
+    policy: safe_join
+    reason: "P-231 regen rollback restores the previous files inside the experiment directory"
+    owner: P-231
     expires: null

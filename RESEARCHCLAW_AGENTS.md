@@ -93,7 +93,7 @@ ResearchClaw works with:
 Every development batch must follow this order:
 
 1. **Register** a `P-NNN` row in [docs/PROGRESS.md](docs/PROGRESS.md) with a link to `spec/<feature>/`.
-2. **Write four docs** under `spec/<feature>/`: `RESEARCH.md` → `DESIGN.md` → `IMPLEMENTATION.md` → `CHECKLIST.md`, each with DC1 front-matter.
+2. **Write four docs** under `spec/<feature>/`: `RESEARCH.md` → `DESIGN.md` → `IMPLEMENTATION.md` → `CHECKLIST.md`, each with DC1 front-matter. `RESEARCH.md` must declare a research tier (S0/S1/S2) in §2.3 with the minimum sources, and record the fallback chain in §2.4 (see `spec/SPEC_PROCESS.md`, "调研强度分级"); the `research` decision in the session should carry `metadata.sources`.
 3. **Open a decision stream** at `tools/spec_runner/sessions/specwf-pNNN-<slug>.jsonl` with five ordered steps: `research → design → implement → verify → finalize`.
 4. **Run the gates** before commit:
 

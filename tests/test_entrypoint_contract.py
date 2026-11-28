@@ -12,6 +12,7 @@ from researchclaw.pipeline.entrypoint_contract import (
     ENTRYPOINT_RETRY_MAX_TOKENS,
     build_entrypoint_prompt,
     entrypoint_issues,
+    patch_entrypoint_guard,
     summarize_modules,
     synthesize_entrypoint,
 )
@@ -109,8 +110,8 @@ class TestEnsureEntrypoint:
         assert (tmp_path / "experiment" / "main.py").is_file()
         assert len(llm.calls) == 1
 
-    def test_regenerates_invalid_main(self, tmp_path: Path) -> None:
-        llm = _FakeLLM([_fenced(NO_GUARD_MAIN), _fenced(RUNNABLE_MAIN)])
+    def test_patches_missing_guard_without_llm(self, tmp_path: Path) -> None:
+        llm = _FakeLLM([_fenced(RUNNABLE_MAIN)])
         files = {"main.py": NO_GUARD_MAIN}
         out = _ensure_entrypoint(
             files,
@@ -121,9 +122,25 @@ class TestEnsureEntrypoint:
             exp_dir=tmp_path,
         )
         assert entrypoint_issues(out["main.py"]) == []
-        assert len(llm.calls) == 2
-        # The retry prompt must tell the model what was wrong.
-        assert "previous attempt" in llm.calls[1]["messages"][0]["content"]
+        # P-231 (D-1): the structural gap is patched, not regenerated, so the
+        # existing body (and any blueprint-declared symbols in it) survives.
+        assert llm.calls == []
+        assert "def run()" in out["main.py"]
+        assert (tmp_path / "main.py").is_file()
+
+    def test_regenerates_when_no_callable_entry_exists(self, tmp_path: Path) -> None:
+        llm = _FakeLLM([_fenced(RUNNABLE_MAIN)])
+        files = {"main.py": "def run(seed):\n    return seed\n"}
+        out = _ensure_entrypoint(
+            files,
+            llm=llm,
+            pm=PromptManager(),
+            topic="t",
+            metric="accuracy",
+            exp_dir=tmp_path,
+        )
+        assert entrypoint_issues(out["main.py"]) == []
+        assert len(llm.calls) == 1
 
     def test_noop_when_contract_already_satisfied(self, tmp_path: Path) -> None:
         llm = _FakeLLM([_fenced(RUNNABLE_MAIN)])
@@ -141,7 +158,10 @@ class TestEnsureEntrypoint:
 
     def test_leaves_files_alone_when_generation_fails(self, tmp_path: Path) -> None:
         llm = _FakeLLM([_fenced(NO_GUARD_MAIN)])
-        files = {"main.py": NO_GUARD_MAIN, "config.py": "X = 1\n"}
+        # A callable that needs an argument cannot be patched, so the LLM path
+        # runs; both attempts return the same invalid file.
+        blocker = "def run(seed):\n    return seed\n"
+        files = {"main.py": blocker, "config.py": "X = 1\n"}
         out = _ensure_entrypoint(
             files,
             llm=llm,
@@ -149,9 +169,8 @@ class TestEnsureEntrypoint:
             topic="t",
             metric="accuracy",
             exp_dir=tmp_path,
-            # two attempts: both return the same no-guard file
         )
-        assert out["main.py"] == NO_GUARD_MAIN
+        assert out["main.py"] == blocker
         assert out["config.py"] == "X = 1\n"
         assert len(llm.calls) == 2
 
@@ -173,6 +192,153 @@ class TestEnsureEntrypoint:
         assert "_impl" in out["main.py"]
         assert "models" in out["main.py"]
         assert (tmp_path / "main.py").is_file()
+
+
+class TestPatchEntrypointGuard:
+    """P-231 (D-1): patch the guard instead of regenerating main.py."""
+
+    def test_appends_guard_and_keeps_symbols(self) -> None:
+        source = (
+            "class ExperimentRunner:\n"
+            "    def run(self):\n"
+            "        return 0.5\n"
+            "\n"
+            "\n"
+            "def main() -> None:\n"
+            "    print('METRIC_DEF: accuracy | direction=higher')\n"
+            "    print(f'accuracy: {ExperimentRunner().run():.6f}')\n"
+        )
+        patched = patch_entrypoint_guard(source, "accuracy")
+        assert patched is not None
+        assert "class ExperimentRunner" in patched
+        assert '__main__' in patched
+        assert patched.count("METRIC_DEF") == 1
+        assert entrypoint_issues(patched) == []
+
+    def test_injects_metric_def_without_fake_value(self) -> None:
+        patched = patch_entrypoint_guard(NO_GUARD_MAIN, "accuracy")
+        assert patched is not None
+        assert "METRIC_DEF: accuracy" in patched
+        # The measured line is printed only from a returned mapping.
+        assert "isinstance(_result, dict)" in patched
+        assert "nan" not in patched
+
+    def test_noop_when_guard_exists(self) -> None:
+        assert patch_entrypoint_guard(RUNNABLE_MAIN, "accuracy") is None
+
+    def test_noop_without_zero_arg_entry(self) -> None:
+        assert patch_entrypoint_guard(
+            "def run(seed):\n    return seed\n", "accuracy",
+        ) is None
+
+    def test_noop_on_syntax_error(self) -> None:
+        assert patch_entrypoint_guard("def broken(:\n", "accuracy") is None
+
+
+class TestSymbolContractPrompt:
+    def test_contract_block_is_rendered(self) -> None:
+        block = "- main.py: ExperimentRunner, main"
+        prompt = build_entrypoint_prompt(
+            topic="t", metric="accuracy", files={"config.py": "X = 1\n"},
+            symbol_contract=block,
+        )
+        assert "SYMBOL CONTRACT" in prompt
+        assert "ExperimentRunner" in prompt
+        assert "thin driver" not in prompt
+
+
+class TestEntrypointSymbolAware:
+    """P-231 (D-2): a candidate that drops declared symbols is rejected."""
+
+    def test_rejects_candidate_missing_declared_symbols(self) -> None:
+        blueprint = {
+            "files": [{
+                "name": "main.py",
+                "generation_order": 1,
+                "symbols": ["ExperimentRunner", "main"],
+            }],
+        }
+        symbol_main = (
+            "class ExperimentRunner:\n"
+            "    def run(self):\n"
+            "        return 0.5\n"
+            "\n"
+            "\n"
+            "def main() -> None:\n"
+            "    print('METRIC_DEF: accuracy | direction=higher')\n"
+            "    print(f'accuracy: {ExperimentRunner().run():.6f}')\n"
+            "\n"
+            "\n"
+            "if __name__ == '__main__':\n"
+            "    main()\n"
+        )
+        llm = _FakeLLM([_fenced(RUNNABLE_MAIN), _fenced(symbol_main)])
+        code = _code_generation._generate_entrypoint(
+            llm, PromptManager(), topic="t", metric="accuracy",
+            files={"config.py": "X = 1\n"}, blueprint=blueprint,
+        )
+        assert "class ExperimentRunner" in code
+        assert len(llm.calls) == 2
+        assert "ExperimentRunner" in llm.calls[0]["messages"][0]["content"]
+        assert "must define these declared names" in (
+            llm.calls[1]["messages"][0]["content"]
+        )
+
+
+class TestContractIssues:
+    """P-231 (D-4): one check covers syntax, entrypoint and symbol contracts."""
+
+    def test_reports_all_three_contracts(self) -> None:
+        blueprint = {
+            "files": [{
+                "name": "main.py",
+                "generation_order": 1,
+                "symbols": ["Runner"],
+            }],
+        }
+        files = {
+            "main.py": "def main() -> None:\n    print('METRIC_DEF: m')\n",
+            "data.py": "def broken(:\n",
+        }
+        joined = " ".join(_code_generation._contract_issues(files, blueprint))
+        assert "data.py: syntax error" in joined
+        assert "__main__" in joined
+        assert "Runner" in joined
+
+    def test_clean_files_have_no_issues(self) -> None:
+        assert _code_generation._contract_issues(
+            {"main.py": RUNNABLE_MAIN}, None,
+        ) == []
+
+
+class TestSmokeModules:
+    """P-231 (D-5): compile and import the delivered modules."""
+
+    def test_syntax_error_fails(self, tmp_path: Path) -> None:
+        failures, warnings = _code_generation._smoke_modules(
+            {"data.py": "def broken(:\n"}, tmp_path,
+        )
+        assert failures and "data.py" in failures[0]
+        assert warnings == []
+
+    def test_valid_modules_pass(self, tmp_path: Path) -> None:
+        (tmp_path / "data.py").write_text(
+            "def load():\n    return 1\n", encoding="utf-8",
+        )
+        failures, warnings = _code_generation._smoke_modules(
+            {"data.py": "def load():\n    return 1\n"}, tmp_path,
+        )
+        assert failures == [] and warnings == []
+
+    def test_missing_third_party_is_only_a_warning(self, tmp_path: Path) -> None:
+        (tmp_path / "main.py").write_text(
+            "import definitely_not_installed_xyz\n", encoding="utf-8",
+        )
+        failures, warnings = _code_generation._smoke_modules(
+            {"main.py": "import definitely_not_installed_xyz\n"}, tmp_path,
+        )
+        assert failures == []
+        assert warnings and "import smoke" in warnings[0]
 
 
 class TestSynthesizeEntrypoint:

@@ -13,6 +13,7 @@ from researchclaw.pipeline.codegen_evidence import (
     count_compute_units,
     evaluate_stage10_evidence,
     load_blueprint,
+    symbol_contract_block,
     write_evidence_report,
 )
 
@@ -172,14 +173,16 @@ class TestEvaluate:
         assert "no_compute_unit" in codes
         assert "blueprint_files_missing" in codes
 
-    def test_missing_blueprint_still_checks_compute(self, tmp_path: Path) -> None:
+    def test_missing_blueprint_fails_closed(self, tmp_path: Path) -> None:
         report = evaluate_stage10_evidence(
             stage_dir=tmp_path,
             files={"config.py": CONFIG_PY, "main.py": CONFIG_ONLY_MAIN},
             metric="auroc_delta",
         )
-        assert any("blueprint unavailable" in w for w in report.warnings)
-        assert [f.code for f in report.failures] == ["no_compute_unit"]
+        codes = [f.code for f in report.failures]
+        assert "blueprint_unavailable" in codes
+        assert "no_compute_unit" in codes
+        assert not report.ok
 
     def test_stage_metric_is_used_when_blueprint_has_none(self, tmp_path: Path) -> None:
         _write_blueprint(tmp_path, "files:\n  - name: main.py\n    generation_order: 1\n")
@@ -190,6 +193,7 @@ class TestEvaluate:
         assert "metric_mismatch" in codes
 
     def test_report_is_written(self, tmp_path: Path) -> None:
+        _bp(tmp_path)
         report = evaluate_stage10_evidence(
             stage_dir=tmp_path, files=_files(), metric="auroc_delta",
         )
@@ -203,3 +207,39 @@ class TestEvaluate:
 def _bp(stage_dir: Path, text: str = BLUEPRINT) -> Path:
     _write_blueprint(stage_dir, text)
     return stage_dir
+
+
+class TestSymbolContractBlock:
+    """P-231 (D-2): the prompt block names what each file must define."""
+
+    BP = {
+        "files": [
+            {"name": "data.py", "generation_order": 1,
+             "symbols": ["load", "build"]},
+            {"name": "main.py", "generation_order": 2, "symbols": ["main"]},
+        ],
+    }
+
+    def test_marks_defined_and_missing(self) -> None:
+        block = symbol_contract_block(
+            self.BP, {"data.py": "def load():\n    return 1\n"},
+        )
+        assert "load (defined)" in block
+        assert "build (MISSING)" in block
+
+    def test_limit_files(self) -> None:
+        block = symbol_contract_block(self.BP, limit_files={"main.py"})
+        assert "main.py" in block
+        assert "data.py" not in block
+
+    def test_without_files_lists_names_only(self) -> None:
+        block = symbol_contract_block(self.BP)
+        assert "- main.py: main" in block
+        assert "MISSING" not in block
+
+    def test_char_budget_truncates(self) -> None:
+        block = symbol_contract_block(self.BP, max_chars=10)
+        assert "truncated" in block
+
+    def test_no_blueprint_is_empty(self) -> None:
+        assert symbol_contract_block(None) == ""

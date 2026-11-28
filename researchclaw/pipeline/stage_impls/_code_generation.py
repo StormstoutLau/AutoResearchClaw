@@ -19,8 +19,22 @@ from researchclaw.experiment.validator import (
 from researchclaw.llm.client import LLMClient
 from researchclaw.pipeline._domain import _detect_domain
 from researchclaw.pipeline.codegen_evidence import (
+    check_symbol_contract,
+    declared_symbols,
     evaluate_stage10_evidence,
+    load_blueprint,
+    missing_symbols,
+    resolve_metric,
+    symbol_contract_block,
     write_evidence_report,
+)
+from researchclaw.pipeline.repair_trace import (
+    digest as _repair_digest,
+    record as _record_repair_trace,
+)
+from researchclaw.pipeline.step_journal import (
+    append_step as _append_progress_step,
+    hash_text as _progress_digest,
 )
 from researchclaw.pipeline._helpers import (
     StageResult,
@@ -28,6 +42,7 @@ from researchclaw.pipeline._helpers import (
     _ensure_sandbox_deps,
     _extract_code_block,
     _extract_multi_file_blocks,
+    _extract_named_block,
     _extract_yaml_block,
     _get_evolution_overlay,
     _load_hardware_profile,
@@ -40,6 +55,7 @@ from researchclaw.pipeline.entrypoint_contract import (
     ENTRYPOINT_RETRY_MAX_TOKENS,
     build_entrypoint_prompt,
     entrypoint_issues as _entrypoint_issues,
+    patch_entrypoint_guard,
     synthesize_entrypoint,
 )
 from researchclaw.pipeline.stages import Stage, StageStatus
@@ -49,6 +65,55 @@ from researchclaw.utils.paths import safe_join
 logger = logging.getLogger(__name__)
 
 
+def _quarantine_stale(
+    exp_dir: Path, stage_dir: Path, *, keep: set[str], tag: str,
+) -> list[str]:
+    """P-227 (F-1): move delivered-code leftovers out of ``experiment/``.
+
+    Attempts share one directory.  Without this, a module produced by a failed
+    attempt (run L: ``data_generator.py`` from attempt 1) survived into the
+    final deliverable and was not declared by the blueprint.  Files are moved
+    to ``stage-10/quarantine/<tag>/`` instead of deleted, so the evidence
+    trail stays auditable.
+    """
+    if not exp_dir.is_dir():
+        return []
+    dest = stage_dir / "quarantine" / tag
+    moved: list[str] = []
+    for path in sorted(exp_dir.iterdir()):
+        if not path.is_file() or path.suffix != ".py":
+            continue
+        if path.name in keep:
+            continue
+        dest.mkdir(parents=True, exist_ok=True)
+        target = dest / path.name
+        if target.exists():
+            target = dest / f"{path.stem}.{int(path.stat().st_mtime)}{path.suffix}"
+        path.replace(target)
+        moved.append(path.name)
+    if moved:
+        logger.warning(
+            "Stage 10: quarantined stale file(s) from experiment/: %s",
+            ", ".join(moved),
+        )
+    return moved
+
+
+def _blueprint_file_names(blueprint: Any) -> set[str]:
+    """Basenames declared by the blueprint (P-227 F-3)."""
+    entries = (blueprint or {}).get("files") if isinstance(blueprint, dict) else None
+    if not isinstance(entries, list):
+        return set()
+    names: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name") or entry.get("path") or entry.get("filename")
+        if name:
+            names.add(str(name).replace("\\", "/").rsplit("/", 1)[-1])
+    return names
+
+
 def _is_parseable(code: str) -> bool:
     """B-29: reject syntax-broken repair output before it overwrites a file."""
     try:
@@ -56,6 +121,56 @@ def _is_parseable(code: str) -> bool:
     except SyntaxError:
         return False
     return True
+
+
+def _blocked_validation_report(
+    repair_counts: dict[str, int],
+    max_repair: int,
+    validation_log: list[str],
+) -> str:
+    """Render the BLOCKED report with the repairs that actually ran.
+
+    The header used to print ``max_repair`` (the per-file limit), so an early
+    abort after two unusable replies was reported as "after 5 repairs" — the
+    same contradiction the run-I postmortem flagged for the log lines.
+    """
+    performed = sum(int(n) for n in repair_counts.values())
+    lines = [
+        "# Code Validation Report",
+        "",
+        f"**Status**: BLOCKED — critical issues remain after {performed} "
+        f"repair attempt(s) (limit {max_repair}/file)",
+        "",
+    ]
+    if repair_counts:
+        lines.append("Repairs performed per file:")
+        lines.extend(
+            f"- {name}: {count}"
+            for name, count in sorted(repair_counts.items())
+        )
+        lines.append("")
+    lines.extend(f"- {entry}" for entry in validation_log)
+    return "\n".join(lines)
+
+
+def _journal_alignment(
+    stage_dir: Path, variant: str, status: str, text: str,
+) -> None:
+    """Record one alignment decision as a progress-only step (B-31b/B-33).
+
+    Alignment is not reusable work, so ``outputs`` is empty and
+    ``should_skip`` can never suppress a later run.
+    """
+    try:
+        _append_progress_step(
+            stage_dir,
+            step_id="alignment",
+            variant=variant,
+            status=status,
+            inputs_digest=_progress_digest(text),
+        )
+    except Exception:  # noqa: BLE001 - journal is best-effort
+        logger.debug("could not journal alignment step", exc_info=True)
 
 
 def _extract_valid_repair_files(
@@ -120,6 +235,86 @@ def _request_repair_response(
     return resp
 
 
+def _contract_issues(
+    files: dict[str, str], blueprint: dict[str, Any] | None,
+) -> list[str]:
+    """P-231 (D-4): syntax + entrypoint + symbol checks in one place.
+
+    Every late write (entrypoint regeneration, alignment regeneration, symbol
+    repair) used to validate only the contract it was fixing, so fixing one
+    silently broke the other.  Run O lost ``main``/``ExperimentRunner`` this
+    way three times in a row.
+    """
+    problems: list[str] = []
+    for name, code in sorted(files.items()):
+        if not name.endswith(".py"):
+            continue
+        try:
+            ast.parse(code)
+        except SyntaxError as exc:
+            problems.append(
+                f"{name}: syntax error ({exc.msg}, line {exc.lineno})"
+            )
+    problems.extend(
+        f"main.py: {issue}" for issue in _entrypoint_issues(files.get("main.py", ""))
+    )
+    if blueprint:
+        problems.extend(
+            "symbol contract: " + str(getattr(failure, "detail", failure))
+            for failure in check_symbol_contract(blueprint, files)
+        )
+    return list(dict.fromkeys(problems))
+
+
+def _smoke_modules(
+    files: dict[str, str], exp_dir: Path, *, timeout: int = 120,
+) -> tuple[list[str], list[str]]:
+    """P-231 (D-5): compile every delivered module and import it once.
+
+    Returns ``(failures, warnings)``.  A compile error always fails the stage.
+    An import error only fails it when the missing module is one of the
+    delivered files; a third-party package absent from this host is an
+    environment problem, so it stays a warning.
+
+    ``compile`` runs in-process (no temporary files, no extra write site); the
+    import runs in a child interpreter with ``cwd=exp_dir`` so experiment code
+    cannot pollute the pipeline process.
+    """
+    import subprocess
+    import sys
+
+    modules = sorted(
+        name[:-3] for name, code in files.items()
+        if name.endswith(".py") and str(code).strip()
+    )
+    if not modules:
+        return [], []
+    for name in modules:
+        try:
+            compile(files[f"{name}.py"], f"{name}.py", "exec")
+        except SyntaxError as exc:
+            return [f"{name}.py: {exc.msg} (line {exc.lineno})"], []
+    if not exp_dir.is_dir():
+        return [], ["import smoke skipped: experiment directory missing"]
+    try:
+        imported = subprocess.run(
+            [sys.executable, "-c", "import " + ", ".join(modules)],
+            cwd=str(exp_dir), capture_output=True, text=True, timeout=timeout,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return [], [f"import smoke unavailable ({exc})"]
+    if imported.returncode == 0:
+        return [], []
+    detail = (imported.stderr or "").strip()
+    missing = [
+        name for name in modules if f"No module named '{name}'" in detail
+    ]
+    if missing:
+        return [f"import failed for delivered module(s): {', '.join(missing)}"], []
+    tail = detail.splitlines()[-1] if detail else "unknown import error"
+    return [], [f"import smoke warning: {tail[:200]}"]
+
+
 def _generate_entrypoint(
     llm: LLMClient,
     pm: PromptManager,
@@ -129,13 +324,21 @@ def _generate_entrypoint(
     files: dict[str, str],
     exp_plan: str = "",
     max_attempts: int = 2,
+    blueprint: dict[str, Any] | None = None,
 ) -> str:
     """B-29: ask for one complete ``main.py`` that satisfies the contract.
 
     Returns "" when every attempt fails.  The prompt lists the other modules so
-    the entrypoint imports them instead of re-implementing their logic.
+    the entrypoint imports them instead of re-implementing their logic, and
+    (P-231 D-2) the names the blueprint assigns to ``main.py`` itself — a thin
+    driver cannot satisfy those, so hiding them made every regeneration drop
+    them.
     """
     system = pm.system("code_generation")
+    contract = (
+        symbol_contract_block(blueprint, files, limit_files={"main.py"})
+        if blueprint else ""
+    )
     issues: list[str] | None = None
     for attempt in range(1, max_attempts + 1):
         budget = (
@@ -148,6 +351,7 @@ def _generate_entrypoint(
             files=files,
             exp_plan=exp_plan,
             previous_issues=issues,
+            symbol_contract=contract,
         )
         resp = _chat_with_prompt(llm, system, user, max_tokens=budget)
         truncated = bool(getattr(resp, "truncated", False)) or (
@@ -163,6 +367,15 @@ def _generate_entrypoint(
             )
         code = _extract_code_block(resp.content)
         issues = _entrypoint_issues(code)
+        if blueprint:
+            # P-231 (D-2/D-4): a candidate that drops the file's own declared
+            # symbols is rejected here instead of being written and repaired.
+            missing = missing_symbols(blueprint, "main.py", code)
+            if missing:
+                issues = list(issues) + [
+                    "main.py must define these declared names: "
+                    + ", ".join(missing)
+                ]
         if code.strip() and not issues:
             logger.info(
                 "Stage 10: entrypoint generated on attempt %d (%d chars)",
@@ -185,27 +398,43 @@ def _ensure_entrypoint(
     metric: str,
     exp_dir: Path,
     exp_plan: str = "",
+    blueprint: dict[str, Any] | None = None,
 ) -> dict[str, str]:
-    """B-29: regenerate ``main.py`` when it cannot run as the entrypoint.
+    """B-29: make ``main.py`` runnable without discarding what it already has.
 
     A truncated-but-parseable ``main.py`` (no ``__main__`` guard, no
     ``METRIC_DEF``) would otherwise only be caught by the exit gate, after the
-    whole stage has already spent hours.  Fixing it here keeps the failure
-    cheap and gives Stage 12 a runnable file.
+    whole stage has already spent hours.
+
+    P-231 (D-1): a missing guard is a structural gap, so it is patched in
+    place.  Regenerating the file is the last resort: in run O the rewrite
+    replaced a 362-line, symbol-complete ``main.py`` with a 101-line stub,
+    turning one contract failure into a different one.
     """
-    if llm is None:
-        return files
     issues = _entrypoint_issues(files.get("main.py", ""))
     if not issues:
         return files
 
     logger.warning(
-        "Stage 10: entrypoint contract unmet (%s); generating main.py",
+        "Stage 10: entrypoint contract unmet (%s); repairing main.py",
         "; ".join(issues),
     )
-    code = _generate_entrypoint(
-        llm, pm, topic=topic, metric=metric, files=files, exp_plan=exp_plan,
-    )
+
+    code = ""
+    patched = patch_entrypoint_guard(files.get("main.py", ""), metric)
+    if patched is not None and not _entrypoint_issues(patched):
+        code = patched
+        logger.info(
+            "Stage 10: entrypoint guard patched in place (%d -> %d chars) — "
+            "main.py was not regenerated",
+            len(files.get("main.py", "")), len(patched),
+        )
+
+    if not code and llm is not None:
+        code = _generate_entrypoint(
+            llm, pm, topic=topic, metric=metric, files=files,
+            exp_plan=exp_plan, blueprint=blueprint,
+        )
     if not code:
         # B-30: last resort — a thin driver over an existing entry function.
         code = synthesize_entrypoint(files, metric) or ""
@@ -222,13 +451,252 @@ def _ensure_entrypoint(
             )
             return files
 
+    # P-231 (D-4): validate the candidate on the whole file set before writing.
+    candidate = dict(files)
+    candidate["main.py"] = code
+    problems = _contract_issues(candidate, blueprint)
+    if problems:
+        logger.error(
+            "Stage 10: entrypoint candidate rejected before write (%s) — "
+            "keeping the previous main.py",
+            "; ".join(problems[:4]),
+        )
+        return files
+
     files["main.py"] = code
     try:
         exp_dir.mkdir(parents=True, exist_ok=True)
         (exp_dir / "main.py").write_text(code, encoding="utf-8")
     except OSError as exc:
         logger.warning("Stage 10: could not write generated main.py: %s", exc)
+    try:
+        _append_progress_step(
+            exp_dir.parent,
+            step_id="entrypoint",
+            variant="stage",
+            status="done",
+            inputs_digest=_progress_digest(topic + "\n---\n" + metric),
+            outputs={"main.py": _progress_digest(code)},
+        )
+    except Exception:  # noqa: BLE001 - journal is best-effort
+        logger.debug("could not journal stage entrypoint", exc_info=True)
     return files
+
+
+def _missing_symbols_by_file(
+    failures: list[Any],
+) -> dict[str, list[str]]:
+    """Turn symbol-contract failures into ``{file: [symbol, ...]}``."""
+    missing: dict[str, list[str]] = {}
+    for failure in failures:
+        detail = str(getattr(failure, "detail", "") or "")
+        for item in detail.split(":", 1)[-1].split(","):
+            name, _, symbol = item.strip().partition(":")
+            if name.strip() and symbol.strip():
+                missing.setdefault(name.strip(), []).append(symbol.strip())
+    return missing
+
+
+def _valid_single_file(name: str, code: str) -> bool:
+    """Syntax + entrypoint validation for a single per-file repair reply."""
+    if not str(code or "").strip():
+        return False
+    try:
+        ast.parse(code)
+    except SyntaxError as exc:
+        logger.warning(
+            "Stage 10 repair: ignoring syntax-invalid %s (%s)", name, exc,
+        )
+        return False
+    if name == "main.py":
+        issues = _entrypoint_issues(code)
+        if issues:
+            logger.warning(
+                "Stage 10 repair: ignoring main.py that breaks the entrypoint "
+                "contract (%s)", "; ".join(issues),
+            )
+            return False
+    return True
+
+
+def _repair_one_file_for_symbols(
+    name: str,
+    files: dict[str, str],
+    symbols: list[str],
+    contract_block: str,
+    *,
+    stage_dir: Path,
+    llm: LLMClient,
+    pm: PromptManager,
+) -> str | None:
+    """Ask for one complete file that defines ``symbols`` (P-231 D-3/D-6).
+
+    One file per request keeps the reply inside the output budget: the five
+    files of run O needed ~60 KB of code, which truncated at 32 768 twice per
+    attempt.  A second truncation ends the attempt for this file instead of
+    resending the same prompt — the same reply is the expected outcome.
+    """
+    prompt = (
+        "The delivered code is missing symbols declared in the architecture "
+        "blueprint.\n\n"
+        "## Symbol contract\n"
+        f"{contract_block}\n\n"
+        f"## Missing in `{name}`\n"
+        f"- {name}: {', '.join(symbols)}\n\n"
+        f"## Current `{name}`\n"
+        f"```filename:{name}\n{files[name]}\n```\n\n"
+        "## Rules\n"
+        "1. Add every missing symbol with a real implementation\n"
+        "2. Change nothing else — same imports, same existing classes and "
+        "functions, same public names\n"
+        "3. Keep the file complete and runnable\n"
+        f"4. Output ONLY `{name}` as one ```filename:{name}``` block\n"
+    )
+    system = pm.system("code_generation")
+    resp = _chat_with_prompt(llm, system, prompt, max_tokens=16384)
+    truncated = bool(getattr(resp, "truncated", False)) or (
+        getattr(resp, "finish_reason", "") == "length"
+    )
+    if truncated:
+        logger.warning(
+            "Stage 10: symbol repair for %s truncated — escalating to 32768",
+            name,
+        )
+        resp = _chat_with_prompt(llm, system, prompt, max_tokens=32768)
+        truncated = bool(getattr(resp, "truncated", False)) or (
+            getattr(resp, "finish_reason", "") == "length"
+        )
+    code = None
+    if not truncated:
+        # P-231: a reply without the requested ``filename:`` marker (or a
+        # single block, which the extractor renames to main.py) is read back
+        # as the file we asked about instead of being discarded.
+        rescued = _extract_named_block(resp.content, name)
+        if rescued is not None and _valid_single_file(name, rescued):
+            code = rescued
+    try:
+        _record_repair_trace(
+            stage_dir,
+            phase="symbol_contract",
+            file=name,
+            prompt=prompt,
+            response=resp.content,
+            model=str(getattr(resp, "model", "") or ""),
+            truncated=getattr(resp, "truncated", None),
+            accepted=[name] if code else [],
+            rejected=[] if code else [name],
+            reason=(
+                "truncated_after_escalation" if truncated
+                else "repaired" if code
+                else "unusable_reply"
+            ),
+            extra={"missing": {name: symbols}},
+        )
+    except Exception:  # noqa: BLE001 - trace is best-effort
+        logger.debug("could not record symbol repair", exc_info=True)
+    if code is None:
+        logger.error(
+            "Stage 10: symbol repair for %s produced no usable file (%s)",
+            name,
+            "truncated after escalation" if truncated else "reply rejected",
+        )
+    return code
+
+
+def _ensure_symbol_contract(
+    files: dict[str, str],
+    *,
+    stage_dir: Path,
+    exp_dir: Path,
+    llm: LLMClient | None,
+    pm: PromptManager,
+    topic: str,
+) -> dict[str, str]:
+    """P-229: re-check the symbol contract after late entrypoint rewrites.
+
+    ``_ensure_entrypoint`` and the alignment regen run *after* the earlier
+    symbol checks, so run M shipped a main.py missing four declared symbols
+    and only the exit gate noticed.  One targeted repair per affected file is
+    attempted here; a second failure is deliberately left to the exit gate.
+    """
+    if llm is None:
+        return files
+    blueprint = load_blueprint(stage_dir)
+    if not blueprint:
+        return files
+    failures = check_symbol_contract(blueprint, files)
+    if not failures:
+        return files
+
+    missing = _missing_symbols_by_file(failures)
+    affected = {name for name in missing if name in files}
+    if not affected:
+        return files
+    logger.warning(
+        "Stage 10: symbol contract broken after late rewrite: %s",
+        "; ".join(
+            f"{name}: {', '.join(symbols)}"
+            for name, symbols in sorted(missing.items())
+        ),
+    )
+
+    contract_block = symbol_contract_block(
+        blueprint, files, limit_files=affected,
+    )
+    repaired: dict[str, str] = {}
+    for name in sorted(affected):
+        code = _repair_one_file_for_symbols(
+            name, files, missing[name], contract_block,
+            stage_dir=stage_dir, llm=llm, pm=pm,
+        )
+        if code is not None:
+            repaired[name] = code
+
+    merged = _merge_repair_files(files, repaired)
+    remaining = check_symbol_contract(blueprint, merged)
+    if remaining:
+        detail = "; ".join(
+            str(getattr(item, "detail", "")) for item in remaining
+        )
+        try:
+            _record_repair_trace(
+                stage_dir,
+                phase="symbol_contract",
+                reason="still_missing",
+                accepted=sorted(repaired),
+                rejected=sorted(affected - set(repaired)),
+                extra={"remaining": detail},
+            )
+        except Exception:  # noqa: BLE001 - trace is best-effort
+            logger.debug("could not record symbol summary", exc_info=True)
+        logger.error(
+            "Stage 10: symbol contract still broken after one repair: %s",
+            detail,
+        )
+        return files
+    # P-231 (D-4): a symbol fix must not break the entrypoint contract —
+    # run O's 21:35 repair reply was rejected exactly this way.
+    entry_problems = _entrypoint_issues(merged.get("main.py", ""))
+    if entry_problems:
+        logger.error(
+            "Stage 10: symbol repair broke the entrypoint contract (%s) — "
+            "keeping the previous files",
+            "; ".join(entry_problems),
+        )
+        return files
+    for name, code in repaired.items():
+        try:
+            exp_dir.mkdir(parents=True, exist_ok=True)
+            safe_join(exp_dir, name).write_text(code, encoding="utf-8")
+        except OSError as exc:
+            logger.warning(
+                "Stage 10: could not write symbol repair for %s: %s", name, exc,
+            )
+    logger.info(
+        "Stage 10: symbol contract restored by targeted repair (%s)",
+        ", ".join(sorted(repaired)),
+    )
+    return merged
 
 
 # Improvement G: Continuous-action environments that are incompatible with DQN
@@ -237,6 +705,42 @@ _CONTINUOUS_ENVS = {
     "swimmer", "reacher", "invertedpendulum", "inverteddoublependulum",
     "mountaincarcontinuous", "lunarlander-continuous",
 }
+
+# Deep-validation warnings that block delivery (P-220).  Kept in one place so
+# the "before" and "after repair" counts cannot drift apart.
+_DEEP_CRITICAL_KEYWORDS = (
+    "UnboundLocalError", "unregistered", "does not exist",
+    "empty or trivial subclass", "does NOT override",
+    "Import-usage mismatch", "NameError",
+    "was removed", "ptp()",
+    "copy-paste", "identical method signatures",
+    "identical AST", "NOT a real ablation",
+    "shadows stdlib/pip",
+)
+
+
+def _critical_deep(warnings: list[str]) -> list[str]:
+    """Subset of deep-validation warnings that must be repaired."""
+    return [
+        w for w in warnings
+        if any(keyword in w for keyword in _DEEP_CRITICAL_KEYWORDS)
+    ]
+
+
+def _deep_repair_counts(
+    before: list[str], after: list[str],
+) -> tuple[int, int]:
+    """``(fixed, remaining)`` after one deep-repair cycle.
+
+    A repair can *introduce* warnings (the model rewrites a file and trips a
+    new check), so ``len(before) - len(after)`` went negative in run J
+    (``fixed -14/3``).  ``fixed`` is clamped at 0 and ``remaining`` is
+    reported separately instead of pretending the delta is a success count.
+    """
+    before_critical = _critical_deep(before)
+    remaining = len(_critical_deep(after))
+    fixed = max(0, len(before_critical) - remaining)
+    return fixed, remaining
 
 
 def _execute_collider_plan_generation(
@@ -1174,7 +1678,9 @@ def _execute_code_generation(
             ),
             encoding="utf-8",
         )
-        if _agent_result.architecture_spec:
+        # P-230 (B-1): never overwrite the canonical blueprint with the raw
+        # transport copy — run N's raw YAML failed to parse at the gate.
+        if _agent_result.architecture_spec and load_blueprint(stage_dir) is None:
             (stage_dir / "architecture_spec.yaml").write_text(
                 _agent_result.architecture_spec, encoding="utf-8",
             )
@@ -1273,6 +1779,10 @@ def _execute_code_generation(
         }
 
     # --- B-29: guarantee a runnable entrypoint before validating files ---
+    # B-34 M6: the blueprint's metric is what the exit gate checks; prompting
+    # the entrypoint with config.experiment.metric_key produced
+    # ``metric_mismatch`` in run J.
+    metric = resolve_metric(stage_dir, metric)
     files = _ensure_entrypoint(
         files,
         llm=llm,
@@ -1281,11 +1791,25 @@ def _execute_code_generation(
         metric=metric,
         exp_dir=stage_dir / "experiment",
         exp_plan=exp_plan,
+        blueprint=load_blueprint(stage_dir),
+    )
+    # P-229: the entrypoint rewrite may drop declared symbols.
+    files = _ensure_symbol_contract(
+        files,
+        stage_dir=stage_dir,
+        exp_dir=stage_dir / "experiment",
+        llm=llm,
+        pm=_pm,
+        topic=config.research.topic,
     )
 
     # --- Validate each file + auto-repair loop ---
     all_valid = True
     attempt = 0
+    # Actual repairs performed per file; ``max_repair`` is only the limit.
+    # The report used to print the limit, so an early abort (2 unusable
+    # responses) was reported as "after 5 repairs".
+    repair_counts: dict[str, int] = {}
     for fname, code in list(files.items()):
         # Skip non-Python files (requirements.txt, setup.py, etc.)
         if not fname.endswith(".py"):
@@ -1298,6 +1822,7 @@ def _execute_code_generation(
         while not validation.ok and llm is not None and repair_attempt < max_repair:
             repair_attempt += 1
             attempt += 1
+            repair_counts[fname] = repair_attempt
             # Only send errors to the LLM — warnings don't block validation
             # and confuse the LLM into over-correcting (e.g. removing runtime imports)
             errors_only = type(validation)(
@@ -1314,6 +1839,15 @@ def _execute_code_generation(
                 max_repair,
                 validation.summary(),
             )
+            _record_repair_trace(
+                stage_dir,
+                phase="validation_failed",
+                file=fname,
+                attempt=repair_attempt,
+                max_attempts=max_repair,
+                error_summary=validation.summary(),
+                errors=validation.issues,
+            )
             all_files_ctx = "\n\n".join(
                 f"```filename:{f}\n{c}\n```" for f, c in files.items()
             )
@@ -1325,22 +1859,76 @@ def _execute_code_generation(
             )
             resp = _chat_with_prompt(llm, rp.system, rp.user)
             _repaired = _extract_code_block(resp.content)
+            _record_repair_trace(
+                stage_dir,
+                phase="repair_request",
+                file=fname,
+                attempt=repair_attempt,
+                max_attempts=max_repair,
+                prompt=rp.user,
+                response=resp.content,
+                model=str(getattr(resp, "model", "") or ""),
+                truncated=getattr(resp, "truncated", None),
+                extra={
+                    "issues_text_sha256": _repair_digest(issues_text),
+                    "issues_text_chars": len(issues_text),
+                },
+            )
             if _repaired.strip() and _is_parseable(_repaired):
                 files[fname] = _repaired
                 invalid_returns = 0
+                _record_repair_trace(
+                    stage_dir,
+                    phase="repair_accepted",
+                    file=fname,
+                    attempt=repair_attempt,
+                    max_attempts=max_repair,
+                    accepted=[fname],
+                )
             elif _repaired.strip():
                 invalid_returns += 1
                 logger.warning(
                     "Repair attempt returned invalid Python for %s, keeping original",
                     fname,
                 )
+                _record_repair_trace(
+                    stage_dir,
+                    phase="repair_rejected",
+                    file=fname,
+                    attempt=repair_attempt,
+                    max_attempts=max_repair,
+                    reason=(
+                        "truncated"
+                        if getattr(resp, "truncated", False)
+                        else "invalid_python"
+                    ),
+                    rejected=[fname],
+                )
             else:
                 invalid_returns += 1
                 logger.warning("Repair attempt returned empty code, keeping original")
+                _record_repair_trace(
+                    stage_dir,
+                    phase="repair_rejected",
+                    file=fname,
+                    attempt=repair_attempt,
+                    max_attempts=max_repair,
+                    reason="empty",
+                    rejected=[fname],
+                )
             if invalid_returns >= 2:
                 logger.error(
                     "Repair aborted for %s after %d unusable response(s)",
                     fname, invalid_returns,
+                )
+                _record_repair_trace(
+                    stage_dir,
+                    phase="repair_aborted",
+                    file=fname,
+                    attempt=repair_attempt,
+                    max_attempts=max_repair,
+                    reason="unusable_responses",
+                    extra={"invalid_returns": invalid_returns},
                 )
                 validation_log.append(
                     f"File {fname}: repair aborted after {invalid_returns} "
@@ -1350,10 +1938,11 @@ def _execute_code_generation(
             validation = validate_code(files[fname])
         if not validation.ok:
             all_valid = False
-            # BUG-14: Log remaining issues prominently
+            # BUG-14: Log remaining issues prominently.  Report the repairs
+            # that actually ran for this file, not the configured limit.
             logger.warning(
-                "Code validation FAILED for %s after %d repair attempts: %s",
-                fname, max_repair, validation.summary(),
+                "Code validation FAILED for %s after %d repair attempt(s): %s",
+                fname, repair_counts.get(fname, 0), validation.summary(),
             )
 
     # Improvement G: RL algorithm-environment compatibility check
@@ -1379,14 +1968,14 @@ def _execute_code_generation(
                     ):
                         _has_critical = True
         if _has_critical:
+            _performed = sum(repair_counts.values())
             logger.error(
                 "Stage 10: CRITICAL validation issues remain after %d repair "
-                "attempts. Blocking stage.", max_repair,
+                "attempt(s) (limit %d/file). Blocking stage.",
+                _performed, max_repair,
             )
             (stage_dir / "validation_report.md").write_text(
-                "# Code Validation Report\n\n"
-                f"**Status**: BLOCKED — critical issues remain after {max_repair} repairs\n\n"
-                + "\n".join(f"- {e}" for e in validation_log),
+                _blocked_validation_report(repair_counts, max_repair, validation_log),
                 encoding="utf-8",
             )
             return StageResult(
@@ -1432,6 +2021,8 @@ def _execute_code_generation(
     # --- Write experiment directory ---
     exp_dir = stage_dir / "experiment"
     exp_dir.mkdir(parents=True, exist_ok=True)
+    # P-227 (F-1): a failed attempt must not leak modules into the delivery.
+    _quarantine_stale(exp_dir, stage_dir, keep=set(files), tag="pre-attempt")
     for fname, code in files.items():
         safe_join(exp_dir, fname).write_text(code, encoding="utf-8")
 
@@ -1490,62 +2081,103 @@ def _execute_code_generation(
     complexity_warnings.extend(deep_warnings)
 
     # --- P1.2: If critical deep issues found, attempt one repair cycle ---
-    critical_deep = [w for w in deep_warnings if any(
-        kw in w for kw in ("UnboundLocalError", "unregistered", "does not exist",
-                           "empty or trivial subclass", "does NOT override",
-                           "Import-usage mismatch", "NameError",
-                           "was removed", "ptp()",
-                           "copy-paste", "identical method signatures",
-                           "identical AST", "NOT a real ablation",
-                           "shadows stdlib/pip")
-    )]
+    critical_deep = _critical_deep(deep_warnings)
+    # P-227 (F-2): check the symbol contract here instead of waiting for the
+    # exit gate.  Run L attempt 2 lost 7 of 9 data.py symbols during repair
+    # and only failed 153 minutes later at blueprint_symbols_missing.
+    blueprint_for_symbols = load_blueprint(stage_dir) or {}
+    for failure in check_symbol_contract(blueprint_for_symbols, files):
+        critical_deep.append(f"[symbols] {failure.detail}")
     if critical_deep and llm is not None:
         logger.info(
             "Stage 10: %d critical code issues found — triggering repair cycle",
             len(critical_deep),
         )
-        repair_issues = "\n".join(f"- {w}" for w in critical_deep)
-        all_code_ctx = "\n\n".join(
-            f"```filename:{f}\n{c}\n```" for f, c in files.items()
-        )
-        repair_prompt = (
-            f"CRITICAL CODE QUALITY ISSUES FOUND:\n{repair_issues}\n\n"
-            f"Fix ALL these issues in the code below. Return the complete "
-            f"corrected files using ```filename:xxx.py format.\n\n"
-            f"RULES:\n"
-            f"- nn.Linear/nn.Conv must be created in __init__(), not forward()\n"
-            f"- Variables used after if/else must be defined before the branch\n"
-            f"- Use scipy.special.erf, not np.erf\n"
-            f"- Ablation/variant classes must have genuinely different logic\n"
-            f"- Every class must have a real implementation, not just `pass`\n"
-            f"- Ablation classes MUST override the parent method that implements "
-            f"the component being ablated (e.g., if ablating attention, override "
-            f"the attention method with a simpler alternative like mean pooling)\n"
-            f"- IMPORT CONSISTENCY: if you write `from X import Y`, call `Y()` "
-            f"directly — NOT `X.Y()`. Mixing styles causes NameError.\n"
-            f"- NumPy 2.0: ndarray.ptp() was removed — use arr.max()-arr.min()\n"
-            f"- NumPy 2.0: np.bool/np.int/np.float removed — use builtins\n"
-            f"- Pretrained models (EfficientNet, ResNet, ViT) expect 224×224 input "
-            f"— add `transforms.Resize(224)` when using CIFAR (32×32) or similar\n"
-            f"- Copy-paste ablation: if two classes have identical bodies, REWRITE "
-            f"the ablation to genuinely remove/reduce a component (e.g., zero out "
-            f"attention weights, halve hidden dimensions, remove a loss term)\n"
-            f"- KD: teacher must be frozen, add projection layers if teacher_dim != "
-            f"student_dim, use temperature T=4 for soft targets\n"
-            f"- FILENAME COLLISIONS: If a file like config.py shadows a pip/stdlib "
-            f"package, rename it (e.g., config.py → experiment_config.py) and update "
-            f"ALL imports referencing it\n\n"
-            f"Current code:\n{all_code_ctx}\n"
-        )
-        try:
-            repair_resp = _request_repair_response(
-                llm,
-                _pm.system("code_generation"),
-                repair_prompt,
-                max_tokens=_code_max_tokens,
+        _issues = list(critical_deep)
+        _baseline = deep_warnings
+        for _round in range(1, 3):
+            repair_issues = "\n".join(f"- {w}" for w in _issues)
+            # P-228 (G-1): cap the stage-level repair context as well; every
+            # file stays present but oversized ones keep head+tail only.
+            from researchclaw.pipeline.code_agent import (
+                CodeAgent as _ContextAgent,
             )
-            repaired = _extract_valid_repair_files(repair_resp.content, set(files))
-            if repaired:
+            all_code_ctx = _ContextAgent._format_files(
+                files, keep_full=set(files), budget=80000,
+            )
+            _prev_note = (
+                f"STILL NOT FIXED (previous round):\n{repair_issues}\n\n"
+                if _round > 1 else ""
+            )
+            repair_prompt = (
+                f"{_prev_note}"
+                f"CRITICAL CODE QUALITY ISSUES FOUND:\n{repair_issues}\n\n"
+                f"Fix ALL these issues in the code below. Return the complete "
+                f"corrected files using ```filename:xxx.py format.\n\n"
+                f"RULES:\n"
+                f"- Preserve every declared symbol (class/function); never remove "
+                f"or rename one\n"
+                f"- nn.Linear/nn.Conv must be created in __init__(), not forward()\n"
+                f"- Variables used after if/else must be defined before the branch\n"
+                f"- Use scipy.special.erf, not np.erf\n"
+                f"- Ablation/variant classes must have genuinely different logic\n"
+                f"- Every class must have a real implementation, not just `pass`\n"
+                f"- Ablation classes MUST override the parent method that implements "
+                f"the component being ablated (e.g., if ablating attention, override "
+                f"the attention method with a simpler alternative like mean pooling)\n"
+                f"- IMPORT CONSISTENCY: if you write `from X import Y`, call `Y()` "
+                f"directly — NOT `X.Y()`. Mixing styles causes NameError.\n"
+                f"- NumPy 2.0: ndarray.ptp() was removed — use arr.max()-arr.min()\n"
+                f"- NumPy 2.0: np.bool/np.int/np.float removed — use builtins\n"
+                f"- Pretrained models (EfficientNet, ResNet, ViT) expect 224×224 input "
+                f"— add `transforms.Resize(224)` when using CIFAR (32×32) or similar\n"
+                f"- Copy-paste ablation: if two classes have identical bodies, REWRITE "
+                f"the ablation to genuinely remove/reduce a component (e.g., zero out "
+                f"attention weights, halve hidden dimensions, remove a loss term)\n"
+                f"- KD: teacher must be frozen, add projection layers if teacher_dim != "
+                f"student_dim, use temperature T=4 for soft targets\n"
+                f"- FILENAME COLLISIONS: If a file like config.py shadows a pip/stdlib "
+                f"package, rename it (e.g., config.py → experiment_config.py) and update "
+                f"ALL imports referencing it\n\n"
+                f"Current code:\n{all_code_ctx}\n"
+            )
+            try:
+                repair_resp = _request_repair_response(
+                    llm,
+                    _pm.system("code_generation"),
+                    repair_prompt,
+                    max_tokens=_code_max_tokens,
+                )
+                repaired = _extract_valid_repair_files(
+                    repair_resp.content, set(files),
+                )
+                _record_repair_trace(
+                    stage_dir,
+                    phase="project_repair",
+                    prompt=repair_prompt,
+                    response=repair_resp.content,
+                    model=str(getattr(repair_resp, "model", "") or ""),
+                    truncated=getattr(repair_resp, "truncated", None),
+                    accepted=sorted(repaired),
+                    rejected=sorted(set(files) - set(repaired)),
+                    reason="merged" if repaired else "no_valid_file",
+                    extra={"usage": {
+                        "prompt_tokens": int(
+                            getattr(repair_resp, "prompt_tokens", 0) or 0
+                        ),
+                        "completion_tokens": int(
+                            getattr(repair_resp, "completion_tokens", 0) or 0
+                        ),
+                        "total_tokens": int(
+                            getattr(repair_resp, "total_tokens", 0) or 0
+                        ),
+                        "finish_reason": str(
+                            getattr(repair_resp, "finish_reason", "") or ""
+                        ),
+                    }},
+                )
+                if not repaired:
+                    break
                 files = _merge_repair_files(files, repaired)
                 for fname, code in files.items():
                     safe_join(exp_dir, fname).write_text(code, encoding="utf-8")
@@ -1555,28 +2187,31 @@ def _execute_code_generation(
                 )
                 # Re-check after repair
                 deep_warnings_after = deep_validate_files(files)
-                fixed = len(critical_deep) - len([
-                    w for w in deep_warnings_after
-                    if any(kw in w for kw in (
-                        "UnboundLocalError", "unregistered", "does not exist",
-                        "empty or trivial subclass", "does NOT override",
-                        "Import-usage mismatch", "NameError",
-                        "was removed", "ptp()",
-                        "copy-paste", "identical method signatures",
-                        "identical AST", "NOT a real ablation",
-                        "shadows stdlib/pip",
-                    ))
-                ])
+                fixed, remaining = _deep_repair_counts(
+                    _baseline, deep_warnings_after,
+                )
                 logger.info(
-                    "Stage 10: Deep repair fixed %d/%d critical issues",
-                    fixed, len(critical_deep),
+                    "Stage 10: Deep repair fixed %d of %d critical issues "
+                    "(%d remain)",
+                    fixed, len(critical_deep), remaining,
                 )
                 complexity_warnings.append(
                     f"[REPAIR] Deep repair fixed {fixed}/{len(critical_deep)} "
-                    f"critical issues"
+                    f"critical issues ({remaining} remain)"
                 )
-        except Exception as exc:
-            logger.debug("Deep repair failed: %s", exc)
+                # P-227 (F-4): feed whatever is still broken into the next
+                # round; stop early when a round made no progress (Self-Refine
+                # converges to the same output without new information).
+                _issues = _critical_deep(deep_warnings_after)
+                for failure in check_symbol_contract(
+                    blueprint_for_symbols, files,
+                ):
+                    _issues.append(f"[symbols] {failure.detail}")
+                if not _issues or fixed == 0:
+                    break
+            except Exception as exc:
+                logger.debug("Deep repair failed: %s", exc)
+                break
 
     if complexity_warnings:
         health: dict[str, Any] = {}
@@ -1810,6 +2445,8 @@ def _execute_code_generation(
                 alignment_ok = False
                 alignment_note = align_data.get("reason", "Misaligned")
                 suggestions = align_data.get("suggestions", "")
+                _journal_alignment(stage_dir, "initial", "misaligned",
+                                   all_code_for_check)
                 logger.warning(
                     "Stage 10: Topic-experiment MISALIGNMENT detected: %s",
                     alignment_note,
@@ -1821,6 +2458,17 @@ def _execute_code_generation(
                         "Stage 10: Alignment regen attempt %d/%d",
                         _regen_attempt, _max_regen,
                     )
+                    # P-227 (F-3): anchor the regeneration to the blueprint so
+                    # the model cannot replace the project with a generic
+                    # harness (run L attempt 1) or drop declared symbols.
+                    _bp = load_blueprint(stage_dir) or {}
+                    _bp_names = _blueprint_file_names(_bp)
+                    _bp_block = "\n".join(
+                        f"- {name}: "
+                        + (", ".join(declared_symbols(_bp, name))
+                           or "(no declared symbols)")
+                        for name in sorted(_bp_names)
+                    ) or "- (blueprint unavailable)"
                     regen_prompt = (
                         f"The experiment code you previously generated does NOT align "
                         f"with the research topic.\n\n"
@@ -1830,13 +2478,17 @@ def _execute_code_generation(
                         f"REGENERATE the experiment code to DIRECTLY test the stated "
                         f"topic. The code MUST implement the core technique described "
                         f"in the topic, not a generic proxy.\n\n"
+                        f"BLUEPRINT FILES (the complete set — do not add or remove):\n"
+                        f"{_bp_block}\n\n"
                         f"CRITICAL CONSTRAINTS:\n"
                         f"- You MUST implement the EXACT algorithm/method from the topic.\n"
                         f"- Do NOT substitute a deep-learning proxy (ResNet, BERT, etc.) "
                         f"when the topic describes a tabular, bandit, or game-theoretic method.\n"
                         f"- Use ONLY lightweight CPU-friendly libraries (numpy, scipy, "
                         f"sklearn) unless the topic EXPLICITLY requires deep learning.\n"
-                        f"- The experiment must be self-contained and runnable without GPU.\n\n"
+                        f"- The experiment must be self-contained and runnable without GPU.\n"
+                        f"- Keep every declared symbol with the same name; do not drop "
+                        f"or rename modules.\n\n"
                         f"{pkg_hint}\n{compute_budget}\n"
                         f"PLAN:\n{exp_plan}\n\n"
                         f"Return multiple files using ```filename:xxx.py format."
@@ -1854,9 +2506,58 @@ def _execute_code_generation(
                             _regen_attempt,
                         )
                         continue
-                    files = regen_files
+                    # P-227 (F-3): keep the blueprint's file set.  Unknown
+                    # modules are dropped, and a file the regen omitted keeps
+                    # its previous version instead of disappearing.
+                    _allowed = _bp_names | {"main.py"}
+                    _kept = {
+                        name: code for name, code in regen_files.items()
+                        if Path(name).name in _allowed
+                    }
+                    _before = dict(files)
+                    files = {**files, **_kept}
+                    _quarantine_stale(
+                        exp_dir, stage_dir, keep=set(files),
+                        tag=f"regen-{_regen_attempt}",
+                    )
                     for fname, code in files.items():
                         safe_join(exp_dir, fname).write_text(code, encoding="utf-8")
+                    # P-231 (D-1/D-4): the regen may drop the guard or the
+                    # declared symbols; repair in place, then validate the whole
+                    # set before keeping the write.
+                    files = _ensure_entrypoint(
+                        files,
+                        llm=llm,
+                        pm=_pm,
+                        topic=config.research.topic,
+                        metric=metric,
+                        exp_dir=exp_dir,
+                        exp_plan=exp_plan,
+                        blueprint=_bp,
+                    )
+                    # P-229: regen may drop declared symbols from any module.
+                    files = _ensure_symbol_contract(
+                        files,
+                        stage_dir=stage_dir,
+                        exp_dir=exp_dir,
+                        llm=llm,
+                        pm=_pm,
+                        topic=config.research.topic,
+                    )
+                    _regen_problems = _contract_issues(files, _bp)
+                    if _regen_problems:
+                        logger.error(
+                            "Stage 10: regen attempt %d rejected (%s) — "
+                            "restoring the previous files",
+                            _regen_attempt,
+                            "; ".join(_regen_problems[:4]),
+                        )
+                        files = _before
+                        for fname, code in files.items():
+                            safe_join(exp_dir, fname).write_text(
+                                code, encoding="utf-8",
+                            )
+                        continue
                     # Re-check alignment on regenerated code (BUG-171 fix)
                     _rc_inv = []
                     for _fn, _cd in files.items():
@@ -1897,6 +2598,10 @@ def _execute_code_generation(
                     if isinstance(recheck_data, dict) and recheck_data.get("aligned", False):
                         alignment_ok = True
                         alignment_note = f"Regenerated after alignment check (attempt {_regen_attempt})"
+                        _journal_alignment(
+                            stage_dir, f"regen-{_regen_attempt}", "done",
+                            recheck_code,
+                        )
                         logger.info(
                             "Stage 10: Code aligned after regen attempt %d",
                             _regen_attempt,
@@ -1905,12 +2610,18 @@ def _execute_code_generation(
                     else:
                         alignment_note = recheck_data.get("reason", alignment_note)
                         suggestions = recheck_data.get("suggestions", suggestions)
+                        _journal_alignment(
+                            stage_dir, f"regen-{_regen_attempt}", "misaligned",
+                            recheck_code,
+                        )
                         logger.warning(
                             "Stage 10: Regen attempt %d still misaligned: %s",
                             _regen_attempt, alignment_note,
                         )
         except Exception as exc:
             logger.debug("Alignment check failed: %s", exc)
+        if alignment_ok and not alignment_note:
+            _journal_alignment(stage_dir, "initial", "done", all_code_for_check)
 
     # --- FIX-7: Ablation distinctness check ---
     main_code = files.get("main.py", "")
@@ -2034,6 +2745,7 @@ Multi-file experiment project with {len(files)} file(s): {file_list}
         )
 
     # B-29: repair loops can still degrade main.py; regenerate before the gate.
+    metric = resolve_metric(stage_dir, metric)
     files = _ensure_entrypoint(
         files,
         llm=llm,
@@ -2042,7 +2754,37 @@ Multi-file experiment project with {len(files)} file(s): {file_list}
         metric=metric,
         exp_dir=exp_dir,
         exp_plan=exp_plan,
+        blueprint=load_blueprint(stage_dir),
     )
+    # P-229: re-check after the final entrypoint regeneration (run M lost
+    # evaluate_monitor/run_condition/set_seed/train_model here).
+    files = _ensure_symbol_contract(
+        files,
+        stage_dir=stage_dir,
+        exp_dir=exp_dir,
+        llm=llm,
+        pm=_pm,
+        topic=config.research.topic,
+    )
+
+    # P-231 (D-5): compile + import smoke before the evidence gate.  Repairs
+    # rewrite whole files, so a syntactic accident that every path accepted
+    # (run O: data.py kept an unterminated string from an earlier attempt)
+    # must be caught here rather than in Stage 12.
+    _smoke_failures, _smoke_warnings = _smoke_modules(files, exp_dir)
+    for _warning in _smoke_warnings:
+        logger.warning("Stage 10: %s", _warning)
+    if _smoke_failures:
+        logger.error(
+            "Stage 10: code smoke check failed: %s", "; ".join(_smoke_failures),
+        )
+        return StageResult(
+            stage=Stage.CODE_GENERATION,
+            status=StageStatus.FAILED,
+            artifacts=tuple(artifacts),
+            evidence_refs=tuple(f"stage-10/{a}" for a in artifacts),
+            error="Code smoke check failed: " + "; ".join(_smoke_failures[:3]),
+        )
 
     # P-178: refuse to ship a non-runnable entrypoint (config-only main.py etc.)
     _main_code = files.get("main.py", "") if isinstance(files, dict) else ""

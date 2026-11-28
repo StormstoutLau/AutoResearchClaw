@@ -313,11 +313,18 @@ def _write_stage_meta(
         # Failed / paused / blocked stages should point back to themselves so
         # retry-resume tooling does not imply that the pipeline advanced.
         next_stage = stage
+    # ``StageResult.decision`` defaults to "proceed", so a failed stage used to
+    # land in decision.json as ``{"status": "failed", "decision": "proceed"}``.
+    # Keep explicit decisions (abort / resume / degraded / …) but never claim
+    # "proceed" for a stage that did not complete.
+    decision = result.decision
+    if result.status is not StageStatus.DONE and decision == "proceed":
+        decision = result.status.value
     meta = {
         "stage_id": f"{int(stage):02d}-{stage.name.lower()}",
         "run_id": run_id,
         "status": result.status.value,
-        "decision": result.decision,
+        "decision": decision,
         "output_artifacts": list(result.artifacts),
         "evidence_refs": list(result.evidence_refs),
         "error": result.error,
@@ -604,6 +611,39 @@ def _extract_code_block(content: str) -> str:
     except SyntaxError:
         return ""
     return stripped
+
+
+def _extract_named_block(content: str, name: str) -> str | None:
+    """Code for ``name`` from a single-file reply.
+
+    Two pre-existing behaviours hide the file the reply is actually for:
+
+    * a bare code block (no ``filename:`` marker) is named ``main.py``;
+    * so is any single block, because the extractor renames the first file to
+      ``main.py`` when that key is missing.
+
+    A per-file repair reply was therefore read as "not the file I asked for"
+    and silently discarded (P-231).  Only the unambiguous single-block cases
+    are recovered here.
+    """
+    text = str(content or "")
+    blocks = _extract_multi_file_blocks(text)
+    if name in blocks:
+        return blocks[name]
+    if name == "main.py" or len(blocks) != 1 or "main.py" not in blocks:
+        return None
+    markers = re.findall(
+        r"filename\s*:\s*([\w./\\-]+)", text, flags=re.IGNORECASE,
+    )
+    if markers:
+        matched = [
+            marker for marker in markers
+            if marker.replace("\\", "/").split("/")[-1] == name
+        ]
+        return blocks["main.py"] if len(markers) == 1 and matched else None
+    if "filename" in text.lower():
+        return None
+    return blocks["main.py"]
 
 
 def _extract_multi_file_blocks(content: str) -> dict[str, str]:
