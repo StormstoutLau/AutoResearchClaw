@@ -687,6 +687,37 @@ class TestRepairSplitOnSecondTruncation:
         assert trace[-1]["reason"] == "split_per_file"
         assert trace[-1]["accepted"] == ["data.py"]
 
+    def test_accepted_file_is_not_recorded_as_rejected(
+        self, tmp_path: Path,
+    ) -> None:
+        """P-233: a fixed file must not look rejected (it tripped P-226)."""
+        llm = _FakeLLM([_named("data.py", self.GOOD_DATA)])
+        agent = _agent(tmp_path, llm)
+
+        fixed, rejected = agent._repair_files_individually(
+            {"data.py": "def load_data():\n    return 0\n"},
+            {"data.py"}, "issue", "", None,
+        )
+
+        assert set(fixed) == {"data.py"}
+        assert rejected == {}
+
+    def test_split_round_does_not_trip_stop_loss(self, tmp_path: Path) -> None:
+        llm = _SplitLLM([
+            "truncated", "truncated",
+            _named("data.py", self.GOOD_DATA),
+        ])
+        agent = _agent(tmp_path, llm)
+        out = agent._repair_critical_issues(
+            {"data.py": "def load_data():\n    return 0\n", "main.py": MAIN_OK},
+            ["[data.py] UnboundLocalError risk"], "t", "p", "m", self.BP,
+        )
+
+        assert out["data.py"] == self.GOOD_DATA.strip()
+        trace = load_repair_trace(tmp_path)[-1]
+        assert "data.py" not in (trace.get("rejected_reasons") or {})
+        assert agent._repeated_rejection() is None
+
 
 class TestCatastrophicRewriteGuard:
     """P-231 (D-7): a repair may not halve the file it edits."""

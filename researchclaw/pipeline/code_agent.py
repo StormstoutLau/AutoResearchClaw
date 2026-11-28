@@ -1942,8 +1942,12 @@ class CodeAgent:
                 fixed.update(accepted)
             if why:
                 rejected.update(why)
-            else:
-                rejected.setdefault(name, "not_returned")
+            if name not in fixed and name not in rejected:
+                # P-233: an accepted file must never be recorded as rejected.
+                # The P-231 version marked every accepted file "not_returned",
+                # so P-226 stopped a repair round that had fixed all five
+                # files (run Q, 16:26:15Z).
+                rejected[name] = "not_returned"
         return fixed, rejected
 
     def _accept_repair_files(
