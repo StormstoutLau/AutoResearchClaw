@@ -19,7 +19,10 @@ from researchclaw.experiment.validator import (
 from researchclaw.llm.client import LLMClient
 from researchclaw.pipeline._domain import _detect_domain
 from researchclaw.pipeline.codegen_evidence import (
+    check_symbol_contract,
+    declared_symbols,
     evaluate_stage10_evidence,
+    load_blueprint,
     resolve_metric,
     write_evidence_report,
 )
@@ -56,6 +59,55 @@ from researchclaw.prompts import PromptManager
 from researchclaw.utils.paths import safe_join
 
 logger = logging.getLogger(__name__)
+
+
+def _quarantine_stale(
+    exp_dir: Path, stage_dir: Path, *, keep: set[str], tag: str,
+) -> list[str]:
+    """P-227 (F-1): move delivered-code leftovers out of ``experiment/``.
+
+    Attempts share one directory.  Without this, a module produced by a failed
+    attempt (run L: ``data_generator.py`` from attempt 1) survived into the
+    final deliverable and was not declared by the blueprint.  Files are moved
+    to ``stage-10/quarantine/<tag>/`` instead of deleted, so the evidence
+    trail stays auditable.
+    """
+    if not exp_dir.is_dir():
+        return []
+    dest = stage_dir / "quarantine" / tag
+    moved: list[str] = []
+    for path in sorted(exp_dir.iterdir()):
+        if not path.is_file() or path.suffix != ".py":
+            continue
+        if path.name in keep:
+            continue
+        dest.mkdir(parents=True, exist_ok=True)
+        target = dest / path.name
+        if target.exists():
+            target = dest / f"{path.stem}.{int(path.stat().st_mtime)}{path.suffix}"
+        path.replace(target)
+        moved.append(path.name)
+    if moved:
+        logger.warning(
+            "Stage 10: quarantined stale file(s) from experiment/: %s",
+            ", ".join(moved),
+        )
+    return moved
+
+
+def _blueprint_file_names(blueprint: Any) -> set[str]:
+    """Basenames declared by the blueprint (P-227 F-3)."""
+    entries = (blueprint or {}).get("files") if isinstance(blueprint, dict) else None
+    if not isinstance(entries, list):
+        return set()
+    names: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name") or entry.get("path") or entry.get("filename")
+        if name:
+            names.add(str(name).replace("\\", "/").rsplit("/", 1)[-1])
+    return names
 
 
 def _is_parseable(code: str) -> bool:
@@ -1611,6 +1663,8 @@ def _execute_code_generation(
     # --- Write experiment directory ---
     exp_dir = stage_dir / "experiment"
     exp_dir.mkdir(parents=True, exist_ok=True)
+    # P-227 (F-1): a failed attempt must not leak modules into the delivery.
+    _quarantine_stale(exp_dir, stage_dir, keep=set(files), tag="pre-attempt")
     for fname, code in files.items():
         safe_join(exp_dir, fname).write_text(code, encoding="utf-8")
 
@@ -1670,64 +1724,83 @@ def _execute_code_generation(
 
     # --- P1.2: If critical deep issues found, attempt one repair cycle ---
     critical_deep = _critical_deep(deep_warnings)
+    # P-227 (F-2): check the symbol contract here instead of waiting for the
+    # exit gate.  Run L attempt 2 lost 7 of 9 data.py symbols during repair
+    # and only failed 153 minutes later at blueprint_symbols_missing.
+    blueprint_for_symbols = load_blueprint(stage_dir) or {}
+    for failure in check_symbol_contract(blueprint_for_symbols, files):
+        critical_deep.append(f"[symbols] {failure.detail}")
     if critical_deep and llm is not None:
         logger.info(
             "Stage 10: %d critical code issues found — triggering repair cycle",
             len(critical_deep),
         )
-        repair_issues = "\n".join(f"- {w}" for w in critical_deep)
-        all_code_ctx = "\n\n".join(
-            f"```filename:{f}\n{c}\n```" for f, c in files.items()
-        )
-        repair_prompt = (
-            f"CRITICAL CODE QUALITY ISSUES FOUND:\n{repair_issues}\n\n"
-            f"Fix ALL these issues in the code below. Return the complete "
-            f"corrected files using ```filename:xxx.py format.\n\n"
-            f"RULES:\n"
-            f"- nn.Linear/nn.Conv must be created in __init__(), not forward()\n"
-            f"- Variables used after if/else must be defined before the branch\n"
-            f"- Use scipy.special.erf, not np.erf\n"
-            f"- Ablation/variant classes must have genuinely different logic\n"
-            f"- Every class must have a real implementation, not just `pass`\n"
-            f"- Ablation classes MUST override the parent method that implements "
-            f"the component being ablated (e.g., if ablating attention, override "
-            f"the attention method with a simpler alternative like mean pooling)\n"
-            f"- IMPORT CONSISTENCY: if you write `from X import Y`, call `Y()` "
-            f"directly — NOT `X.Y()`. Mixing styles causes NameError.\n"
-            f"- NumPy 2.0: ndarray.ptp() was removed — use arr.max()-arr.min()\n"
-            f"- NumPy 2.0: np.bool/np.int/np.float removed — use builtins\n"
-            f"- Pretrained models (EfficientNet, ResNet, ViT) expect 224×224 input "
-            f"— add `transforms.Resize(224)` when using CIFAR (32×32) or similar\n"
-            f"- Copy-paste ablation: if two classes have identical bodies, REWRITE "
-            f"the ablation to genuinely remove/reduce a component (e.g., zero out "
-            f"attention weights, halve hidden dimensions, remove a loss term)\n"
-            f"- KD: teacher must be frozen, add projection layers if teacher_dim != "
-            f"student_dim, use temperature T=4 for soft targets\n"
-            f"- FILENAME COLLISIONS: If a file like config.py shadows a pip/stdlib "
-            f"package, rename it (e.g., config.py → experiment_config.py) and update "
-            f"ALL imports referencing it\n\n"
-            f"Current code:\n{all_code_ctx}\n"
-        )
-        try:
-            repair_resp = _request_repair_response(
-                llm,
-                _pm.system("code_generation"),
-                repair_prompt,
-                max_tokens=_code_max_tokens,
+        _issues = list(critical_deep)
+        _baseline = deep_warnings
+        for _round in range(1, 3):
+            repair_issues = "\n".join(f"- {w}" for w in _issues)
+            all_code_ctx = "\n\n".join(
+                f"```filename:{f}\n{c}\n```" for f, c in files.items()
             )
-            repaired = _extract_valid_repair_files(repair_resp.content, set(files))
-            _record_repair_trace(
-                stage_dir,
-                phase="project_repair",
-                prompt=repair_prompt,
-                response=repair_resp.content,
-                model=str(getattr(repair_resp, "model", "") or ""),
-                truncated=getattr(repair_resp, "truncated", None),
-                accepted=sorted(repaired),
-                rejected=sorted(set(files) - set(repaired)),
-                reason="merged" if repaired else "no_valid_file",
+            _prev_note = (
+                f"STILL NOT FIXED (previous round):\n{repair_issues}\n\n"
+                if _round > 1 else ""
             )
-            if repaired:
+            repair_prompt = (
+                f"{_prev_note}"
+                f"CRITICAL CODE QUALITY ISSUES FOUND:\n{repair_issues}\n\n"
+                f"Fix ALL these issues in the code below. Return the complete "
+                f"corrected files using ```filename:xxx.py format.\n\n"
+                f"RULES:\n"
+                f"- Preserve every declared symbol (class/function); never remove "
+                f"or rename one\n"
+                f"- nn.Linear/nn.Conv must be created in __init__(), not forward()\n"
+                f"- Variables used after if/else must be defined before the branch\n"
+                f"- Use scipy.special.erf, not np.erf\n"
+                f"- Ablation/variant classes must have genuinely different logic\n"
+                f"- Every class must have a real implementation, not just `pass`\n"
+                f"- Ablation classes MUST override the parent method that implements "
+                f"the component being ablated (e.g., if ablating attention, override "
+                f"the attention method with a simpler alternative like mean pooling)\n"
+                f"- IMPORT CONSISTENCY: if you write `from X import Y`, call `Y()` "
+                f"directly — NOT `X.Y()`. Mixing styles causes NameError.\n"
+                f"- NumPy 2.0: ndarray.ptp() was removed — use arr.max()-arr.min()\n"
+                f"- NumPy 2.0: np.bool/np.int/np.float removed — use builtins\n"
+                f"- Pretrained models (EfficientNet, ResNet, ViT) expect 224×224 input "
+                f"— add `transforms.Resize(224)` when using CIFAR (32×32) or similar\n"
+                f"- Copy-paste ablation: if two classes have identical bodies, REWRITE "
+                f"the ablation to genuinely remove/reduce a component (e.g., zero out "
+                f"attention weights, halve hidden dimensions, remove a loss term)\n"
+                f"- KD: teacher must be frozen, add projection layers if teacher_dim != "
+                f"student_dim, use temperature T=4 for soft targets\n"
+                f"- FILENAME COLLISIONS: If a file like config.py shadows a pip/stdlib "
+                f"package, rename it (e.g., config.py → experiment_config.py) and update "
+                f"ALL imports referencing it\n\n"
+                f"Current code:\n{all_code_ctx}\n"
+            )
+            try:
+                repair_resp = _request_repair_response(
+                    llm,
+                    _pm.system("code_generation"),
+                    repair_prompt,
+                    max_tokens=_code_max_tokens,
+                )
+                repaired = _extract_valid_repair_files(
+                    repair_resp.content, set(files),
+                )
+                _record_repair_trace(
+                    stage_dir,
+                    phase="project_repair",
+                    prompt=repair_prompt,
+                    response=repair_resp.content,
+                    model=str(getattr(repair_resp, "model", "") or ""),
+                    truncated=getattr(repair_resp, "truncated", None),
+                    accepted=sorted(repaired),
+                    rejected=sorted(set(files) - set(repaired)),
+                    reason="merged" if repaired else "no_valid_file",
+                )
+                if not repaired:
+                    break
                 files = _merge_repair_files(files, repaired)
                 for fname, code in files.items():
                     safe_join(exp_dir, fname).write_text(code, encoding="utf-8")
@@ -1738,7 +1811,7 @@ def _execute_code_generation(
                 # Re-check after repair
                 deep_warnings_after = deep_validate_files(files)
                 fixed, remaining = _deep_repair_counts(
-                    deep_warnings, deep_warnings_after,
+                    _baseline, deep_warnings_after,
                 )
                 logger.info(
                     "Stage 10: Deep repair fixed %d of %d critical issues "
@@ -1749,8 +1822,19 @@ def _execute_code_generation(
                     f"[REPAIR] Deep repair fixed {fixed}/{len(critical_deep)} "
                     f"critical issues ({remaining} remain)"
                 )
-        except Exception as exc:
-            logger.debug("Deep repair failed: %s", exc)
+                # P-227 (F-4): feed whatever is still broken into the next
+                # round; stop early when a round made no progress (Self-Refine
+                # converges to the same output without new information).
+                _issues = _critical_deep(deep_warnings_after)
+                for failure in check_symbol_contract(
+                    blueprint_for_symbols, files,
+                ):
+                    _issues.append(f"[symbols] {failure.detail}")
+                if not _issues or fixed == 0:
+                    break
+            except Exception as exc:
+                logger.debug("Deep repair failed: %s", exc)
+                break
 
     if complexity_warnings:
         health: dict[str, Any] = {}
@@ -1997,6 +2081,17 @@ def _execute_code_generation(
                         "Stage 10: Alignment regen attempt %d/%d",
                         _regen_attempt, _max_regen,
                     )
+                    # P-227 (F-3): anchor the regeneration to the blueprint so
+                    # the model cannot replace the project with a generic
+                    # harness (run L attempt 1) or drop declared symbols.
+                    _bp = load_blueprint(stage_dir) or {}
+                    _bp_names = _blueprint_file_names(_bp)
+                    _bp_block = "\n".join(
+                        f"- {name}: "
+                        + (", ".join(declared_symbols(_bp, name))
+                           or "(no declared symbols)")
+                        for name in sorted(_bp_names)
+                    ) or "- (blueprint unavailable)"
                     regen_prompt = (
                         f"The experiment code you previously generated does NOT align "
                         f"with the research topic.\n\n"
@@ -2006,13 +2101,17 @@ def _execute_code_generation(
                         f"REGENERATE the experiment code to DIRECTLY test the stated "
                         f"topic. The code MUST implement the core technique described "
                         f"in the topic, not a generic proxy.\n\n"
+                        f"BLUEPRINT FILES (the complete set — do not add or remove):\n"
+                        f"{_bp_block}\n\n"
                         f"CRITICAL CONSTRAINTS:\n"
                         f"- You MUST implement the EXACT algorithm/method from the topic.\n"
                         f"- Do NOT substitute a deep-learning proxy (ResNet, BERT, etc.) "
                         f"when the topic describes a tabular, bandit, or game-theoretic method.\n"
                         f"- Use ONLY lightweight CPU-friendly libraries (numpy, scipy, "
                         f"sklearn) unless the topic EXPLICITLY requires deep learning.\n"
-                        f"- The experiment must be self-contained and runnable without GPU.\n\n"
+                        f"- The experiment must be self-contained and runnable without GPU.\n"
+                        f"- Keep every declared symbol with the same name; do not drop "
+                        f"or rename modules.\n\n"
                         f"{pkg_hint}\n{compute_budget}\n"
                         f"PLAN:\n{exp_plan}\n\n"
                         f"Return multiple files using ```filename:xxx.py format."
@@ -2030,7 +2129,19 @@ def _execute_code_generation(
                             _regen_attempt,
                         )
                         continue
-                    files = regen_files
+                    # P-227 (F-3): keep the blueprint's file set.  Unknown
+                    # modules are dropped, and a file the regen omitted keeps
+                    # its previous version instead of disappearing.
+                    _allowed = _bp_names | {"main.py"}
+                    _kept = {
+                        name: code for name, code in regen_files.items()
+                        if Path(name).name in _allowed
+                    }
+                    files = {**files, **_kept}
+                    _quarantine_stale(
+                        exp_dir, stage_dir, keep=set(files),
+                        tag=f"regen-{_regen_attempt}",
+                    )
                     for fname, code in files.items():
                         safe_join(exp_dir, fname).write_text(code, encoding="utf-8")
                     # Re-check alignment on regenerated code (BUG-171 fix)
