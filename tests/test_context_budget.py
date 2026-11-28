@@ -147,11 +147,13 @@ class TestTruncationStops:
             first, ["[data.py] boom"], "t", "p", "m", "",
         )
 
-        # 16k + 32k per round, two rounds, then P-226 stops the loop.
-        assert len(llm.calls) == 4
+        # P-231 (D-6): 16k + 32k for the combined prompt, then one request per
+        # affected file (16k + 32k) — a third identical combined call is not
+        # sent. Two rounds, then P-226 stops the loop.
+        assert len(llm.calls) == 8
         rows = load_repair_trace(tmp_path)
         assert all(
-            row.get("reason") == "truncated_after_escalation"
+            row.get("reason") == "split_per_file"
             for row in rows if row.get("phase") == "agent_repair"
         )
         assert rows[-1]["rejected_reasons"]["data.py"] == (

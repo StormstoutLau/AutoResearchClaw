@@ -613,6 +613,39 @@ def _extract_code_block(content: str) -> str:
     return stripped
 
 
+def _extract_named_block(content: str, name: str) -> str | None:
+    """Code for ``name`` from a single-file reply.
+
+    Two pre-existing behaviours hide the file the reply is actually for:
+
+    * a bare code block (no ``filename:`` marker) is named ``main.py``;
+    * so is any single block, because the extractor renames the first file to
+      ``main.py`` when that key is missing.
+
+    A per-file repair reply was therefore read as "not the file I asked for"
+    and silently discarded (P-231).  Only the unambiguous single-block cases
+    are recovered here.
+    """
+    text = str(content or "")
+    blocks = _extract_multi_file_blocks(text)
+    if name in blocks:
+        return blocks[name]
+    if name == "main.py" or len(blocks) != 1 or "main.py" not in blocks:
+        return None
+    markers = re.findall(
+        r"filename\s*:\s*([\w./\\-]+)", text, flags=re.IGNORECASE,
+    )
+    if markers:
+        matched = [
+            marker for marker in markers
+            if marker.replace("\\", "/").split("/")[-1] == name
+        ]
+        return blocks["main.py"] if len(markers) == 1 and matched else None
+    if "filename" in text.lower():
+        return None
+    return blocks["main.py"]
+
+
 def _extract_multi_file_blocks(content: str) -> dict[str, str]:
     """Parse LLM response containing multiple files with filename markers.
 

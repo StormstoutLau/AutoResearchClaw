@@ -35,6 +35,45 @@ _ENTRY_CALLABLES = (
 )
 
 
+def _has_main_guard(tree: ast.AST) -> bool:
+    """True when the module already has an ``if __name__ == "__main__"``."""
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.If):
+            continue
+        test = node.test
+        if (
+            isinstance(test, ast.Compare)
+            and isinstance(test.left, ast.Name)
+            and test.left.id == "__name__"
+            and len(test.comparators) == 1
+            and isinstance(test.comparators[0], ast.Constant)
+            and test.comparators[0].value == "__main__"
+        ):
+            return True
+    return False
+
+
+def _required_args(node: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
+    """Positional parameters that have no default (call with zero args)."""
+    args = node.args
+    positional = list(args.posonlyargs) + list(args.args)
+    return max(0, len(positional) - len(args.defaults))
+
+
+def _entry_callable(tree: ast.AST) -> str | None:
+    """Module-level entry callable that can be invoked with no arguments."""
+    defined = {
+        node.name: node
+        for node in getattr(tree, "body", [])
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    for name in _ENTRY_CALLABLES:
+        node = defined.get(name)
+        if node is not None and _required_args(node) == 0:
+            return name
+    return None
+
+
 def entrypoint_issues(main_code: str) -> list[str]:
     """Reasons why ``main.py`` cannot serve as an experiment entrypoint.
 
@@ -49,28 +88,57 @@ def entrypoint_issues(main_code: str) -> list[str]:
     except SyntaxError as exc:
         return [f"main.py has a syntax error: {exc.msg} (line {exc.lineno})"]
 
-    has_guard = False
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.If):
-            continue
-        test = node.test
-        if (
-            isinstance(test, ast.Compare)
-            and isinstance(test.left, ast.Name)
-            and test.left.id == "__name__"
-            and len(test.comparators) == 1
-            and isinstance(test.comparators[0], ast.Constant)
-            and test.comparators[0].value == "__main__"
-        ):
-            has_guard = True
-            break
-
     issues: list[str] = []
-    if not has_guard:
+    if not _has_main_guard(tree):
         issues.append('main.py missing `if __name__ == "__main__":` block')
     if "METRIC_DEF" not in code:
         issues.append("main.py never prints METRIC_DEF")
     return issues
+
+
+def patch_entrypoint_guard(code: str, metric: str) -> str | None:
+    """P-231 (D-1): append the missing guard instead of regenerating main.py.
+
+    Regenerating a blueprint-complete ``main.py`` with a "thin driver" prompt
+    destroys the symbols the blueprint declares for that file (run O: a
+    362-line file that satisfied the symbol contract was replaced by a
+    101-line stub).  Adding ``if __name__ == "__main__": <entry>()`` is a
+    structural fix that costs no tokens and cannot remove code.
+
+    Returns ``None`` when no safe patch exists — the file does not parse,
+    already has a guard, or exposes no module-level zero-argument entry
+    callable — so the caller falls back to the LLM regeneration path.
+
+    ``METRIC_DEF`` is only injected as a *definition* line.  The measured
+    value is printed only when the entry callable returns a mapping that
+    actually contains the metric; a fabricated number would let a broken
+    experiment pass the evidence gate.
+    """
+    source = str(code or "")
+    if not source.strip():
+        return None
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+    if _has_main_guard(tree):
+        return None
+    entry = _entry_callable(tree)
+    if entry is None:
+        return None
+
+    if "METRIC_DEF" in source:
+        block = f'\n\nif __name__ == "__main__":\n    {entry}()\n'
+    else:
+        block = (
+            "\n\nif __name__ == \"__main__\":\n"
+            f"    _result = {entry}()\n"
+            f"    print(\"METRIC_DEF: {metric} | direction=higher "
+            "| desc=auto-guard\")\n"
+            f"    if isinstance(_result, dict) and {metric!r} in _result:\n"
+            f"        print(f\"{metric}: {{float(_result[{metric!r}]):.6f}}\")\n"
+        )
+    return source.rstrip("\n") + block
 
 
 def summarize_modules(
@@ -107,8 +175,14 @@ def build_entrypoint_prompt(
     files: Mapping[str, str],
     exp_plan: str = "",
     previous_issues: list[str] | None = None,
+    symbol_contract: str = "",
 ) -> str:
-    """Prompt asking the model for one complete, runnable ``main.py``."""
+    """Prompt asking the model for one complete, runnable ``main.py``.
+
+    ``symbol_contract`` is the blueprint's declared-symbol block for this file
+    (P-231 D-2).  Without it the model cannot know which names the file must
+    define, and the "thin driver" rule below makes losing them unavoidable.
+    """
     modules = summarize_modules(files)
     plan_excerpt = (exp_plan or "").strip()[:1200]
     parts = [
@@ -119,6 +193,16 @@ def build_entrypoint_prompt(
         "",
         "The other generated modules are:",
         modules,
+    ]
+    if symbol_contract:
+        parts += [
+            "",
+            "SYMBOL CONTRACT — `main.py` MUST define every name below in this "
+            "file; the blueprint assigns them to main.py, so they are not "
+            "available from the other modules:",
+            symbol_contract,
+        ]
+    parts += [
         "",
         "HARD REQUIREMENTS (the file is rejected if any is missing):",
         '1. End with an `if __name__ == "__main__":` block that calls a real '
@@ -127,9 +211,16 @@ def build_entrypoint_prompt(
         f"starting with `METRIC_DEF:` — e.g. "
         f'print("METRIC_DEF: {metric} | direction=higher | desc=...").',
         f"3. Print the final value as `{metric}: <float>` so it can be parsed.",
-        "4. Import the existing modules listed above and CALL their functions. "
-        "Do NOT re-implement their classes or copy their code — this file is "
-        "only a thin driver.",
+        (
+            "4. Import the existing modules listed above and CALL their "
+            "functions instead of copying their code. The SYMBOL CONTRACT is "
+            "the exception: names listed there belong to main.py and must be "
+            "implemented here."
+            if symbol_contract else
+            "4. Import the existing modules listed above and CALL their "
+            "functions. Do NOT re-implement their classes or copy their code "
+            "— this file is only a thin driver."
+        ),
         f"5. Keep the file at most {MAX_ENTRYPOINT_LINES} lines. A longer file "
         "will be truncated and rejected.",
         "6. The file MUST be complete: no placeholders, no TODO, no truncated "

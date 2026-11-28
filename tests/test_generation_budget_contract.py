@@ -634,3 +634,80 @@ class TestRepairAcceptanceGate:
 
         assert out["data.py"] == self.GOOD_DATA.strip()
         assert [call["max_tokens"] for call in llm.calls] == [16384, 32768]
+
+
+class _SplitLLM(_FakeLLM):
+    """First two replies truncate; per-file requests afterwards succeed."""
+
+    def __init__(self, responses: list[str]) -> None:
+        super().__init__(responses)
+        self._call_no = 0
+
+    def chat(self, messages, **kwargs):  # noqa: ANN001, ANN003
+        resp = super().chat(messages, **kwargs)
+        self._call_no += 1
+        if self._call_no <= 2:
+            resp.truncated = True
+            resp.finish_reason = "length"
+        return resp
+
+
+class TestRepairSplitOnSecondTruncation:
+    """P-231 (D-6): do not resend the same oversized prompt a third time."""
+
+    BP = (
+        "files:\n"
+        "  - name: data.py\n"
+        "    generation_order: 1\n"
+        "    functions: [load_data, build_features]\n"
+    )
+    GOOD_DATA = (
+        "def load_data():\n"
+        "    return 1\n"
+        "\n\n"
+        "def build_features():\n"
+        "    return 2\n"
+    )
+
+    def test_split_repairs_one_file_per_request(self, tmp_path: Path) -> None:
+        llm = _SplitLLM([
+            "truncated", "truncated",
+            _named("data.py", self.GOOD_DATA),
+        ])
+        agent = _agent(tmp_path, llm)
+        out = agent._repair_critical_issues(
+            {"data.py": "def load_data():\n    return 0\n", "main.py": MAIN_OK},
+            ["[data.py] UnboundLocalError risk"], "t", "p", "m", self.BP,
+        )
+
+        assert out["data.py"] == self.GOOD_DATA.strip()
+        assert len(llm.calls) == 3
+        assert "data.py" in llm.calls[2]["messages"][0]["content"]
+        trace = load_repair_trace(tmp_path)
+        assert trace[-1]["reason"] == "split_per_file"
+        assert trace[-1]["accepted"] == ["data.py"]
+
+
+class TestCatastrophicRewriteGuard:
+    """P-231 (D-7): a repair may not halve the file it edits."""
+
+    def test_halved_file_is_rejected(self, tmp_path: Path) -> None:
+        before = (
+            "def load_data():\n"
+            "    return 1\n"
+            "\n\n"
+            "def build_features():\n"
+            "    return 2\n"
+            "\n\n"
+            "def split(x):\n"
+            "    return x\n"
+        )
+        llm = _FakeLLM([_named("data.py", "def load_data():\n    return 1\n")])
+        agent = _agent(tmp_path, llm)
+        out = agent._repair_critical_issues(
+            {"data.py": before}, ["[data.py] issue"], "t", "p", "m", "",
+        )
+
+        assert out["data.py"] == before
+        trace = load_repair_trace(tmp_path)
+        assert "catastrophic_rewrite" in trace[-1]["rejected_reasons"]["data.py"]

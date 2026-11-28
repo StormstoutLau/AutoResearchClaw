@@ -23,6 +23,7 @@ returns ``CodeAgentResult`` with the generated files.
 from __future__ import annotations
 
 import ast
+import difflib
 import json
 import logging
 import re
@@ -33,11 +34,15 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from researchclaw.config import CodeAgentConfig
-from researchclaw.pipeline._helpers import _close_unterminated_fence
+from researchclaw.pipeline._helpers import (
+    _close_unterminated_fence,
+    _extract_named_block,
+)
 from researchclaw.pipeline.codegen_evidence import (
     blueprint_metric,
     declared_symbols,
     missing_symbols,
+    symbol_contract_block,
 )
 from researchclaw.pipeline.repair_trace import record as _record_repair_trace
 from researchclaw.pipeline.entrypoint_contract import (
@@ -184,6 +189,19 @@ def _fold_trailing_colon_items(lines: list[str]) -> list[str]:
         out.append(f'{indent}- "{escaped}"')
         i = j
     return out
+
+
+def _count_changed_lines(before: str, after: str) -> int:
+    """Added + removed non-header lines between two versions (P-231 D-7)."""
+    diff = difflib.unified_diff(
+        str(before).splitlines(), str(after).splitlines(), lineterm="", n=0,
+    )
+    return sum(
+        1
+        for line in diff
+        if (line.startswith("+") or line.startswith("-"))
+        and not line.startswith(("+++", "---"))
+    )
 
 
 @dataclass
@@ -1683,6 +1701,16 @@ class CodeAgent:
         # summaries once the raw context exceeds the budget.
         files_ctx = self._format_files(files, keep_full=affected_files)
         issues_text = "\n".join(f"- {issue}" for issue in critical_issues)
+        # P-231 (D-2): the previous prompt cut the blueprint to 4 000 chars,
+        # which only covered the first module — the model was told to preserve
+        # names it could not see.  A parsed symbol contract is both smaller and
+        # complete.
+        blueprint = self._parse_blueprint(arch_spec) if arch_spec else None
+        contract_ctx = (
+            symbol_contract_block(blueprint, files, limit_files=affected_files)
+            if blueprint else ""
+        ) or arch_spec[:4000]
+        affected_list = ", ".join(sorted(affected_files))
 
         def _prompt_for(ctx: str) -> str:
             return (
@@ -1690,8 +1718,9 @@ class CodeAgent:
                 "runtime failures or produce invalid results. Fix ALL of them.\n\n"
                 "## Critical Issues Found\n"
                 f"{issues_text}\n\n"
-                "## Architecture Blueprint\n"
-                f"{arch_spec[:4000]}\n\n"
+                f"## Affected files (return ONLY these: {affected_list})\n\n"
+                "## Architecture Blueprint — symbol contract\n"
+                f"{contract_ctx}\n\n"
                 "## Current Code\n"
                 f"{ctx}\n\n"
                 "## Rules\n"
@@ -1701,8 +1730,11 @@ class CodeAgent:
                 "3. Never hardcode metric values — compute them from actual data\n"
                 "4. nn.Module layers must be created in __init__(), not forward()\n"
                 "5. All cross-file imports must reference names that actually exist\n"
-                "6. Output ALL files in ```filename:xxx.py``` format\n"
-                "7. Preserve every declared class/function name; never drop a module\n"
+                "6. Output ONLY the affected files listed above, each complete, "
+                "in ```filename:xxx.py``` format. Do not return unchanged files.\n"
+                "7. Preserve every declared class/function name and change "
+                "nothing else — no reformatting, no renames, no unrelated "
+                "rewrites.\n"
             )
 
         prompt = _prompt_for(files_ctx)
@@ -1750,20 +1782,34 @@ class CodeAgent:
         _still_truncated = bool(getattr(resp, "truncated", False)) or (
             getattr(resp, "finish_reason", "") == "length"
         )
+        _split_mode = False
         if _still_truncated:
+            # P-231 (D-6): the same prompt at the same size returns the same
+            # truncated reply, so hammering it a third time buys nothing.
+            # Split into one request per affected file instead.
             self._log_event(
-                "  Repair still truncated at 32768 — dropping this round"
+                "  Repair still truncated at 32768 — splitting per affected file"
             )
-            rejected_reasons = {
-                name: "truncated_after_escalation"
-                for name in sorted(affected_files)
-            }
-            candidates: dict[str, str] = {}
-            fixed: dict[str, str] = {}
-            blueprint = None
+            fixed, rejected_reasons = self._repair_files_individually(
+                files, affected_files, issues_text, contract_ctx, blueprint,
+            )
+            candidates: dict[str, str] = dict(fixed)
+            _split_mode = True
         else:
             candidates = self._extract_files(resp.content)
-            blueprint = self._parse_blueprint(arch_spec) if arch_spec else None
+            if (
+                "main.py" not in files
+                and set(candidates) == {"main.py"}
+                and len(affected_files) == 1
+            ):
+                # P-231: the extractor names a single block "main.py".  When
+                # exactly one file was affected and main.py is not part of the
+                # project, the reply belongs to that file.
+                only = next(iter(affected_files))
+                if only != "main.py":
+                    rescued = _extract_named_block(resp.content, only)
+                    if rescued is not None:
+                        candidates = {only: rescued}
             fixed, rejected_reasons = self._accept_repair_files(
                 files, candidates, blueprint,
             )
@@ -1794,6 +1840,17 @@ class CodeAgent:
         }
         if rejected_reasons:
             _extra["rejected_reasons"] = rejected_reasons
+        if _split_mode:
+            _extra["split_per_file"] = sorted(affected_files)
+        if fixed:
+            # P-231 (D-7): minimal-edit reading — how much each accepted file
+            # actually changed.  A value far above the issue count means the
+            # model rewrote instead of patching, which is the regression source
+            # reported by the over-editing studies.
+            _extra["edited_lines"] = {
+                name: _count_changed_lines(files.get(name, ""), code)
+                for name, code in sorted(fixed.items())
+            }
         _record_repair_trace(
             self._stage_dir,
             phase="agent_repair",
@@ -1806,7 +1863,7 @@ class CodeAgent:
             accepted=sorted(fixed),
             rejected=sorted(set(files) - set(fixed)),
             reason=(
-                "truncated_after_escalation" if _still_truncated
+                "split_per_file" if _split_mode
                 else "merged" if fixed
                 else "rejected_all" if candidates
                 else "no_extractable_file"
@@ -1827,6 +1884,67 @@ class CodeAgent:
         else:
             self._log_event("  WARNING: Repair produced no extractable files")
         return files
+
+    def _repair_files_individually(
+        self,
+        files: dict[str, str],
+        affected: set[str],
+        issues_text: str,
+        contract_ctx: str,
+        blueprint: dict[str, Any] | None,
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        """P-231 (D-6): repair one file per request after a split truncation.
+
+        The combined prompt asks for every affected file, so its output grows
+        with the number of files and truncates at 32 768 (run O: five files,
+        four rounds).  One request per file keeps every reply small enough to
+        arrive complete.
+        """
+        fixed: dict[str, str] = {}
+        rejected: dict[str, str] = {}
+        system = self._pm.system("code_generation")
+        for name in sorted(n for n in affected if n in files):
+            prompt = (
+                f"The file `{name}` has CRITICAL issues.\n\n"
+                "## Critical Issues\n"
+                f"{issues_text}\n\n"
+                "## Architecture Blueprint — symbol contract\n"
+                f"{contract_ctx}\n\n"
+                f"## Current `{name}`\n"
+                f"```filename:{name}\n{files[name]}\n```\n\n"
+                "## Rules\n"
+                "1. Fix every critical issue that applies to this file\n"
+                "2. Preserve every declared class/function name; change nothing "
+                "else\n"
+                f"3. Output ONLY `{name}` as one ```filename:{name}``` block\n"
+            )
+            resp = self._chat(system, prompt, max_tokens=16384)
+            truncated = bool(getattr(resp, "truncated", False)) or (
+                getattr(resp, "finish_reason", "") == "length"
+            )
+            if truncated:
+                resp = self._chat(system, prompt, max_tokens=32768)
+                truncated = bool(getattr(resp, "truncated", False)) or (
+                    getattr(resp, "finish_reason", "") == "length"
+                )
+            if truncated:
+                rejected[name] = "truncated_after_escalation"
+                continue
+            candidates = self._extract_files(resp.content)
+            if name not in candidates:
+                # P-231: a bare block without a filename marker is recovered
+                # for the file we asked about instead of being dropped.
+                rescued = _extract_named_block(resp.content, name)
+                if rescued is not None:
+                    candidates = {name: rescued}
+            accepted, why = self._accept_repair_files(files, candidates, blueprint)
+            if accepted:
+                fixed.update(accepted)
+            if why:
+                rejected.update(why)
+            else:
+                rejected.setdefault(name, "not_returned")
+        return fixed, rejected
 
     def _accept_repair_files(
         self,
@@ -1866,6 +1984,10 @@ class CodeAgent:
                         "entrypoint_contract: " + "; ".join(issues)
                     )
                     continue
+            # P-231 (D-7): a repair that keeps less than half of the file's
+            # non-blank lines is a rewrite, not a fix.  Run K replaced a
+            # 9-symbol data.py with a 2-symbol fragment this way.  Checked
+            # after the symbol gate so the reason names the precise loss.
             if blueprint is not None:
                 before = missing_symbols(blueprint, name, files.get(name, ""))
                 after = missing_symbols(blueprint, name, code)
@@ -1875,6 +1997,15 @@ class CodeAgent:
                         "symbol_contract: loses " + ", ".join(lost[:6])
                     )
                     continue
+            before_code = files.get(name, "")
+            before_lines = [l for l in before_code.splitlines() if l.strip()]
+            after_lines = [l for l in code.splitlines() if l.strip()]
+            if before_lines and len(after_lines) * 2 < len(before_lines):
+                rejected[name] = (
+                    f"catastrophic_rewrite: kept {len(after_lines)}/"
+                    f"{len(before_lines)} non-blank lines"
+                )
+                continue
             accepted[name] = code
         return accepted, rejected
 

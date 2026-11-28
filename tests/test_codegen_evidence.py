@@ -13,6 +13,7 @@ from researchclaw.pipeline.codegen_evidence import (
     count_compute_units,
     evaluate_stage10_evidence,
     load_blueprint,
+    symbol_contract_block,
     write_evidence_report,
 )
 
@@ -206,3 +207,39 @@ class TestEvaluate:
 def _bp(stage_dir: Path, text: str = BLUEPRINT) -> Path:
     _write_blueprint(stage_dir, text)
     return stage_dir
+
+
+class TestSymbolContractBlock:
+    """P-231 (D-2): the prompt block names what each file must define."""
+
+    BP = {
+        "files": [
+            {"name": "data.py", "generation_order": 1,
+             "symbols": ["load", "build"]},
+            {"name": "main.py", "generation_order": 2, "symbols": ["main"]},
+        ],
+    }
+
+    def test_marks_defined_and_missing(self) -> None:
+        block = symbol_contract_block(
+            self.BP, {"data.py": "def load():\n    return 1\n"},
+        )
+        assert "load (defined)" in block
+        assert "build (MISSING)" in block
+
+    def test_limit_files(self) -> None:
+        block = symbol_contract_block(self.BP, limit_files={"main.py"})
+        assert "main.py" in block
+        assert "data.py" not in block
+
+    def test_without_files_lists_names_only(self) -> None:
+        block = symbol_contract_block(self.BP)
+        assert "- main.py: main" in block
+        assert "MISSING" not in block
+
+    def test_char_budget_truncates(self) -> None:
+        block = symbol_contract_block(self.BP, max_chars=10)
+        assert "truncated" in block
+
+    def test_no_blueprint_is_empty(self) -> None:
+        assert symbol_contract_block(None) == ""

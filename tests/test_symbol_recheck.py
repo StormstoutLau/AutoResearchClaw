@@ -160,3 +160,99 @@ def test_truncated_reply_escalates_budget(tmp_path: Path) -> None:
     )
 
     assert [c["max_tokens"] for c in llm.calls] == [16384, 32768]
+
+
+class _SeqLLM:
+    """One reply per call (P-231 per-file requests)."""
+
+    def __init__(self, contents: list[str]) -> None:
+        self._contents = list(contents)
+        self.calls: list[dict] = []
+
+    def chat(self, messages, **kwargs):  # noqa: ANN001, ANN003
+        idx = min(len(self.calls), len(self._contents) - 1)
+        self.calls.append({"messages": messages, **kwargs})
+        return SimpleNamespace(
+            content=self._contents[idx],
+            truncated=False,
+            finish_reason="stop",
+            model="fake",
+            prompt_tokens=10,
+            completion_tokens=20,
+            total_tokens=30,
+        )
+
+
+TWO_FILE_BLUEPRINT = """files:
+  - name: main.py
+    generation_order: 1
+    symbols: [set_seed]
+  - name: data.py
+    generation_order: 2
+    symbols: [load_data, build_features]
+"""
+
+BROKEN_MAIN_ONE = '''def main() -> None:
+    print("METRIC_DEF: auroc_delta")
+    print("auroc_delta: 0.7")
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+FIXED_MAIN_ONE = '''def set_seed(seed: int) -> None:
+    import random
+
+    random.seed(seed)
+
+
+def main() -> None:
+    print("METRIC_DEF: auroc_delta")
+    print("auroc_delta: 0.7")
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+PARTIAL_DATA = "def load_data():\n    return 1\n"
+
+FIXED_DATA = (
+    "def load_data():\n"
+    "    return 1\n"
+    "\n\n"
+    "def build_features():\n"
+    "    return 2\n"
+)
+
+
+def test_one_request_per_affected_file(tmp_path: Path) -> None:
+    """P-231 (D-3): never ask for every affected file in one reply."""
+    stage = tmp_path / "stage-10"
+    (stage / "experiment").mkdir(parents=True)
+    (stage / "architecture_spec.yaml").write_text(
+        TWO_FILE_BLUEPRINT, encoding="utf-8",
+    )
+    llm = _SeqLLM([
+        _reply("data.py", FIXED_DATA),
+        _reply("main.py", FIXED_MAIN_ONE),
+    ])
+
+    out = _ensure_symbol_contract(
+        {"main.py": BROKEN_MAIN_ONE, "data.py": PARTIAL_DATA},
+        stage_dir=stage,
+        exp_dir=stage / "experiment",
+        llm=llm,
+        pm=_PM(),
+        topic="t",
+    )
+
+    assert len(llm.calls) == 2
+    first_prompt = llm.calls[0]["messages"][0]["content"]
+    assert "## Missing in `data.py`" in first_prompt
+    assert "```filename:data.py" in first_prompt
+    assert "def build_features" in out["data.py"]
+    assert "def set_seed" in out["main.py"]
+    rows = [r for r in load_repair_trace(stage) if r["phase"] == "symbol_contract"]
+    assert {row["file"] for row in rows} == {"data.py", "main.py"}

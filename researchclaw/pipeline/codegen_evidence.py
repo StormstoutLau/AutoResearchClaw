@@ -304,6 +304,57 @@ def missing_symbols(
     return [symbol for symbol in wanted if symbol not in defined]
 
 
+def symbol_contract_block(
+    blueprint: Mapping[str, Any] | None,
+    files: Mapping[str, str] | None = None,
+    *,
+    limit_files: set[str] | None = None,
+    max_chars: int = 2000,
+) -> str:
+    """Compact per-file symbol contract for prompts (P-231 D-2).
+
+    A blueprint digest cut to the first N characters happens to contain only
+    the first module's pseudocode (run O: 54 KB blueprint, ``main.py`` never
+    appeared in the first 4 000), so repair prompts asked the model to
+    "preserve every declared name" while hiding those names.  This block lists
+    only what matters — file and declared symbols — and marks which ones the
+    current code already defines.
+
+    ``files`` is optional: without it the block lists names only, which is
+    enough when the file does not exist yet (entrypoint generation).
+    """
+    if not blueprint:
+        return ""
+    declared: dict[str, list[str]] = {}
+    for name, symbol in _declared_symbols(blueprint):
+        if limit_files is not None and name not in limit_files:
+            continue
+        declared.setdefault(name, []).append(symbol)
+    if not declared:
+        return ""
+
+    lines: list[str] = []
+    used = 0
+    for name in sorted(declared):
+        symbols = sorted(set(declared[name]))
+        code = (files or {}).get(name)
+        defined = _defined_names(code) if code is not None else None
+        if defined is None:
+            rendered = ", ".join(symbols)
+        else:
+            rendered = ", ".join(
+                symbol + (" (defined)" if symbol in defined else " (MISSING)")
+                for symbol in symbols
+            )
+        line = f"- {name}: {rendered}"
+        if used + len(line) + 1 > max_chars:
+            lines.append(f"- ... ({len(declared)} declared file(s), truncated)")
+            break
+        lines.append(line)
+        used += len(line) + 1
+    return "\n".join(lines)
+
+
 def check_symbol_contract(
     blueprint: Mapping[str, Any], files: Mapping[str, str],
 ) -> list[EvidenceFailure]:

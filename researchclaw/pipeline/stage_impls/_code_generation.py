@@ -23,7 +23,9 @@ from researchclaw.pipeline.codegen_evidence import (
     declared_symbols,
     evaluate_stage10_evidence,
     load_blueprint,
+    missing_symbols,
     resolve_metric,
+    symbol_contract_block,
     write_evidence_report,
 )
 from researchclaw.pipeline.repair_trace import (
@@ -40,6 +42,7 @@ from researchclaw.pipeline._helpers import (
     _ensure_sandbox_deps,
     _extract_code_block,
     _extract_multi_file_blocks,
+    _extract_named_block,
     _extract_yaml_block,
     _get_evolution_overlay,
     _load_hardware_profile,
@@ -52,6 +55,7 @@ from researchclaw.pipeline.entrypoint_contract import (
     ENTRYPOINT_RETRY_MAX_TOKENS,
     build_entrypoint_prompt,
     entrypoint_issues as _entrypoint_issues,
+    patch_entrypoint_guard,
     synthesize_entrypoint,
 )
 from researchclaw.pipeline.stages import Stage, StageStatus
@@ -231,6 +235,86 @@ def _request_repair_response(
     return resp
 
 
+def _contract_issues(
+    files: dict[str, str], blueprint: dict[str, Any] | None,
+) -> list[str]:
+    """P-231 (D-4): syntax + entrypoint + symbol checks in one place.
+
+    Every late write (entrypoint regeneration, alignment regeneration, symbol
+    repair) used to validate only the contract it was fixing, so fixing one
+    silently broke the other.  Run O lost ``main``/``ExperimentRunner`` this
+    way three times in a row.
+    """
+    problems: list[str] = []
+    for name, code in sorted(files.items()):
+        if not name.endswith(".py"):
+            continue
+        try:
+            ast.parse(code)
+        except SyntaxError as exc:
+            problems.append(
+                f"{name}: syntax error ({exc.msg}, line {exc.lineno})"
+            )
+    problems.extend(
+        f"main.py: {issue}" for issue in _entrypoint_issues(files.get("main.py", ""))
+    )
+    if blueprint:
+        problems.extend(
+            "symbol contract: " + str(getattr(failure, "detail", failure))
+            for failure in check_symbol_contract(blueprint, files)
+        )
+    return list(dict.fromkeys(problems))
+
+
+def _smoke_modules(
+    files: dict[str, str], exp_dir: Path, *, timeout: int = 120,
+) -> tuple[list[str], list[str]]:
+    """P-231 (D-5): compile every delivered module and import it once.
+
+    Returns ``(failures, warnings)``.  A compile error always fails the stage.
+    An import error only fails it when the missing module is one of the
+    delivered files; a third-party package absent from this host is an
+    environment problem, so it stays a warning.
+
+    ``compile`` runs in-process (no temporary files, no extra write site); the
+    import runs in a child interpreter with ``cwd=exp_dir`` so experiment code
+    cannot pollute the pipeline process.
+    """
+    import subprocess
+    import sys
+
+    modules = sorted(
+        name[:-3] for name, code in files.items()
+        if name.endswith(".py") and str(code).strip()
+    )
+    if not modules:
+        return [], []
+    for name in modules:
+        try:
+            compile(files[f"{name}.py"], f"{name}.py", "exec")
+        except SyntaxError as exc:
+            return [f"{name}.py: {exc.msg} (line {exc.lineno})"], []
+    if not exp_dir.is_dir():
+        return [], ["import smoke skipped: experiment directory missing"]
+    try:
+        imported = subprocess.run(
+            [sys.executable, "-c", "import " + ", ".join(modules)],
+            cwd=str(exp_dir), capture_output=True, text=True, timeout=timeout,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return [], [f"import smoke unavailable ({exc})"]
+    if imported.returncode == 0:
+        return [], []
+    detail = (imported.stderr or "").strip()
+    missing = [
+        name for name in modules if f"No module named '{name}'" in detail
+    ]
+    if missing:
+        return [f"import failed for delivered module(s): {', '.join(missing)}"], []
+    tail = detail.splitlines()[-1] if detail else "unknown import error"
+    return [], [f"import smoke warning: {tail[:200]}"]
+
+
 def _generate_entrypoint(
     llm: LLMClient,
     pm: PromptManager,
@@ -240,13 +324,21 @@ def _generate_entrypoint(
     files: dict[str, str],
     exp_plan: str = "",
     max_attempts: int = 2,
+    blueprint: dict[str, Any] | None = None,
 ) -> str:
     """B-29: ask for one complete ``main.py`` that satisfies the contract.
 
     Returns "" when every attempt fails.  The prompt lists the other modules so
-    the entrypoint imports them instead of re-implementing their logic.
+    the entrypoint imports them instead of re-implementing their logic, and
+    (P-231 D-2) the names the blueprint assigns to ``main.py`` itself — a thin
+    driver cannot satisfy those, so hiding them made every regeneration drop
+    them.
     """
     system = pm.system("code_generation")
+    contract = (
+        symbol_contract_block(blueprint, files, limit_files={"main.py"})
+        if blueprint else ""
+    )
     issues: list[str] | None = None
     for attempt in range(1, max_attempts + 1):
         budget = (
@@ -259,6 +351,7 @@ def _generate_entrypoint(
             files=files,
             exp_plan=exp_plan,
             previous_issues=issues,
+            symbol_contract=contract,
         )
         resp = _chat_with_prompt(llm, system, user, max_tokens=budget)
         truncated = bool(getattr(resp, "truncated", False)) or (
@@ -274,6 +367,15 @@ def _generate_entrypoint(
             )
         code = _extract_code_block(resp.content)
         issues = _entrypoint_issues(code)
+        if blueprint:
+            # P-231 (D-2/D-4): a candidate that drops the file's own declared
+            # symbols is rejected here instead of being written and repaired.
+            missing = missing_symbols(blueprint, "main.py", code)
+            if missing:
+                issues = list(issues) + [
+                    "main.py must define these declared names: "
+                    + ", ".join(missing)
+                ]
         if code.strip() and not issues:
             logger.info(
                 "Stage 10: entrypoint generated on attempt %d (%d chars)",
@@ -296,27 +398,43 @@ def _ensure_entrypoint(
     metric: str,
     exp_dir: Path,
     exp_plan: str = "",
+    blueprint: dict[str, Any] | None = None,
 ) -> dict[str, str]:
-    """B-29: regenerate ``main.py`` when it cannot run as the entrypoint.
+    """B-29: make ``main.py`` runnable without discarding what it already has.
 
     A truncated-but-parseable ``main.py`` (no ``__main__`` guard, no
     ``METRIC_DEF``) would otherwise only be caught by the exit gate, after the
-    whole stage has already spent hours.  Fixing it here keeps the failure
-    cheap and gives Stage 12 a runnable file.
+    whole stage has already spent hours.
+
+    P-231 (D-1): a missing guard is a structural gap, so it is patched in
+    place.  Regenerating the file is the last resort: in run O the rewrite
+    replaced a 362-line, symbol-complete ``main.py`` with a 101-line stub,
+    turning one contract failure into a different one.
     """
-    if llm is None:
-        return files
     issues = _entrypoint_issues(files.get("main.py", ""))
     if not issues:
         return files
 
     logger.warning(
-        "Stage 10: entrypoint contract unmet (%s); generating main.py",
+        "Stage 10: entrypoint contract unmet (%s); repairing main.py",
         "; ".join(issues),
     )
-    code = _generate_entrypoint(
-        llm, pm, topic=topic, metric=metric, files=files, exp_plan=exp_plan,
-    )
+
+    code = ""
+    patched = patch_entrypoint_guard(files.get("main.py", ""), metric)
+    if patched is not None and not _entrypoint_issues(patched):
+        code = patched
+        logger.info(
+            "Stage 10: entrypoint guard patched in place (%d -> %d chars) — "
+            "main.py was not regenerated",
+            len(files.get("main.py", "")), len(patched),
+        )
+
+    if not code and llm is not None:
+        code = _generate_entrypoint(
+            llm, pm, topic=topic, metric=metric, files=files,
+            exp_plan=exp_plan, blueprint=blueprint,
+        )
     if not code:
         # B-30: last resort — a thin driver over an existing entry function.
         code = synthesize_entrypoint(files, metric) or ""
@@ -332,6 +450,18 @@ def _ensure_entrypoint(
                 "; ".join(_entrypoint_issues(files.get("main.py", ""))),
             )
             return files
+
+    # P-231 (D-4): validate the candidate on the whole file set before writing.
+    candidate = dict(files)
+    candidate["main.py"] = code
+    problems = _contract_issues(candidate, blueprint)
+    if problems:
+        logger.error(
+            "Stage 10: entrypoint candidate rejected before write (%s) — "
+            "keeping the previous main.py",
+            "; ".join(problems[:4]),
+        )
+        return files
 
     files["main.py"] = code
     try:
@@ -367,6 +497,112 @@ def _missing_symbols_by_file(
     return missing
 
 
+def _valid_single_file(name: str, code: str) -> bool:
+    """Syntax + entrypoint validation for a single per-file repair reply."""
+    if not str(code or "").strip():
+        return False
+    try:
+        ast.parse(code)
+    except SyntaxError as exc:
+        logger.warning(
+            "Stage 10 repair: ignoring syntax-invalid %s (%s)", name, exc,
+        )
+        return False
+    if name == "main.py":
+        issues = _entrypoint_issues(code)
+        if issues:
+            logger.warning(
+                "Stage 10 repair: ignoring main.py that breaks the entrypoint "
+                "contract (%s)", "; ".join(issues),
+            )
+            return False
+    return True
+
+
+def _repair_one_file_for_symbols(
+    name: str,
+    files: dict[str, str],
+    symbols: list[str],
+    contract_block: str,
+    *,
+    stage_dir: Path,
+    llm: LLMClient,
+    pm: PromptManager,
+) -> str | None:
+    """Ask for one complete file that defines ``symbols`` (P-231 D-3/D-6).
+
+    One file per request keeps the reply inside the output budget: the five
+    files of run O needed ~60 KB of code, which truncated at 32 768 twice per
+    attempt.  A second truncation ends the attempt for this file instead of
+    resending the same prompt — the same reply is the expected outcome.
+    """
+    prompt = (
+        "The delivered code is missing symbols declared in the architecture "
+        "blueprint.\n\n"
+        "## Symbol contract\n"
+        f"{contract_block}\n\n"
+        f"## Missing in `{name}`\n"
+        f"- {name}: {', '.join(symbols)}\n\n"
+        f"## Current `{name}`\n"
+        f"```filename:{name}\n{files[name]}\n```\n\n"
+        "## Rules\n"
+        "1. Add every missing symbol with a real implementation\n"
+        "2. Change nothing else — same imports, same existing classes and "
+        "functions, same public names\n"
+        "3. Keep the file complete and runnable\n"
+        f"4. Output ONLY `{name}` as one ```filename:{name}``` block\n"
+    )
+    system = pm.system("code_generation")
+    resp = _chat_with_prompt(llm, system, prompt, max_tokens=16384)
+    truncated = bool(getattr(resp, "truncated", False)) or (
+        getattr(resp, "finish_reason", "") == "length"
+    )
+    if truncated:
+        logger.warning(
+            "Stage 10: symbol repair for %s truncated — escalating to 32768",
+            name,
+        )
+        resp = _chat_with_prompt(llm, system, prompt, max_tokens=32768)
+        truncated = bool(getattr(resp, "truncated", False)) or (
+            getattr(resp, "finish_reason", "") == "length"
+        )
+    code = None
+    if not truncated:
+        # P-231: a reply without the requested ``filename:`` marker (or a
+        # single block, which the extractor renames to main.py) is read back
+        # as the file we asked about instead of being discarded.
+        rescued = _extract_named_block(resp.content, name)
+        if rescued is not None and _valid_single_file(name, rescued):
+            code = rescued
+    try:
+        _record_repair_trace(
+            stage_dir,
+            phase="symbol_contract",
+            file=name,
+            prompt=prompt,
+            response=resp.content,
+            model=str(getattr(resp, "model", "") or ""),
+            truncated=getattr(resp, "truncated", None),
+            accepted=[name] if code else [],
+            rejected=[] if code else [name],
+            reason=(
+                "truncated_after_escalation" if truncated
+                else "repaired" if code
+                else "unusable_reply"
+            ),
+            extra={"missing": {name: symbols}},
+        )
+    except Exception:  # noqa: BLE001 - trace is best-effort
+        logger.debug("could not record symbol repair", exc_info=True)
+    if code is None:
+        logger.error(
+            "Stage 10: symbol repair for %s produced no usable file (%s)",
+            name,
+            "truncated after escalation" if truncated else "reply rejected",
+        )
+    return code
+
+
 def _ensure_symbol_contract(
     files: dict[str, str],
     *,
@@ -380,8 +616,8 @@ def _ensure_symbol_contract(
 
     ``_ensure_entrypoint`` and the alignment regen run *after* the earlier
     symbol checks, so run M shipped a main.py missing four declared symbols
-    and only the exit gate noticed.  One targeted repair is attempted here;
-    a second failure is deliberately left to the exit gate.
+    and only the exit gate noticed.  One targeted repair per affected file is
+    attempted here; a second failure is deliberately left to the exit gate.
     """
     if llm is None:
         return files
@@ -393,74 +629,59 @@ def _ensure_symbol_contract(
         return files
 
     missing = _missing_symbols_by_file(failures)
-    if not missing:
+    affected = {name for name in missing if name in files}
+    if not affected:
         return files
     logger.warning(
         "Stage 10: symbol contract broken after late rewrite: %s",
         "; ".join(
-            f"{name}: {', '.join(symbols)}" for name, symbols in missing.items()
+            f"{name}: {', '.join(symbols)}"
+            for name, symbols in sorted(missing.items())
         ),
     )
-    affected = {name for name in missing if name in files}
-    code_ctx = "\n\n".join(
-        f"```filename:{name}\n{files[name]}\n```" for name in sorted(affected)
+
+    contract_block = symbol_contract_block(
+        blueprint, files, limit_files=affected,
     )
-    wanted = "\n".join(
-        f"- {name}: {', '.join(symbols)}"
-        for name, symbols in sorted(missing.items())
-    )
-    prompt = (
-        "The delivered code is missing symbols declared in the architecture "
-        "blueprint.\n\n"
-        "## Missing symbols\n"
-        f"{wanted}\n\n"
-        "## Current files\n"
-        f"{code_ctx}\n\n"
-        "## Rules\n"
-        "1. Add every missing symbol with a real implementation\n"
-        "2. Keep all existing classes/functions unchanged\n"
-        "3. Output the complete corrected file(s) as ```filename:xxx.py```\n"
-    )
-    resp = _chat_with_prompt(
-        llm, pm.system("code_generation"), prompt, max_tokens=16384,
-    )
-    truncated = bool(getattr(resp, "truncated", False)) or (
-        getattr(resp, "finish_reason", "") == "length"
-    )
-    if truncated:
-        logger.warning(
-            "Stage 10: symbol repair truncated — retrying with 32768"
+    repaired: dict[str, str] = {}
+    for name in sorted(affected):
+        code = _repair_one_file_for_symbols(
+            name, files, missing[name], contract_block,
+            stage_dir=stage_dir, llm=llm, pm=pm,
         )
-        resp = _chat_with_prompt(
-            llm, pm.system("code_generation"), prompt, max_tokens=32768,
-        )
-    repaired = _extract_valid_repair_files(resp.content, set(files))
+        if code is not None:
+            repaired[name] = code
+
     merged = _merge_repair_files(files, repaired)
     remaining = check_symbol_contract(blueprint, merged)
-    try:
-        _record_repair_trace(
-            stage_dir,
-            phase="symbol_contract",
-            prompt=prompt,
-            response=resp.content,
-            model=str(getattr(resp, "model", "") or ""),
-            truncated=getattr(resp, "truncated", None),
-            accepted=sorted(repaired),
-            rejected=sorted(set(affected) - set(repaired)),
-            reason="repaired" if not remaining else "still_missing",
-            extra={
-                "missing": missing,
-                "remaining": [
-                    str(getattr(item, "detail", "")) for item in remaining
-                ],
-            },
-        )
-    except Exception:  # noqa: BLE001 - trace is best-effort
-        logger.debug("could not record symbol repair", exc_info=True)
     if remaining:
+        detail = "; ".join(
+            str(getattr(item, "detail", "")) for item in remaining
+        )
+        try:
+            _record_repair_trace(
+                stage_dir,
+                phase="symbol_contract",
+                reason="still_missing",
+                accepted=sorted(repaired),
+                rejected=sorted(affected - set(repaired)),
+                extra={"remaining": detail},
+            )
+        except Exception:  # noqa: BLE001 - trace is best-effort
+            logger.debug("could not record symbol summary", exc_info=True)
         logger.error(
             "Stage 10: symbol contract still broken after one repair: %s",
-            "; ".join(str(getattr(item, "detail", "")) for item in remaining),
+            detail,
+        )
+        return files
+    # P-231 (D-4): a symbol fix must not break the entrypoint contract —
+    # run O's 21:35 repair reply was rejected exactly this way.
+    entry_problems = _entrypoint_issues(merged.get("main.py", ""))
+    if entry_problems:
+        logger.error(
+            "Stage 10: symbol repair broke the entrypoint contract (%s) — "
+            "keeping the previous files",
+            "; ".join(entry_problems),
         )
         return files
     for name, code in repaired.items():
@@ -1570,6 +1791,7 @@ def _execute_code_generation(
         metric=metric,
         exp_dir=stage_dir / "experiment",
         exp_plan=exp_plan,
+        blueprint=load_blueprint(stage_dir),
     )
     # P-229: the entrypoint rewrite may drop declared symbols.
     files = _ensure_symbol_contract(
@@ -2292,6 +2514,7 @@ def _execute_code_generation(
                         name: code for name, code in regen_files.items()
                         if Path(name).name in _allowed
                     }
+                    _before = dict(files)
                     files = {**files, **_kept}
                     _quarantine_stale(
                         exp_dir, stage_dir, keep=set(files),
@@ -2299,6 +2522,19 @@ def _execute_code_generation(
                     )
                     for fname, code in files.items():
                         safe_join(exp_dir, fname).write_text(code, encoding="utf-8")
+                    # P-231 (D-1/D-4): the regen may drop the guard or the
+                    # declared symbols; repair in place, then validate the whole
+                    # set before keeping the write.
+                    files = _ensure_entrypoint(
+                        files,
+                        llm=llm,
+                        pm=_pm,
+                        topic=config.research.topic,
+                        metric=metric,
+                        exp_dir=exp_dir,
+                        exp_plan=exp_plan,
+                        blueprint=_bp,
+                    )
                     # P-229: regen may drop declared symbols from any module.
                     files = _ensure_symbol_contract(
                         files,
@@ -2308,6 +2544,20 @@ def _execute_code_generation(
                         pm=_pm,
                         topic=config.research.topic,
                     )
+                    _regen_problems = _contract_issues(files, _bp)
+                    if _regen_problems:
+                        logger.error(
+                            "Stage 10: regen attempt %d rejected (%s) — "
+                            "restoring the previous files",
+                            _regen_attempt,
+                            "; ".join(_regen_problems[:4]),
+                        )
+                        files = _before
+                        for fname, code in files.items():
+                            safe_join(exp_dir, fname).write_text(
+                                code, encoding="utf-8",
+                            )
+                        continue
                     # Re-check alignment on regenerated code (BUG-171 fix)
                     _rc_inv = []
                     for _fn, _cd in files.items():
@@ -2504,6 +2754,7 @@ Multi-file experiment project with {len(files)} file(s): {file_list}
         metric=metric,
         exp_dir=exp_dir,
         exp_plan=exp_plan,
+        blueprint=load_blueprint(stage_dir),
     )
     # P-229: re-check after the final entrypoint regeneration (run M lost
     # evaluate_monitor/run_condition/set_seed/train_model here).
@@ -2515,6 +2766,25 @@ Multi-file experiment project with {len(files)} file(s): {file_list}
         pm=_pm,
         topic=config.research.topic,
     )
+
+    # P-231 (D-5): compile + import smoke before the evidence gate.  Repairs
+    # rewrite whole files, so a syntactic accident that every path accepted
+    # (run O: data.py kept an unterminated string from an earlier attempt)
+    # must be caught here rather than in Stage 12.
+    _smoke_failures, _smoke_warnings = _smoke_modules(files, exp_dir)
+    for _warning in _smoke_warnings:
+        logger.warning("Stage 10: %s", _warning)
+    if _smoke_failures:
+        logger.error(
+            "Stage 10: code smoke check failed: %s", "; ".join(_smoke_failures),
+        )
+        return StageResult(
+            stage=Stage.CODE_GENERATION,
+            status=StageStatus.FAILED,
+            artifacts=tuple(artifacts),
+            evidence_refs=tuple(f"stage-10/{a}" for a in artifacts),
+            error="Code smoke check failed: " + "; ".join(_smoke_failures[:3]),
+        )
 
     # P-178: refuse to ship a non-runnable entrypoint (config-only main.py etc.)
     _main_code = files.get("main.py", "") if isinstance(files, dict) else ""
